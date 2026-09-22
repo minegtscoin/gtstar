@@ -1,0 +1,19 @@
+# dependencies and builds
+node_modules/
+app/dist/
+contracts/*/build/
+.netlify/
+
+# local / internal
+backup_testnet/
+move_new/
+.claude/
+bot/*.log
+*.log
+pub_stdout.txt
+pub_stderr.txt
+publish_output.json
+deployment.json
+DEPLOYMENT.md
+MAINNET.md
+docs/

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>GTStar Docs</title>
+<meta name="description" content="GTStar whitepaper: game mechanics, GTS tokenomics, the SUI reserve, staking, architecture and security." />
+<meta name="theme-color" content="#09090d" />
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  .doc{display:grid;grid-template-columns:200px minmax(0,1fr);gap:56px;align-items:start}
+  @media(max-width:900px){.doc{grid-template-columns:1fr}.toc{display:none}}
+  .toc{position:sticky;top:84px;font-size:13px;display:flex;flex-direction:column;gap:2px}
+  .toc a{color:var(--dim);padding:4px 0;transition:color .15s}
+  .toc a:hover{color:var(--text)}
+  .toc .h{color:var(--muted);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+  article{max-width:720px;font-size:15px;line-height:1.75;color:#d4d4d8}
+  article h1{font-size:44px;line-height:1.08;margin:12px 0 14px;color:var(--text);text-wrap:balance}
+  .eyebrow{font-size:12px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase}
+  .lede{font-size:18px;color:var(--muted);margin:0 0 26px}
+  article h2{font-family:var(--disp);font-weight:600;font-size:22px;color:var(--text);margin:56px 0 12px;scroll-margin-top:84px}
+  article h3{font-family:var(--disp);font-weight:600;font-size:16px;color:var(--text);margin:28px 0 8px}
+  article p{margin:0 0 14px}
+  article ul,article ol{margin:0 0 16px;padding-left:20px}
+  article li{margin-bottom:6px}
+  article strong{color:var(--text);font-weight:600}
+  article a{color:var(--text);text-decoration:underline;text-decoration-color:var(--line-3);text-underline-offset:3px}
+  article a:hover{text-decoration-color:var(--text)}
+  code,.code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px}
+  p code,li code,td code{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+  .code{display:block;white-space:pre;overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0 18px;color:var(--text);line-height:1.7}
+  .facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:14px;margin:6px 0 10px}
+  @media(max-width:620px){.facts{grid-template-columns:repeat(2,1fr)}}
+  .facts div{padding:14px 16px}
+  .facts div+div{border-left:1px solid var(--line)}
+  @media(max-width:620px){.facts div:nth-child(3){border-left:0}.facts div:nth-child(n+3){border-top:1px solid var(--line)}}
+  .facts b{display:block;font-family:var(--disp);font-size:20px;color:var(--text);font-weight:600}
+  .facts span{font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:14px 0 18px}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:480px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+  th{font-weight:500;color:var(--dim);font-size:11.5px;letter-spacing:.07em;text-transform:uppercase}
+  tr:last-child td{border-bottom:0}
+  td.n{font-family:var(--disp);font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0 18px}
+  @media(max-width:620px){.steps{grid-template-columns:1fr 1fr}}
+  .steps div{border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13.5px;color:var(--muted)}
+  .steps b{display:block;font-family:var(--disp);color:var(--text);font-weight:600;margin-bottom:2px}
+  .callout{border-left:2px solid var(--line-3);padding:2px 0 2px 16px;color:var(--muted);margin:16px 0}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:8px 16px;font-size:13.5px;margin:14px 0 18px}
+  .kv span{color:var(--dim)}
+  .kv a{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12.5px;word-break:break-all;text-decoration:none;color:var(--text)}
+  .kv a:hover{text-decoration:underline}
+  @media(max-width:520px){.kv{grid-template-columns:1fr;gap:2px}.kv span{margin-top:8px}}
+  .proofs{border:1px solid var(--line);border-radius:12px;margin:14px 0}
+  .proofs a{display:flex;justify-content:space-between;gap:16px;padding:12px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:#d4d4d8;font-size:14px}
+  .proofs a:last-child{border-bottom:0}
+  .proofs a:hover{background:var(--panel);color:var(--text)}
+  .proofs code{color:var(--dim);white-space:nowrap}
+  .ok{color:var(--win)}
+  .endnote{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="logo" href="index.html" aria-label="GTStar home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.9 5.4 3.6 8.1 9 9-5.4.9-8.1 3.6-9 9-.9-5.4-3.6-8.1-9-9 5.4-.9 8.1-3.6 9-9z"/></svg>
+      <span>GTSTAR</span>
+    </a>
+    <nav class="tabs" aria-label="Main">
+      <a href="index.html#mine">Mine</a>
+      <a href="index.html#explorer">Explorer</a>
+      <a href="index.html#tokenomics">Tokenomics</a>
+      <a href="index.html#stake">Stake</a>
+      <a href="docs.html" class="on">Docs</a>
+    </nav>
+    <div class="bar-right"><a class="pill" href="index.html#mine">Start mining</a></div>
+  </div>
+</header>
+
+<main>
+<div class="doc">
+  <nav class="toc" aria-label="Contents">
+    <div class="h">Contents</div>
+    <a href="#abstract">Abstract</a>
+    <a href="#motivation">Motivation</a>
+    <a href="#game">Game mechanics</a>
+    <a href="#token">GTS and emission</a>
+    <a href="#reserve">The reserve</a>
+    <a href="#fees">Fees</a>
+    <a href="#staking">Staking</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#security">Security</a>
+    <a href="#governance">Governance</a>
+    <a href="#risks">Risks</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="#verify">Verify on-chain</a>
+  </nav>
+
+  <article>
+    <div class="eyebrow">Whitepaper · v1.0</div>
+    <h1>A fair mining game with a SUI-backed floor.</h1>
+    <p class="lede">GTStar turns play into mining. Every participant earns GTS, winners split the pot proportionally, and every token is backed by real SUI held in an on-chain reserve.</p>
+    <div class="facts">
+      <div><b>1,000,000</b><span>Max supply</span></div>
+      <div><b>0</b><span>Premine</span></div>
+      <div><b>Immutable</b><span>Supply</span></div>
+      <div><b>Jan 2030</b><span>Emission ends</span></div>
+    </div>
+
+    <h2 id="abstract">Abstract</h2>
+    <p>GTStar is a 5×5 board game that runs entirely in smart contracts on Sui. In each round players deploy SUI onto tiles. When the round ends, one winning tile is drawn using Sui's native randomness (<code>sui::random</code>). Everyone on the winning tile gets their stake back plus a proportional share of the losing pot.</p>
+    <p>At the same time, a fixed amount of GTS is emitted each round and split among <strong>all</strong> participants by their share of deposits, winners and losers alike. The game is therefore also a fair launch: no premine, no team allocation, no presale. Every GTS in existence was mined through play.</p>
+    <p>Part of every fee flows into a reserve that backs the token. Any holder can burn GTS at any time for a proportional share of that reserve, which gives GTS an on-chain redemption value that does not depend on an external exchange.</p>
+
+    <h2 id="motivation">Motivation</h2>
+    <p>On-chain mining games such as ORE proved there is real demand for mechanisms where play produces a token. They share three structural problems:</p>
+    <ul>
+      <li><strong>Single winners.</strong> Most participants leave most rounds with nothing, which pushes small players away.</li>
+      <li><strong>Perpetual emission.</strong> A fixed issuance rate means years of dilution for holders.</li>
+      <li><strong>Exchange-dependent value.</strong> Without external liquidity the token has no anchor.</li>
+    </ul>
+    <p>GTStar addresses all three: proportional payouts on the winning tile, GTS for every participant, emission that halves toward a hard cap, and a reserve that provides built-in redemption value.</p>
+
+    <h2 id="game">Game mechanics</h2>
+    <div class="steps">
+      <div><b>Deploy</b>SUI onto any of the 25 tiles</div>
+      <div><b>Close</b>60 seconds, deposits lock for the final 5</div>
+      <div><b>Draw</b>One winning tile via <code>sui::random</code></div>
+      <div><b>Claim</b>SUI for winners, GTS for everyone</div>
+    </div>
+    <h3>Round lifecycle</h3>
+    <ul>
+      <li>A round starts with its first deposit and lasts 60 seconds. No deposits means no round and no emission.</li>
+      <li>Deposits close 5 seconds before the end, which prevents last-second entries based on mempool information.</li>
+      <li>The minimum deposit is 0.01 SUI per tile, which prevents dust spam.</li>
+      <li>Once time is up, anyone can call <code>settle</code>. A dedicated keeper does this automatically within seconds, and the app exposes a manual fallback.</li>
+    </ul>
+    <h3>Payout</h3>
+    <span class="code">losing_pot     = total_deposits - winning_tile_total
+pot_after_fees = losing_pot * 95%
+payout         = my_stake_on_winner
+               + pot_after_fees * my_stake_on_winner / winning_tile_total</span>
+    <p>If nobody deployed on the winning tile, the entire pot (after fees) goes to the reserve and benefits every GTS holder.</p>
+
+    <h2 id="token">GTS and emission</h2>
+    <p>Emission is time-based and front-loaded. Every round mints <strong>1 GTS to miners</strong>, split across all participants by their share of deposits, plus <strong>0.1 GTS to stakers</strong>, streamed over 7 days. Both halve every six months, counted from the first round ever played, and emission stops permanently on <strong>January 1, 2030</strong>.</p>
+    <span class="code">miners(t)  = 1 GTS >> floor((t - genesis) / 6 months)      // 0 after 2030-01-01
+stakers(t) = miners(t) * 10%
+my_gts     = miners(t) * my_deposits / round_total_deposits</span>
+    <div class="tbl"><table>
+      <thead><tr><th>Period</th><th>Miners / round</th><th>Stakers / round</th><th>Max emitted</th><th>Max cumulative</th></tr></thead>
+      <tbody>
+        <tr><td>Months 0 – 6</td><td class="n">1</td><td class="n">0.1</td><td class="n">289,278</td><td class="n">289,278</td></tr>
+        <tr><td>Months 6 – 12</td><td class="n">0.5</td><td class="n">0.05</td><td class="n">144,639</td><td class="n">433,917</td></tr>
+        <tr><td>Months 12 – 18</td><td class="n">0.25</td><td class="n">0.025</td><td class="n">72,320</td><td class="n">506,237</td></tr>
+        <tr><td>Months 18 – 24</td><td class="n">0.125</td><td class="n">0.0125</td><td class="n">36,160</td><td class="n">542,397</td></tr>
+        <tr><td>Months 24 – 30</td><td class="n">0.0625</td><td class="n">0.00625</td><td class="n">18,080</td><td class="n">560,477</td></tr>
+        <tr><td>Months 30 – 36</td><td class="n">0.03125</td><td class="n">0.003125</td><td class="n">9,040</td><td class="n">569,517</td></tr>
+        <tr><td>Month 36 – Jan 2030</td><td class="n">0.015625</td><td class="n">0.0015625</td><td class="n">≤ 4,520</td><td class="n">≤ 574,037</td></tr>
+      </tbody>
+    </table></div>
+    <p>"Max" assumes a round every minute, around the clock. Rounds only happen when players deposit, so actual emission is lower whenever activity is lower, and GTS that is not mined in its period is never minted later. The code also enforces an absolute hard cap of 1,000,000 GTS on every mint, which the schedule can never reach.</p>
+
+    <h2 id="reserve">The reserve</h2>
+    <p>4% of every losing pot is added to an on-chain reserve (<code>Treasury.vault</code>). If nobody deployed on the winning tile, the whole pot goes there too. Any holder can burn GTS for a proportional share:</p>
+    <span class="code">redeem(x GTS) -> SUI = reserve * x / total_supply     // x GTS is burned
+floor_price          = reserve / total_supply</span>
+    <ul>
+      <li><strong>Redemptions never lower the floor.</strong> Reserve and supply shrink in the same proportion, and rounding favours remaining holders.</li>
+      <li><strong>Fees raise the floor.</strong> Every round adds SUI to the reserve.</li>
+      <li><strong>Emission dilutes.</strong> New GTS enters circulation without matching SUI, so the floor rises when fee inflow outpaces emission, which becomes easier with every halving.</li>
+      <li><strong>No exchange dependency.</strong> Redemption value exists on-chain even without a liquidity pool.</li>
+    </ul>
+    <p class="callout">The floor is a redemption value backed by assets actually held in the reserve. It is not a price guarantee and it moves with the balance between fee inflow and emission.</p>
+
+    <h2 id="fees">Fees</h2>
+    <p>Fees are taken only from each round's losing pot, never from winners' stakes. The rates are fixed in the contract and can never change.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>Winners</td><td class="n">95%</td><td>Split proportionally across the winning tile</td></tr>
+        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS and raises the redemption floor</td></tr>
+        <tr><td>Creator</td><td class="n">1%</td><td>Paid only to a fixed address set in the contract</td></tr>
+      </tbody>
+    </table></div>
+    <p>Stakers are not paid from fees; they earn newly mined GTS (see below), and they benefit from the reserve like every holder.</p>
+
+    <h2 id="staking">Staking</h2>
+    <p>Holders stake GTS to earn yield in GTS, like ORE. There is no lock-up: deposit, withdraw and claim at any time, or claim and re-deposit in one step.</p>
+    <ul>
+      <li><strong>Source of yield.</strong> Every round mints an extra 10% of its GTS reward to stakers.</li>
+      <li><strong>Streamed.</strong> Each round's staker reward streams over 7 days, so yield accrues every second and is split by stake size.</li>
+      <li><strong>No sniping.</strong> Staking right before a round settles and leaving right after earns only for the seconds actually staked.</li>
+      <li><strong>Nothing is lost.</strong> If nobody is staked, the stream pauses and resumes when the next staker arrives.</li>
+    </ul>
+
+    <h2 id="architecture">Architecture</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Module</th><th>Responsibility</th><th>Objects</th></tr></thead>
+      <tbody>
+        <tr><td><code>game</code></td><td>Board, deposits, settlement, claims, creator fee</td><td><code>Board</code> shared, <code>Miner</code> owned</td></tr>
+        <tr><td><code>gts_token::gts</code></td><td>Token, hard cap, emission ceiling, reserve, redemption (immutable)</td><td><code>Treasury</code> shared</td></tr>
+        <tr><td><code>staking</code></td><td>Deposits, withdrawals, streamed GTS yield</td><td><code>StakePool</code> shared, <code>StakePosition</code> owned</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>Non-custodial.</strong> The app is a static site with no backend and no keys. Every action is signed in the player's wallet, and all funds live in contract objects.</li>
+      <li><strong>Composed transactions.</strong> Creating a miner, claiming the previous round and deploying into the next one happen in a single programmable transaction.</li>
+      <li><strong>Keeper.</strong> A keeper calls <code>settle</code> at the end of each round. The function is permissionless, so any player can settle if the keeper is down.</li>
+      <li><strong>Fully on-chain state.</strong> Board, reserve, supply and staking are read directly from the chain.</li>
+    </ul>
+
+    <h2 id="security">Security</h2>
+    <h3>Randomness</h3>
+    <p>The winning tile is drawn from <code>sui::random</code>, a distributed randomness beacon produced by Sui validators. Settlement is a private <code>entry</code> function, so it cannot be wrapped by another contract that aborts when the outcome is unfavourable.</p>
+    <h3>Internal review</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Finding</th><th>Severity</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Staking rewards received while the pool was empty were locked forever</td><td>High</td><td class="ok">Fixed</td></tr>
+        <tr><td>Staking just before settlement and exiting after could capture fees</td><td>High</td><td class="ok">Fixed, fees stream over 7 days</td></tr>
+        <tr><td>Token metadata frozen with an icon that could never be updated</td><td>Medium</td><td class="ok">Fixed</td></tr>
+        <tr><td>Creator fee transferred every round (gas and object bloat)</td><td>Low</td><td class="ok">Fixed, accrues in contract</td></tr>
+        <tr><td>Admin could change round timing and minimum deposit</td><td>Medium</td><td class="ok">Fixed, admin functions removed</td></tr>
+        <tr><td>A game upgrade could have minted extra GTS</td><td>High</td><td class="ok">Fixed, supply and reserve moved to an immutable token contract with an emission ceiling</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Testing</h3>
+    <ul>
+      <li>15 unit tests cover redemption and the floor price, the supply cap, the emission schedule to 2030, streamed staking rewards, sniping resistance, paused streams, multi-staker splits, withdrawals, two-player solvency, double claims, the freeze window, payment mismatches, minimum deposits and early settlement.</li>
+      <li>End-to-end tests ran every action the app performs against a live network. See <a href="#verify">Verify on-chain</a>.</li>
+    </ul>
+
+    <h2 id="governance">Governance and upgrades</h2>
+    <p>GTStar is split into two contracts so the economics are locked while the product can still improve.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Contract</th><th>Contains</th><th>Upgradeable</th></tr></thead>
+      <tbody>
+        <tr><td><code>gts_token</code></td><td>GTS, the 1,000,000 hard cap, the emission ceiling, the SUI reserve and redemption</td><td>No. Immutable at launch</td></tr>
+        <tr><td><code>gtstar</code></td><td>The game, fees and staking</td><td>Yes, for fixes and improvements</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>No extra minting, ever.</strong> The token contract only mints through a single minting right held by the game, and never beyond the published ceiling: 1.1 GTS per minute, halving every 6 months, zero from January 1, 2030. Burned GTS is never re-minted. No upgrade to the game can change this.</li>
+      <li><strong>The reserve is untouchable.</strong> SUI can only leave the reserve through redemption by GTS holders.</li>
+      <li><strong>No team allocation.</strong> There is no premine and no function that could create one.</li>
+      <li><strong>Upgrades.</strong> The game contract can be upgraded to fix bugs or add features. Every upgrade is published on-chain and announced in advance.</li>
+    </ul>
+
+    <h2 id="risks">Risks</h2>
+    <ul>
+      <li><strong>Game risk.</strong> In any round you are likely to lose deposits on tiles that do not win. Only play with amounts you can afford to lose.</li>
+      <li><strong>Smart contract risk.</strong> The code has been reviewed and tested, but no code is guaranteed to be free of bugs. The game contract can be patched; the token contract cannot.</li>
+      <li><strong>Token value.</strong> Redemption value depends on activity and fee inflow. It is not guaranteed and can decrease.</li>
+      <li><strong>Operational dependency.</strong> Automatic settlement relies on a keeper. When it is unavailable any user can settle manually.</li>
+      <li><strong>Regulation.</strong> You are responsible for complying with the laws of your jurisdiction.</li>
+    </ul>
+
+    <h2 id="roadmap">Roadmap</h2>
+    <ol>
+      <li><strong>Launch.</strong> Mainnet contracts, live app and settlement keeper.</li>
+      <li><strong>Stabilise.</strong> Monitoring, dedicated keeper infrastructure, official domain.</li>
+      <li><strong>Liquidity.</strong> A GTS/SUI pool on Cetus once demand exists, alongside reserve redemption.</li>
+      <li><strong>Community.</strong> Leaderboards, round history and statistics.</li>
+          </ol>
+
+    <h2 id="verify">Verify on-chain</h2>
+    <p>Everything in this document can be checked on-chain. This site is currently connected to the following contracts on <strong id="netName">Sui</strong>:</p>
+    <div class="kv" id="addrList"></div>
+    <h3>Transaction proofs</h3>
+    <p>Real transactions from the end-to-end test of this release. Each link opens the transaction in the Suiscan explorer.</p>
+    <div class="proofs" id="proofList"></div>
+
+    <p class="endnote">GTStar Whitepaper v1.0. This document describes the contracts as deployed. The on-chain code is the source of truth.</p>
+  </article>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <span>GTStar on Sui</span>
+    <span class="foot-links"><a href="index.html#mine">App</a><a href="#verify">Contracts</a></span>
+  </div>
+</footer>
+<script src="config.js"></script>
+<script>
+(function(){
+  var C = window.GTSTAR_CONFIG; if (!C) return;
+  var scan = "https://suiscan.xyz/" + C.network;
+  document.getElementById("netName").textContent = "Sui " + C.network.charAt(0).toUpperCase() + C.network.slice(1);
+  var rows = [["Package", C.ids.package, "object"], ["Board", C.ids.board, "object"], ["Treasury", C.ids.treasury, "object"], ["Stake pool", C.ids.pool, "object"], ["Creator", C.ids.dev, "account"]];
+  var kv = document.getElementById("addrList");
+  rows.forEach(function (r) {
+    var k = document.createElement("span"); k.textContent = r[0];
+    var a = document.createElement("a"); a.href = scan + "/" + r[2] + "/" + r[1]; a.target = "_blank"; a.rel = "noopener"; a.textContent = r[1];
+    kv.append(k, a);
+  });
+  var list = document.getElementById("proofList");
+  var proof = C.proof || [];
+  if (!proof.length) { list.outerHTML = '<p style="color:var(--dim)">Proofs will be listed after the first rounds.</p>'; return; }
+  proof.forEach(function (p) {
+    var a = document.createElement("a"); a.href = scan + "/tx/" + p[1]; a.target = "_blank"; a.rel = "noopener";
+    var t = document.createElement("span"); t.textContent = p[0];
+    var c = document.createElement("code"); c.textContent = p[1].slice(0, 8) + "…" + p[1].slice(-6);
+    a.append(t, c); list.appendChild(a);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "gtstar-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@mysten/sui": "^2.31.3",
+    "@mysten/wallet-standard": "^0.21.27",
+    "@wallet-standard/app": "^1.1.1",
+    "esbuild": "^0.28.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  },
+  "private": true,
+  "devDependencies": {
+    "sharp": "^0.35.4"
+  }
+}

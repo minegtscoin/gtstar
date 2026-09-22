@@ -1,0 +1,46 @@
+{
+  "network": "testnet",
+  "digest": "62hEqAa63inQN42aFsYLD3rvGbP3Uz4JDSSDhsU8XKD1",
+  "dev": "0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b",
+  "publishedAt": "2026-09-22T15:36:56.915Z",
+  "package": "0x239bf651c9cf39f258e16abfe15e1bcb541235533d02374a46d76270b152a0e8",
+  "treasury": "0x242ad058019ca486a6696cc536bbce498e3371f0c958ffa0643e29c15c71ac5a",
+  "coinMetadata": "0x51754747f14f05bbc25958622fa9ba435ebe041e07d3ce00f608b2e3c5e04162",
+  "board": "0xb5ef9afb657bf51ae04409e52a478a6b2f2cd1e988174e99c280e515e96656ab",
+  "upgradeCap": "0xcf3711e42aad954c9bb869102364fccd02a8082dff90badd77e6e883b0fa7185",
+  "pool": "0xfc147c0b7655512dc45b9c2b262bb57debc8632739737b5063a088657289e25f",
+  "proof": [
+    [
+      "Contract published",
+      "62hEqAa63inQN42aFsYLD3rvGbP3Uz4JDSSDhsU8XKD1"
+    ],
+    [
+      "First deploy, miner created in the same transaction",
+      "E891L8tSWfW1ZtU6Byu2k5d1rZhqXRaNTQ4fESo3Pj5H"
+    ],
+    [
+      "Round settled by the keeper with sui::random",
+      "BHdu9XRG6HFnFuR7j5jkWmRKbpEkkAxZj1kPbnZ3eSAd"
+    ],
+    [
+      "Claim (1 GTS mined) and new deploy in one transaction",
+      "5Krcovc5HvFrsd2cwtGbAB58AYvVJLz3LggWLaUq7gci"
+    ],
+    [
+      "GTS staked, no lock-up",
+      "SS9EsdYwFq1Q6jnL1SJs84uNiXN7zhmjVXFZ6iVM6nt"
+    ],
+    [
+      "GTS redeemed from the reserve and burned",
+      "Bqth8eVYpU3aQ9LUMk7Fz43YqQkiDZ6tLgDaw5EzjS66"
+    ],
+    [
+      "Staking yield claimed in GTS",
+      "69SxajqaRrCHVXVDEcVqvETfcNmspQ4JB4hhpB1MJZQw"
+    ],
+    [
+      "Stake withdrawn at any time",
+      "J6bYWdzFgd67BmDcLJPp8eJV3DHJXAhnGnFCHDenHhQE"
+    ]
+  ]
+}

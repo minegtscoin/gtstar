@@ -1,0 +1,10 @@
+[package]
+name = "gts_token"
+edition = "2024.beta"
+version = "1.0.0"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+
+[addresses]
+gts_token = "0x0"

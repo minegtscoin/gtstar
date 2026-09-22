@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>GTStar</title>
+<meta name="description" content="GTStar is a fair mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="theme-color" content="#09090d" />
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=__V__">
+<link rel="stylesheet" href="app.css?v=__V__">
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="logo" href="#home" aria-label="GTStar home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.9 5.4 3.6 8.1 9 9-5.4.9-8.1 3.6-9 9-.9-5.4-3.6-8.1-9-9 5.4-.9 8.1-3.6 9-9z"/></svg>
+      <span>GTSTAR</span>
+    </a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#mine" data-view="mine">Mine</a>
+      <a href="#explorer" data-view="explorer">Explorer</a>
+      <a href="#tokenomics" data-view="tokenomics">Tokenomics</a>
+      <a href="#stake" data-view="stake">Stake</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <div class="bar-right">
+      <div class="ticker"><span class="k">Floor</span><span class="v" id="tFloor">—</span></div>
+      <div class="ticker" id="tGtsWrap" hidden><span class="k">GTS</span><span class="v" id="tGts">—</span></div>
+      <div class="acct">
+        <button class="pill" id="btnConnect" type="button" aria-haspopup="true">Connect</button>
+        <div class="menu" id="acctMenu" hidden>
+          <div class="menu-head">
+            <span class="dot-live"></span><span id="mAddr" class="mono"></span>
+            <button type="button" class="icon-btn" id="mCopy" aria-label="Copy address">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            </button>
+          </div>
+          <div class="menu-bal"><span>SUI</span><b id="mSui">—</b></div>
+          <div class="menu-bal"><span>GTS</span><b id="mGts">—</b></div>
+          <a class="menu-item" id="mScan" target="_blank" rel="noopener">View on explorer</a>
+          <button class="menu-item" type="button" id="mDisconnect">Disconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="notice" id="netNotice" hidden>Sui Testnet preview. Switch your wallet to Testnet and get free test SUI at <a href="https://faucet.sui.io" target="_blank" rel="noopener">faucet.sui.io</a>.</div>
+
+<main>
+  <!-- HOME -->
+  <section class="view" id="view-home">
+    <div class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Live on Sui</div>
+        <h1 class="hero-h">Mine GTS.<br>Backed by SUI.</h1>
+        <p class="hero-p">A 60-second game on a 5×5 board. Every participant mines GTS, winners split the pot, and every token is backed by a growing on-chain reserve.</p>
+        <div class="hero-cta">
+          <a class="btn-lg" href="#mine">Start mining</a>
+          <a class="btn-lg ghost" href="#explorer">Explore data</a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true"><div class="art-grid" id="artGrid"></div></div>
+    </div>
+    <div class="strip">
+      <div><b id="hRound">—</b><span>Current round</span></div>
+      <div><b id="hVolume">—</b><span>SUI deployed, all time</span></div>
+      <div><b id="hReserve">—</b><span>SUI in reserve</span></div>
+      <div><b id="hMined">—</b><span>GTS mined</span></div>
+      <div><b id="hFloor">—</b><span>Floor, SUI per GTS</span></div>
+    </div>
+    <div class="features">
+      <div><h3>Everyone mines</h3><p>GTS is split across all participants by their share of each round. Winners and losers alike.</p></div>
+      <div><h3>SUI-backed floor</h3><p>4% of every losing pot flows into a reserve that backs every GTS. Burn GTS any time for your share of it.</p></div>
+      <div><h3>Fair launch</h3><p>1 GTS per round, halving every 6 months until 2030. No premine, no team tokens. Supply is locked in an immutable contract.</p></div>
+      <div><h3>Provably fair</h3><p>Winning tiles are drawn with Sui's native randomness. Every round is verifiable on-chain.</p></div>
+    </div>
+    <div class="how">
+      <h2 class="sec-h">How it works</h2>
+      <ol class="how-steps">
+        <li><b>Deploy</b><span>Place SUI on one or more of the 25 tiles.</span></li>
+        <li><b>Wait 60 seconds</b><span>Deposits close 5 seconds before the round ends.</span></li>
+        <li><b>One tile wins</b><span>Its miners get their stake back plus 95% of the losing pot, pro rata.</span></li>
+        <li><b>Everyone mines</b><span>The round's GTS is split across all participants.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- MINE -->
+  <section class="view" id="view-mine" hidden>
+    <div class="mine">
+      <div class="board-wrap">
+        <div class="board" id="board" role="grid" aria-label="Game board"></div>
+      </div>
+      <aside class="side">
+        <div class="stats3">
+          <div><b id="sDeployed">—</b><span>Deployed</span></div>
+          <div><b id="sRound">—</b><span>Round</span></div>
+          <div><b id="sTime">—</b><span>Time</span></div>
+        </div>
+        <div class="row-line"><span class="lbl">Last round</span><a class="val link" id="lastRound" href="#explorer">—</a></div>
+        <div class="amount">
+          <input id="amt" type="text" inputmode="decimal" value="0" aria-label="SUI per tile" autocomplete="off" />
+          <span class="unit">SUI per tile</span>
+        </div>
+        <div class="quick">
+          <button type="button" data-add="0.01">+0.01</button>
+          <button type="button" data-add="0.1">+0.1</button>
+          <button type="button" data-add="1">+1</button>
+          <button type="button" id="amtClear">Clear</button>
+        </div>
+        <div class="row-line">
+          <span class="lbl">Tiles</span>
+          <span class="val tiles-ctl"><button type="button" class="chip" id="selAll">All</button><button type="button" class="chip" id="selNone">None</button><b id="tileCount">0</b></span>
+        </div>
+        <div class="row-line"><span class="lbl">Total</span><span class="val"><b id="totalCost">0</b> SUI</span></div>
+        <button class="primary" id="btnPlay" type="button">Deploy</button>
+        <p class="hint" id="playHint"></p>
+        <div class="divider"></div>
+        <div class="row-line"><span class="lbl">Your GTS</span><span class="val"><b id="myGts">—</b></span></div>
+        <div class="row-line"><span class="lbl">Your SUI</span><span class="val"><b id="mySui">—</b></span></div>
+        <div class="row-line" id="claimRow" hidden>
+          <span class="lbl">Unclaimed round</span>
+          <span class="val"><button class="chip strong" id="btnClaim" type="button">Claim</button></span>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- EXPLORER -->
+  <section class="view" id="view-explorer" hidden>
+    <div class="page-head">
+      <h1>Explore</h1>
+      <p class="sub">Review protocol stats and activity. Every number is read directly from Sui.</p>
+    </div>
+    <div class="groups">
+      <div class="group"><h2>Market</h2>
+        <dl class="dl">
+          <div><dt>Floor price</dt><dd id="gFloor">—</dd></div>
+          <div><dt>Reserve</dt><dd id="gReserve">—</dd></div>
+          <div><dt>Market price</dt><dd>No market yet</dd></div>
+        </dl></div>
+      <div class="group"><h2>Mining</h2>
+        <dl class="dl">
+          <div><dt>Deployed this round</dt><dd id="gDeployed">—</dd></div>
+          <div><dt>Rounds settled</dt><dd id="gRounds">—</dd></div>
+          <div><dt>Total deployed</dt><dd id="gVolume">—</dd></div>
+          <div><dt>Miners</dt><dd id="gMiners">—</dd></div>
+          <div><dt>Production cost per GTS</dt><dd id="gCost">—</dd></div>
+        </dl></div>
+      <div class="group"><h2>Staking</h2>
+        <dl class="dl">
+          <div><dt>APR</dt><dd id="gApr">—</dd></div>
+          <div><dt>Staked</dt><dd id="gStaked">—</dd></div>
+          <div><dt>Stakers</dt><dd id="gStakers">—</dd></div>
+        </dl></div>
+      <div class="group"><h2>Supply</h2>
+        <dl class="dl">
+          <div><dt>Circulating</dt><dd id="gSupply">—</dd></div>
+          <div><dt>Max</dt><dd>1,000,000 GTS</dd></div>
+          <div><dt>Burned</dt><dd id="gBurned">—</dd></div>
+        </dl></div>
+    </div>
+
+    <div class="block">
+      <div class="block-h"><h2>Activity</h2>
+        <div class="tabset" data-set="act"><button type="button" data-t="rounds" class="on">Rounds</button><button type="button" data-t="deploys">Deploys</button></div></div>
+      <p class="block-sub" id="actSub">Recent mining rounds and winners. Select a round to see every miner.</p>
+      <div class="tbl-wrap"><table class="tbl" id="actTbl"></table></div>
+      <button class="load-more" id="moreAct" type="button" hidden>Load more</button>
+    </div>
+
+    <div class="block">
+      <div class="block-h"><h2>Revenue</h2>
+        <div class="tabset" data-set="rev"><button type="button" data-t="reserve" class="on">Reserve</button><button type="button" data-t="stakers">Stakers</button><button type="button" data-t="creator">Creator</button></div></div>
+      <div class="rev-sum" id="revSum"></div>
+      <div class="tbl-wrap"><table class="tbl" id="revTbl"></table></div>
+    </div>
+
+    <div class="block">
+      <div class="block-h"><h2>Leaderboard</h2>
+        <div class="tabset" data-set="lb"><button type="button" data-t="miners" class="on">Miners</button><button type="button" data-t="winners">Winners</button><button type="button" data-t="stakers">Stakers</button></div></div>
+      <p class="block-sub" id="lbSub"></p>
+      <div class="tbl-wrap"><table class="tbl" id="lbTbl"></table></div>
+    </div>
+    <p class="note-sm" id="xScope"></p>
+  </section>
+
+  <!-- TOKENOMICS -->
+  <section class="view" id="view-tokenomics" hidden>
+    <div class="page-head">
+      <h1>Tokenomics</h1>
+      <p class="sub">Live supply, emission and backing for GTS. Updates automatically from the chain.</p>
+    </div>
+    <div class="kpis">
+      <div><span>Circulating supply</span><b id="kSupply">—</b></div>
+      <div><span>Scheduled max</span><b id="kSchedMax">—</b></div>
+      <div><span>Emitted</span><b id="kMinedPct">—</b></div>
+      <div><span>Burned</span><b id="kBurned">—</b></div>
+      <div><span>Reserve</span><b id="kReserve">—</b></div>
+      <div><span>Floor price</span><b id="kFloor">—</b></div>
+    </div>
+    <div class="t-grid">
+      <div class="panel">
+        <div class="panel-h"><h2>Emission schedule</h2><span class="muted" id="kEpochLbl"></span></div>
+        <div class="chart" id="chart"></div>
+        <div class="chart-foot"><span>Maximum cumulative GTS, halving every 6 months</span><span class="now-key"><i></i>Now</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Emission</h2></div>
+        <dl class="dl">
+          <div><dt>Emission period</dt><dd id="kEpoch">—</dd></div>
+          <div><dt>Reward per round</dt><dd id="kReward">—</dd></div>
+          <div><dt>Next halving</dt><dd id="kToHalving">—</dd></div>
+          <div><dt>Reward after halving</dt><dd id="kNextReward">—</dd></div><div><dt>Emission ends</dt><dd>Jan 1, 2030</dd></div>
+          <div><dt>Emitted to date</dt><dd id="kEmitted">—</dd></div>
+          <div><dt>Unclaimed by miners</dt><dd id="kUnclaimed">—</dd></div>
+        </dl>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Market and backing</h2></div>
+        <dl class="dl">
+          <div><dt>Floor price</dt><dd id="kFloor2">—</dd></div>
+          <div><dt>Backed value (reserve)</dt><dd id="kBacked">—</dd></div>
+          <div><dt>Market price</dt><dd id="kMarket">No market yet</dd></div>
+          <div><dt>GTS staked</dt><dd id="kStaked">—</dd></div>
+          <div><dt>Staked share of supply</dt><dd id="kStakedPct">—</dd></div>
+        </dl>
+        <p class="note-sm">GTS has no trading pool yet. Its value today is the reserve redemption value. Market price will appear once a GTS/SUI pool exists.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Fair launch</h2></div>
+        <dl class="dl">
+          <div><dt>Premine / team / presale</dt><dd>0%</dd></div>
+          <div><dt>Distributed by</dt><dd>Mining and staking only</dd></div>
+          <div><dt>Token contract</dt><dd>Immutable</dd></div>
+          <div><dt>Emission ceiling</dt><dd>Enforced on-chain</dd></div>
+          <div><dt>Hard cap in code</dt><dd>1,000,000 GTS</dd></div>
+        </dl>
+        <p class="note-sm">Supply, emission and the reserve live in an immutable token contract. Nobody can mint extra GTS, create a team allocation or touch the reserve. The game contract can be upgraded for fixes only.</p>
+        <div class="panel-h sub-h"><h2>Each losing pot</h2></div>
+        <div class="split" aria-hidden="true"><div style="flex:95"></div><div style="flex:4"></div><div style="flex:1"></div></div>
+        <dl class="dl">
+          <div><dt>Winners</dt><dd>95%</dd></div>
+          <div><dt>Reserve (backs GTS)</dt><dd>4%</dd></div>
+          <div><dt>Creator <a class="link muted" id="kDevLink" target="_blank" rel="noopener"></a></dt><dd>1%</dd></div>
+        </dl>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Redeem from reserve</h2></div>
+        <p class="note-sm" style="margin:0 0 10px">Burn GTS for your share of the SUI reserve at any time. This is what gives GTS its floor.</p>
+        <div class="input-row">
+          <input id="redeemAmt" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="GTS to redeem" />
+          <span class="suffix">GTS</span><button type="button" class="chip" id="redeemMax">Max</button>
+        </div>
+        <div class="row-line"><span class="lbl">You receive</span><span class="val"><b id="redeemOut">0</b> SUI</span></div>
+        <button class="secondary" id="btnRedeem" type="button">Redeem</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STAKE -->
+  <section class="view" id="view-stake" hidden>
+    <div class="ore-card">
+      <div class="ore-head"><h1>Stake</h1><p class="sub">Earn GTS yield on your GTS. No lock-up.</p></div>
+      <div class="pilltabs" id="stakeSeg" role="tablist" aria-label="Stake action">
+        <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
+        <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
+      </div>
+      <div class="amount big">
+        <input id="stakeAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount of GTS" autocomplete="off" />
+        <span class="unit" id="stakeBal">0 GTS</span>
+      </div>
+      <div class="quick">
+        <button type="button" data-pct="25">25%</button>
+        <button type="button" data-pct="50">50%</button>
+        <button type="button" data-pct="75">75%</button>
+        <button type="button" data-pct="100">MAX</button>
+      </div>
+      <button class="primary" id="btnStake" type="button">Deposit</button>
+
+      <h2 class="sum-h">Account</h2>
+      <dl class="dl">
+        <div><dt>Wallet</dt><dd id="sWallet">—</dd></div>
+        <div><dt>Staked</dt><dd id="sMyStaked">—</dd></div>
+        <div><dt>Yield</dt><dd id="sPending" class="gold">—</dd></div>
+      </dl>
+      <button class="gold-btn" id="btnStakeClaim" type="button">Claim</button>
+      <button class="text-btn" id="btnCompound" type="button">Claim and deposit</button>
+
+      <h2 class="sum-h">Summary</h2>
+      <dl class="dl">
+        <div><dt>APR</dt><dd id="sApr">—</dd></div>
+        <div><dt>Deposits</dt><dd id="sStaked">—</dd></div>
+        <div><dt>TVL</dt><dd id="sTvl">—</dd></div>
+      </dl>
+      <p class="note-sm">Every round mints an extra 10% of its GTS reward to stakers, streamed over 7 days so yield accrues every second. APR is paid in GTS. TVL values staked GTS at the reserve floor price.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <span>GTStar on Sui</span>
+    <span class="foot-links"><a href="docs.html">Docs</a><a href="#explorer">Explorer</a><a href="docs.html#verify">Contracts</a><a id="pkgLink" href="#" target="_blank" rel="noopener">Suiscan</a></span>
+  </div>
+</footer>
+
+<div class="modal" id="walletModal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="wmTitle">
+    <div class="modal-head"><h3 id="wmTitle">Connect a wallet</h3><button type="button" class="x" id="closeModal" aria-label="Close">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <p class="modal-sub">Choose a Sui wallet. GTStar never holds your funds; every action is signed in your wallet.</p>
+    <div class="wallets" id="walletList"></div>
+    <div class="nowallet" id="noWallet" hidden>
+      <p>No Sui wallet detected in this browser.</p>
+      <a class="btn-lg" href="https://slush.app" target="_blank" rel="noopener">Get Slush</a>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="config.js?v=__V__"></script>
+<script src="app.js?v=__V__"></script>
+</body>
+</html>

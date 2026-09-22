@@ -1,0 +1,11 @@
+[package]
+name = "gtstar"
+edition = "2024.beta"
+version = "1.0.0"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+gts_token = { local = "../token" }
+
+[addresses]
+gtstar = "0x0"
