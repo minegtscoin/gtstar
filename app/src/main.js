@@ -781,7 +781,6 @@ function renderTokenomics() {
   $("kSupply").textContent = fmt(supply, 2);
   $("kMinedPct").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
   $("kSchedMax").textContent = fmt(Math.floor(cumAt(genesis || now, EMISSION_END)), 0);
-  $("kDevLink").textContent = short(IDS.dev); $("kDevLink").href = `${SCAN}/account/${IDS.dev}`;
   $("kBurned").textContent = burned == null ? "—" : fmt(burned, 3);
   $("kReserve").textContent = `${sui(STATE.vault, 3)} SUI`;
   $("kFloor").textContent = `${fmt(STATE.floor, 5)} SUI`;
