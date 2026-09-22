@@ -296,7 +296,7 @@ floor_price          = reserve / total_supply</span>
   var C = window.GTSTAR_CONFIG; if (!C) return;
   var scan = "https://suiscan.xyz/" + C.network;
   document.getElementById("netName").textContent = "Sui " + C.network.charAt(0).toUpperCase() + C.network.slice(1);
-  var rows = [["Package", C.ids.package, "object"], ["Board", C.ids.board, "object"], ["Treasury", C.ids.treasury, "object"], ["Stake pool", C.ids.pool, "object"], ["Creator", C.ids.dev, "account"]];
+  var rows = [["Token package", C.ids.token, "object"], ["Game package", C.ids.package, "object"], ["Board", C.ids.board, "object"], ["Treasury", C.ids.treasury, "object"], ["Stake pool", C.ids.pool, "object"], ["Creator", C.ids.dev, "account"]];
   var kv = document.getElementById("addrList");
   rows.forEach(function (r) {
     var k = document.createElement("span"); k.textContent = r[0];

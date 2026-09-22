@@ -1,46 +1,67 @@
 {
   "network": "testnet",
-  "digest": "62hEqAa63inQN42aFsYLD3rvGbP3Uz4JDSSDhsU8XKD1",
   "dev": "0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b",
-  "publishedAt": "2026-09-22T15:36:56.915Z",
-  "package": "0x239bf651c9cf39f258e16abfe15e1bcb541235533d02374a46d76270b152a0e8",
-  "treasury": "0x242ad058019ca486a6696cc536bbce498e3371f0c958ffa0643e29c15c71ac5a",
-  "coinMetadata": "0x51754747f14f05bbc25958622fa9ba435ebe041e07d3ce00f608b2e3c5e04162",
-  "board": "0xb5ef9afb657bf51ae04409e52a478a6b2f2cd1e988174e99c280e515e96656ab",
-  "upgradeCap": "0xcf3711e42aad954c9bb869102364fccd02a8082dff90badd77e6e883b0fa7185",
-  "pool": "0xfc147c0b7655512dc45b9c2b262bb57debc8632739737b5063a088657289e25f",
+  "publishedAt": "2026-09-22T17:50:00.196Z",
+  "token": "0x76e8ad39ab92b1bc67c17dbfe32ae865a37fb1daa866f35711387887319a54fb",
+  "tokenDigest": "HfL59Ruu9iCQkVDoXeMry4iiqsUHnzJKwxQcgGTHeqEg",
+  "treasury": "0x1c5838c0a36febc40bbbb3eeb449173faad3c8b9d7cfca2a966c7391f6e9839a",
+  "coinMetadata": "0x3e388bb5b06b31f3fba51965a92034aa54e0c1c1cda90c9a21b742179581ccd2",
+  "package": "0xccd2acc0210ae8ddd187b43227468265dde7b84527fb2c5c35fa4d4a3ea64b14",
+  "digest": "DRp2PP8nj9mEJgzxkAvd7Lsz3EXH41N36c5G3UogcA7W",
+  "board": "0x7857edb0c17428e12362aab1a4d3a56433926b9ca05f0353c2358df4d4cc3740",
+  "pool": "0x6856ca801409d4b198cd3dece38a09bdb0d4b9a7e9fd85577bcb466b2421bb9e",
+  "upgradeCap": "0x5b60f2cac5de5982b94822f587b2822eb1218e5de3d5c8e2a822ee6a1305da20",
+  "installDigest": "FJ9B6qmQYPUFvqJuDFvVszRv7guke6mvWdVpf945e2o9",
+  "freezeDigest": "AXgfMEnCmWehe2VX6RgZ9BTcon3ckGKYDpU9Fd2kcc7i",
+  "immutableDigest": "6yiSwtPD5UpXE92VT9oRMY92UJn4wkB5am76t3ju3619",
   "proof": [
     [
-      "Contract published",
-      "62hEqAa63inQN42aFsYLD3rvGbP3Uz4JDSSDhsU8XKD1"
+      "Token contract published",
+      "HfL59Ruu9iCQkVDoXeMry4iiqsUHnzJKwxQcgGTHeqEg"
     ],
     [
-      "First deploy, miner created in the same transaction",
-      "E891L8tSWfW1ZtU6Byu2k5d1rZhqXRaNTQ4fESo3Pj5H"
+      "Token metadata frozen",
+      "AXgfMEnCmWehe2VX6RgZ9BTcon3ckGKYDpU9Fd2kcc7i"
+    ],
+    [
+      "Token contract made immutable",
+      "6yiSwtPD5UpXE92VT9oRMY92UJn4wkB5am76t3ju3619"
+    ],
+    [
+      "Game contract published",
+      "DRp2PP8nj9mEJgzxkAvd7Lsz3EXH41N36c5G3UogcA7W"
+    ],
+    [
+      "Minting right installed, emission clock started",
+      "FJ9B6qmQYPUFvqJuDFvVszRv7guke6mvWdVpf945e2o9"
+    ],
+    [
+      "Deploy, with the miner created in the same transaction",
+      "5HLZTKGHycpjVnYJR5YddY3FC8hCMENVTZAjesHJw3yF"
     ],
     [
       "Round settled by the keeper with sui::random",
-      "BHdu9XRG6HFnFuR7j5jkWmRKbpEkkAxZj1kPbnZ3eSAd"
+      "BaqNTQoB74QphTibm3eqePWWK9Y37exnib9jMMSBHApe"
     ],
     [
       "Claim (1 GTS mined) and new deploy in one transaction",
-      "5Krcovc5HvFrsd2cwtGbAB58AYvVJLz3LggWLaUq7gci"
+      "GYe9u9HkpyfaW8qqwxFUSzv7a9XADBfyoxR2M5Y1bMVG"
     ],
     [
       "GTS staked, no lock-up",
-      "SS9EsdYwFq1Q6jnL1SJs84uNiXN7zhmjVXFZ6iVM6nt"
+      "3GC6i2uihvp2kHpfb3HGv8UcS7gVvHACA4cFLTT5cg51"
     ],
     [
       "GTS redeemed from the reserve and burned",
-      "Bqth8eVYpU3aQ9LUMk7Fz43YqQkiDZ6tLgDaw5EzjS66"
+      "6eLwKNjZZUz1AzKkBf368wHzogSHdZWLA1t9355d45cM"
     ],
     [
       "Staking yield claimed in GTS",
-      "69SxajqaRrCHVXVDEcVqvETfcNmspQ4JB4hhpB1MJZQw"
+      "FWg35rADLc3kE3Z6SPCgJGu9sTV2ZJZ7Wo4i5WwE8Ah"
     ],
     [
       "Stake withdrawn at any time",
-      "J6bYWdzFgd67BmDcLJPp8eJV3DHJXAhnGnFCHDenHhQE"
+      "2Wngck5VdRWbGDMjHMygxHZTk9FyGMyNwvjBaKiFgxUX"
     ]
   ]
 }
