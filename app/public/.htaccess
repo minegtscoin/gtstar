@@ -6,4 +6,11 @@ RewriteRule ^(whitepaper\.html|whitepaper|docs)/?$ /docs.html [L,R=301]
 
 <IfModule mod_headers.c>
   Header set Cache-Control "no-cache"
+  # Scripts only from this site; data only from Sui and the two price APIs; never framed (clickjacking).
+  Header set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://graphql.mainnet.sui.io https://graphql.testnet.sui.io https://api.coingecko.com https://api.binance.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+  Header set X-Frame-Options "DENY"
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+  Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  Header set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 </IfModule>

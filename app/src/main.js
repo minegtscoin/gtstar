@@ -230,6 +230,7 @@ function friendlyError(e) {
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
 }
+const KEEPER_MIN_POT = 200_000_000;   // keeper settles rounds from 0.2 SUI; smaller ones are drawn by players
 const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
   if (!USER || USER.sui >= needMist + GAS_RESERVE) return false;
@@ -310,7 +311,7 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
   });
   if (!n) throw new Error("Nothing to claim.");
 });
-const settle = () => exec("Settlement", "btnPlay", tx => {
+const settle = () => exec("Draw", "btnPlay", tx => {
   tx.moveCall({ target: T("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object(IDS.pool), tx.object.random(), tx.object.clock()] });
 });
 const myPos = () => (USER?.positions || []).slice().sort((a, b) => b.amount - a.amount)[0] || null;
@@ -624,7 +625,7 @@ function renderMine() {
     let label = "Deploy", dis = false;
     if (!account) label = "Connect wallet";
     else if (p === "loading") { label = "Loading"; dis = true; }
-    else if (p === "ended") label = "Settle round";
+    else if (p === "ended") label = selected.size ? "Draw winner, then deploy" : "Draw winner";
     else if (p === "frozen") { label = "Round closing"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
@@ -632,7 +633,9 @@ function renderMine() {
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   }
   let hint = `Minimum ${min} SUI per tile. Every participant mines GTS.`;
-  if (p === "ended") hint = "The round has ended. The winner is drawn within seconds.";
+  if (p === "ended") hint = b.cur_total >= KEEPER_MIN_POT
+    ? "The round has ended. The winner is drawn within seconds."
+    : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   else if (claimable) hint = "Your last round is claimed automatically with your next deploy.";
@@ -1012,7 +1015,11 @@ $("amt").addEventListener("focus", e => { if (e.target.value === "0") e.target.v
 $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "0"; });
 $("selAll").onclick = () => { selected = new Set([...Array(25).keys()]); render(); };
 $("selNone").onclick = () => { selected.clear(); render(); };
-$("btnPlay").onclick = () => (account && phase() === "ended" ? settle() : play());
+$("btnPlay").onclick = async () => {
+  if (!(account && phase() === "ended")) return play();
+  const r = await settle();
+  if (r && selected.size) { await refresh(); play(); }
+};
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
 $("hdrClaim").onclick = claimAll;
 $("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };

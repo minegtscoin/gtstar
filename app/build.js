@@ -11,8 +11,9 @@ if (!fs.existsSync(depFile)) throw new Error(`missing ${depFile} — publish to 
 const dep = JSON.parse(fs.readFileSync(depFile, "utf8"));
 
 const out = path.join(__dirname, "dist");
-fs.rmSync(out, { recursive: true, force: true });
+// Empty dist/ rather than deleting it: on Windows a running preview server keeps the folder locked.
 fs.mkdirSync(out, { recursive: true });
+for (const f of fs.readdirSync(out)) fs.rmSync(path.join(out, f), { recursive: true, force: true });
 // Build id: cache-busts assets and lets open tabs reload themselves after a new deploy.
 const V = Date.now().toString(36);
 for (const f of fs.readdirSync(path.join(__dirname, "public"))) {

@@ -7,6 +7,9 @@ import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
+// Settling costs ~0.004 SUI of keeper gas. Rounds below this pot are left for players to
+// settle themselves (the site offers "Settle and deploy"), so dust rounds cannot drain the keeper.
+const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST) || 200_000_000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async () => {
@@ -39,7 +42,10 @@ export default async () => {
     }
     while (Date.now() - start < WINDOW_MS) {
       const end = Number(b.cur_end_ms);
-      if (b.cur_started === true && Date.now() >= end + 300) {
+      const worth = Number(b.cur_total) >= MIN_POT;
+      if (b.cur_started === true && !worth) {
+        await sleep(2000);
+      } else if (b.cur_started === true && Date.now() >= end + 300) {
         await run(`settle #${b.cur_id}`, tx => tx.moveCall({
           target: T("game::settle"),
           arguments: [tx.object(CFG.board), tx.object(CFG.treasury), tx.object(CFG.pool), tx.object.random(), tx.object.clock()],
