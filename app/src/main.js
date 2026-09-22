@@ -20,7 +20,7 @@ const T = name => `${IDS.package}::${name}`;          // game package (upgradeab
 const TK = name => `${IDS.token}::${name}`;           // token package (immutable)
 const T_MINER = T("game::Miner"), T_GTS = TK("gts::GTS"), T_POS = T("staking::StakePosition");
 const EV = { settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
-const VIEWS = ["home", "mine", "explorer", "tokenomics", "stake"];
+const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake"];
 
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
@@ -53,13 +53,23 @@ async function gql(query) {
 const objQ = (alias, id) => `${alias}:object(address:"${id}"){asMoveObject{contents{json}}}`;
 const pick = (d, k) => d[k]?.asMoveObject?.contents?.json || {};
 
+const settledRow = (j, ts) => ({
+  round: num(j.round_id), tile: num(j.winning_square), total: num(j.total_deployed),
+  winners: num(j.winners_total), payout: num(j.winners_payout), reward: num(j.round_reward),
+  vault: num(j.vault_fee), stakerReward: num(j.staker_reward), dev: num(j.dev_fee), players: num(j.players), ts,
+});
 async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}
-    ev:events(filter:{type:"${EV.settled}"},last:1){nodes{contents{json}}}}`);
+    st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
+    dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}}`);
   const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p");
   const supply = num(t.cap?.total_supply?.value), vault = num(t.vault);
   const minted = num(t.minted), tGenesis = num(t.genesis_ms);
-  const ev = d.ev?.nodes?.[0]?.contents?.json;
+  const recent = (d.st?.nodes || []).map(n => settledRow(n.contents?.json || {}, n.timestamp)).reverse();
+  const deploys = (d.dp?.nodes || []).map(n => {
+    const j = n.contents?.json || {};
+    return { round: num(j.round_id), player: j.player, amounts: (j.amounts || []).map(num), total: num(j.total), ts: n.timestamp, digest: n.transaction?.digest };
+  }).reverse();
   return {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0,
     staked: num(p.total_staked),
@@ -67,10 +77,11 @@ async function loadGlobal() {
       total: BigInt(p.total_staked || 0), acc: BigInt(p.acc_reward_per_share || 0), rate: BigInt(p.reward_rate || 0),
       finish: num(p.period_finish), last: num(p.last_update),
     },
-    last: ev ? { round: num(ev.round_id), tile: num(ev.winning_square), total: num(ev.total_deployed), winners: num(ev.winners_total) } : null,
+    last: recent[0] || null, recent, deploys,
     board: {
       genesis: num(b.genesis_ms) || tGenesis,
-      cur_id: num(b.cur_id), cur_total: num(b.cur_total), cur_started: b.cur_started === true,
+      cur_id: num(b.cur_id), cur_total: num(b.cur_total), cur_started: b.cur_started === true, cur_players: num(b.cur_players),
+      round_ms: num(b.round_ms) || 60_000,
       cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
       freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
     },
@@ -90,7 +101,7 @@ async function loadUser(addr) {
   const miner = miners.find(m => num(m.f.round_id) !== 0) || miners[0] || null;
   return {
     sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance),
-    miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num) } : null,
+    miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
     positions: positions.map(p => ({
       id: p.id, amount: num(p.f.amount), snap: BigInt(p.f.acc_snapshot || 0), pending: BigInt(p.f.pending || 0),
@@ -123,12 +134,7 @@ async function loadHistory() {
     if (!byRound.has(r)) byRound.set(r, []);
     byRound.get(r).push({ player: e.j.player, total: num(e.j.total), amounts: (e.j.amounts || []).map(num) });
   });
-  const rounds = settled.list.map(e => ({
-    round: num(e.j.round_id), tile: num(e.j.winning_square), total: num(e.j.total_deployed),
-    winners: num(e.j.winners_total), payout: num(e.j.winners_payout), reward: num(e.j.round_reward),
-    vault: num(e.j.vault_fee), stakerReward: num(e.j.staker_reward), dev: num(e.j.dev_fee), players: num(e.j.players),
-    ts: e.ts, digest: e.digest,
-  }));
+  const rounds = settled.list.map(e => ({ ...settledRow(e.j, e.ts), digest: e.digest }));
   return {
     rounds, byRound, stakes, deployed: deployed.list, redeemed: redeemed.list,
     capped: settled.capped || deployed.capped,
@@ -293,7 +299,17 @@ async function play() {
   }, total);
   if (r) { selected.clear(); render(); }
 }
-const claim = () => exec("Claim", "btnClaim", tx => claimInto(tx, tx.object(USER.miner.id)));
+// One transaction for everything claimable: the last round (SUI winnings + mined GTS) and staking yield.
+const claimAll = () => exec("Claim", "btnClaimAll", tx => {
+  let n = 0;
+  if (rewards().ready) { claimInto(tx, tx.object(USER.miner.id)); n++; }
+  (USER.positions || []).forEach(p => {
+    if (posPending(p, Date.now()) <= 0n) return;
+    const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(p.id), tx.object.clock()] });
+    tx.transferObjects([c], account.address); n++;
+  });
+  if (!n) throw new Error("Nothing to claim.");
+});
 const settle = () => exec("Settlement", "btnPlay", tx => {
   tx.moveCall({ target: T("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object(IDS.pool), tx.object.random(), tx.object.clock()] });
 });
@@ -312,12 +328,13 @@ const stake = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnSta
     tx.transferObjects([g], account.address);
   }
 }).then(r => { if (r) $("stakeAmt").value = ""; });
-const redeem = () => exec("Redeem", "btnRedeem", tx => {
-  const amt = toMist($("redeemAmt").value);
+// GTS -> SUI routes through the reserve (burn at the floor). There is no GTS pool to buy from yet.
+const swap = () => exec("Swap", "btnSwap", tx => {
+  const amt = toMist($("swIn").value);
   if (amt <= 0) throw new Error("Enter an amount.");
   const [out] = tx.moveCall({ target: TK("gts::redeem"), arguments: [tx.object(IDS.treasury), gtsCoin(tx, amt)] });
   tx.transferObjects([out], account.address);
-}).then(r => { if (r) { $("redeemAmt").value = ""; renderRedeem(); } });
+}).then(r => { if (r) { $("swIn").value = ""; renderTrade(); } });
 const claimStake = () => exec("Yield claim", "btnStakeClaim", tx => {
   const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(myPos().id), tx.object.clock()] });
   tx.transferObjects([c], account.address);
@@ -382,50 +399,226 @@ function renderHome() {
 }
 
 // ---------- render: mine ----------
+const PERSON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>`;
+const hue = a => parseInt(String(a).slice(2, 8), 16) % 360;
+const tilesTxt = idx => idx.length === 25 ? "All 25 tiles" : `${idx.length === 1 ? "Tile" : "Tiles"} ${idx.map(i => i + 1).join(", ")}`;
+let tileEls = [];
 function buildBoard() {
   const g = $("board");
   for (let i = 0; i < 25; i++) {
     const c = document.createElement("button");
     c.type = "button"; c.className = "tile"; c.dataset.i = i;
-    c.setAttribute("aria-label", `Tile ${i + 1}`);
-    c.innerHTML = `<span class="n">${i + 1}</span><span class="me" hidden></span><span class="a"></span>`;
+    c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="a"></span>`;
     c.onclick = () => { selected.has(i) ? selected.delete(i) : selected.add(i); render(); };
     g.appendChild(c);
   }
+  tileEls = [...g.children];
 }
+// Deploys grouped per player for one round (a player can deploy several times).
+function roundPlayers(round) {
+  const m = new Map();
+  (STATE?.deploys || []).filter(d => d.round === round).forEach(d => {
+    const p = m.get(d.player) || { player: d.player, amounts: Array(25).fill(0), total: 0, ts: d.ts, digest: d.digest };
+    d.amounts.forEach((v, i) => (p.amounts[i] += v));
+    p.total += d.total;
+    if (d.ts > p.ts) { p.ts = d.ts; p.digest = d.digest; }
+    m.set(d.player, p);
+  });
+  return [...m.values()].sort((x, y) => (y.ts > x.ts ? 1 : -1));
+}
+const winOf = (p, r) => { const w = p.amounts[r.tile] || 0; return w > 0 && r.winners > 0 ? w + Math.floor(r.payout * w / r.winners) : 0; };
+
+// Round reveal: tiles flicker while the round is being drawn, then slow down and land on the winner.
+let lastSeen = null, reveal = null, scanT = null;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function clearScan() { tileEls.forEach(c => c.classList.remove("scan")); }
+function startScan() {
+  if (scanT || reduceMotion) return;
+  scanT = setInterval(() => { clearScan(); tileEls[Math.floor(Math.random() * 25)].classList.add("scan"); }, 110);
+}
+function stopScan() { clearInterval(scanT); scanT = null; clearScan(); }
+function trackRounds() {
+  const L = STATE?.last;
+  if (!L) return;
+  if (lastSeen === null) { lastSeen = L.round; return; }
+  if (L.round <= lastSeen) return;
+  lastSeen = L.round;
+  stopScan();
+  reveal = { round: L.round, landing: !reduceMotion && view === "mine", at: 0 };
+  if (!reveal.landing) { reveal.at = Date.now(); return; }
+  const steps = [70, 90, 120, 160, 210, 280, 380];
+  let k = 0;
+  const next = () => {
+    clearScan();
+    if (k < steps.length) {
+      tileEls[k === steps.length - 1 ? L.tile : Math.floor(Math.random() * 25)].classList.add("scan");
+      setTimeout(next, steps[k++]);
+    } else { reveal.landing = false; reveal.at = Date.now(); render(); }
+  };
+  next();
+}
+
 function renderBoard() {
-  const b = STATE?.board;
-  const dep = b?.cur_deployed?.length ? b.cur_deployed : Array(25).fill(0);
-  const mine = USER?.miner && b && USER.miner.round_id === b.cur_id ? USER.miner.deployed : null;
-  const showWin = STATE?.last && b && !b.cur_started ? STATE.last.tile : -1;
-  document.querySelectorAll(".tile").forEach(c => {
+  const b = STATE?.board, p = phase();
+  const L = STATE?.last;
+  const landing = reveal?.landing;
+  const showWin = L && b && !b.cur_started && !landing ? L.tile : -1;
+  // Between rounds the board keeps showing the round that just finished, so everyone can see who played where.
+  const shown = b?.cur_started || !L ? b?.cur_id : L.round;
+  const players = shown ? roundPlayers(shown) : [];
+  let dep = b?.cur_started && b.cur_deployed?.length ? b.cur_deployed : Array(25).fill(0);
+  if (b && !b.cur_started && players.length) { dep = Array(25).fill(0); players.forEach(pl => pl.amounts.forEach((v, i) => (dep[i] += v))); }
+  const counts = Array(25).fill(0);
+  players.forEach(pl => pl.amounts.forEach((v, i) => { if (v > 0) counts[i]++; }));
+  const mine = USER?.miner && USER.miner.round_id === shown ? USER.miner.deployed : null;
+  const max = Math.max(...dep, 1);
+  if (p === "ended" && !landing) startScan(); else if (!landing) stopScan();
+  $("board").classList.toggle("settled", showWin >= 0);
+  $("board").classList.toggle("drawing", p === "ended" || !!landing);
+  tileEls.forEach(c => {
     const i = +c.dataset.i, v = dep[i] / MIST, sel = selected.has(i);
     c.classList.toggle("has", v > 0);
     c.classList.toggle("sel", sel);
     c.classList.toggle("win", i === showWin);
+    c.style.setProperty("--heat", (dep[i] / max).toFixed(3));
     c.setAttribute("aria-pressed", sel);
+    c.setAttribute("aria-label", `Tile ${i + 1}, ${fmt(v, 3)} SUI, ${counts[i]} miners`);
     c.querySelector(".a").textContent = fmt(v, 3);
+    const pc = c.querySelector(".pc");
+    pc.hidden = !counts[i]; pc.querySelector("b").textContent = counts[i];
     c.querySelector(".me").hidden = !(mine && mine[i] > 0);
   });
 }
+
+function renderResult() {
+  const box = $("result"), b = STATE?.board, L = STATE?.last;
+  const fresh = reveal && reveal.at && Date.now() - reveal.at < 12_000;
+  if (!L || !b || reveal?.landing || (b.cur_started && !fresh)) { box.hidden = true; return; }
+  const players = roundPlayers(L.round);
+  const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
+  const pot = L.winners + L.payout;
+  let sub = L.winners > 0
+    ? `${winners.length || "The"} ${winners.length === 1 ? "winner takes" : "winners split"} ${sui(pot, 4)} SUI`
+    : "No one was on this tile. The pot went to the reserve.";
+  if (winners[0]) sub += ` · Top <span class="mono">${esc(winners[0].p.player === account?.address ? "You" : short(winners[0].p.player))}</span> +${sui(winners[0].won, 4)} SUI`;
+  let me = "";
+  const m = USER?.miner;
+  if (m && m.round_id === L.round) {
+    const R = rewards();
+    me = R.sui > 0
+      ? `<div class="res-me won">You won <b>+${sui(R.sui, 4)} SUI</b> and mined <b>${sui(R.gts, 4)} GTS</b></div>`
+      : `<div class="res-me">You mined <b>${sui(R.gts, 4)} GTS</b></div>`;
+    me += `<button type="button" class="chip strong" data-claim>Claim</button>`;
+  }
+  box.hidden = false;
+  box.classList.toggle("fresh", !!fresh);
+  box.innerHTML = `<div class="res-main"><span class="res-tile">${L.tile + 1}</span><div><b>Round #${fmt(L.round, 0)} · Tile ${L.tile + 1} wins</b><small>${sub}</small></div></div>${me ? `<div class="res-side">${me}</div>` : ""}`;
+  box.querySelector("[data-claim]")?.addEventListener("click", claimAll);
+}
+
+function renderRecent() {
+  const list = STATE?.recent || [];
+  $("recent").innerHTML = list.length ? list.map(r =>
+    `<a href="#explorer" class="rc${r.winners ? "" : " none"}" title="Round #${r.round}: ${sui(r.total, 3)} SUI deployed, ${r.players} players"><b>${r.tile + 1}</b><span>#${r.round}</span></a>`).join("")
+    : `<span class="muted">No rounds yet.</span>`;
+}
+
+let feedKeys = new Set(), feedSig = "", feedAt = 0;
+function renderFeed() {
+  const b = STATE?.board, L = STATE?.last;
+  if (!b) return;
+  const live = b.cur_started;
+  const r = live ? null : L;
+  const round = live ? b.cur_id : L?.round;
+  const players = round ? roundPlayers(round) : [];
+  $("liveTitle").textContent = live ? `Live round #${fmt(b.cur_id, 0)}` : L ? `Round #${fmt(L.round, 0)} results` : "Live round";
+  $("liveSub").textContent = live ? `${b.cur_players} ${b.cur_players === 1 ? "player" : "players"} · ${sui(b.cur_total, 3)} SUI` : "Next round starts with the first deploy";
+  if (!players.length) {
+    $("feed").innerHTML = `<p class="muted feed-empty">${live ? "No deploys yet." : "Waiting for the first deploy. Pick your tiles and start the next round."}</p>`;
+    feedKeys = new Set(); feedSig = "";
+    return;
+  }
+  const rows = (r ? players.slice().sort((x, y) => winOf(y, r) - winOf(x, r) || y.total - x.total) : players).map(p => {
+    const idx = p.amounts.map((v, i) => (v > 0 ? i : -1)).filter(i => i >= 0);
+    const you = p.player === account?.address;
+    const key = `${round}:${p.player}:${p.total}`;
+    const isNew = feedKeys.size > 0 && !feedKeys.has(key);
+    let res = "";
+    if (r) { const w = winOf(p, r); res = w ? `<span class="res won">+${sui(w, 4)} SUI</span>` : `<span class="res">No win</span>`; }
+    return { key, html: `<div class="fr${isNew ? " new" : ""}${you ? " you" : ""}" data-tiles="${idx.join(",")}">
+      <span class="av" style="--h:${hue(p.player)}"></span>
+      <span class="who">${you ? "You" : `<a class="mono" href="${SCAN}/account/${p.player}" target="_blank" rel="noopener">${short(p.player)}</a>`}</span>
+      <span class="tl">${tilesTxt(idx)}</span>
+      <span class="am">${sui(p.total, 3)} SUI</span>${res}
+      <span class="tm"><a href="${SCAN}/tx/${p.digest}" target="_blank" rel="noopener">${ago(p.ts)}</a></span></div>` };
+  });
+  // Rebuild only when the rows change (or every 10s for the "ago" times) so hover and entry animations survive.
+  const sig = (r ? "r" : "l") + rows.map(x => x.key).join("|") + (account?.address || "");
+  if (sig === feedSig && Date.now() - feedAt < 10_000) return;
+  feedSig = sig; feedAt = Date.now();
+  tileEls.forEach(c => c.classList.remove("peek"));
+  $("feed").innerHTML = rows.map(x => x.html).join("");
+  feedKeys = new Set(rows.map(x => x.key));
+  $("feed").querySelectorAll(".fr").forEach(el => {
+    const tiles = el.dataset.tiles.split(",").filter(Boolean).map(Number);
+    el.onmouseenter = () => tiles.forEach(i => tileEls[i].classList.add("peek"));
+    el.onmouseleave = () => tileEls.forEach(c => c.classList.remove("peek"));
+  });
+}
+
+// Everything the connected wallet can claim right now.
+function rewards() {
+  const out = { ready: false, sui: 0, gts: 0, yield: 0n };
+  const m = USER?.miner, b = STATE?.board;
+  if (m && m.round_id !== 0 && b && m.round_id < b.cur_id) {
+    out.ready = true;
+    const r = (STATE.recent || []).find(x => x.round === m.round_id) || HIST?.rounds.find(x => x.round === m.round_id);
+    if (r) {
+      out.gts = r.total ? Math.floor(r.reward * m.total / r.total) : 0;
+      const w = m.deployed[r.tile] || 0;
+      out.sui = w > 0 && r.winners > 0 ? w + Math.floor(r.payout * w / r.winners) : 0;
+    }
+  }
+  if (STATE) out.yield = (USER?.positions || []).reduce((a, p) => a + posPending(p, Date.now()), 0n);
+  out.any = out.ready || out.yield >= 100_000n;   // ignore dust below 0.0001 GTS
+  return out;
+}
+function renderRewards() {
+  const R = rewards();
+  $("rwSui").textContent = USER ? sui(R.sui, 4) : "—";
+  $("rwGts").textContent = USER ? sui(R.gts, 4) : "—";
+  $("rwYield").textContent = USER ? sui(Number(R.yield), 6) : "—";
+  $("rwSui").classList.toggle("won", R.sui > 0);
+  if (!busy) {
+    $("btnClaimAll").textContent = account ? "Claim all" : "Connect wallet";
+    $("btnClaimAll").disabled = !!account && !R.any;
+  }
+  const hc = $("hdrClaim");
+  hc.hidden = !R.any;
+  if (R.any) hc.textContent = R.sui > 0 ? `Claim ${sui(R.sui, 3)} SUI` : "Claim";
+}
+
 function renderMine() {
   const b = STATE?.board, p = phase();
-  $("sDeployed").textContent = b ? sui(b.cur_total, 2) : "—";
-  $("sRound").textContent = b ? `#${b.cur_id}` : "—";
-  let t = "—";
-  if (p === "open") t = "1:00";
-  else if (p === "live" || p === "frozen") { const s = Math.max(0, Math.ceil((b.cur_end_ms - Date.now()) / 1000)); t = `0:${String(s).padStart(2, "0")}`; }
-  else if (p === "ended") t = "0:00";
-  $("sTime").textContent = t;
-  const L = STATE?.last;
-  $("lastRound").textContent = L ? `#${L.round} · Tile ${L.tile + 1} · ${sui(L.total, 2)} SUI` : "No rounds yet";
+  $("sDeployed").textContent = b ? sui(b.cur_total, 3) : "—";
+  $("sRound").textContent = b ? `#${fmt(b.cur_id, 0)}` : "—";
+  $("sPlayers").textContent = b ? fmt(b.cur_players, 0) : "—";
+  let t = "—", lbl = "Time left", prog = 0;
+  if (p === "open") { t = `${b.round_ms / 60_000}:00`; lbl = "Waiting"; prog = 1; }
+  else if (p === "live" || p === "frozen") {
+    const ms = Math.max(0, b.cur_end_ms - Date.now()), s = Math.ceil(ms / 1000);
+    t = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; prog = ms / b.round_ms;
+    if (p === "frozen") lbl = "Closing";
+  } else if (p === "ended") { t = "Drawing"; lbl = "Picking the winner"; }
+  $("sTime").textContent = t; $("sPhase").textContent = lbl;
+  $("sProg").style.transform = `scaleX(${Math.min(1, prog).toFixed(4)})`;
+  document.querySelector(".round-bar").dataset.phase = p;
 
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
   $("totalCost").textContent = fmt(per * selected.size, 4);
 
-  const m = USER?.miner;
-  const claimable = !!(m && m.round_id !== 0 && b && m.round_id < b.cur_id);
+  const claimable = rewards().ready;
   const min = b ? b.min_deploy / MIST : 0.01;
   if (!busy) {
     let label = "Deploy", dis = false;
@@ -435,17 +628,19 @@ function renderMine() {
     else if (p === "frozen") { label = "Round closing"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
+    else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   }
-  $("claimRow").hidden = !claimable;
   let hint = `Minimum ${min} SUI per tile. Every participant mines GTS.`;
-  if (p === "ended") hint = "Round ended. It settles automatically within seconds, or settle it yourself.";
+  if (p === "ended") hint = "The round has ended. The winner is drawn within seconds.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
-  else if (claimable) hint = "Your previous round is claimed automatically with your next deploy.";
+  else if (claimable) hint = "Your last round is claimed automatically with your next deploy.";
   $("playHint").textContent = hint;
-  $("myGts").textContent = USER ? sui(USER.gts) : "—";
-  $("mySui").textContent = USER ? sui(USER.sui) : "—";
+  $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
+  $("mySui").textContent = USER ? sui(USER.sui, 3) : "—";
+  document.querySelector(".rw-bal").hidden = !USER;
+  renderRewards(); renderResult(); renderRecent(); renderFeed();
 }
 
 // ---------- render: explorer ----------
@@ -584,7 +779,6 @@ function renderTokenomics() {
   $("kMinedPct").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
   $("kSchedMax").textContent = `≈ ${fmt(Math.round(cumAt(genesis || now, EMISSION_END) / 1000) * 1000, 0)}`;
   $("kDevLink").textContent = short(IDS.dev); $("kDevLink").href = `${SCAN}/account/${IDS.dev}`;
-  renderRedeem();
   $("kBurned").textContent = burned == null ? "—" : fmt(burned, 3);
   $("kReserve").textContent = `${sui(STATE.vault, 3)} SUI`;
   $("kFloor").textContent = `${fmt(STATE.floor, 5)} SUI`;
@@ -707,18 +901,69 @@ function renderStake() {
     $("btnCompound").disabled = !account || pending <= 0n;
   }
 }
-function renderRedeem() {
-  if (!busy) $("btnRedeem").textContent = account ? "Redeem" : "Connect wallet";
-  const a = parseAmt($("redeemAmt").value);
-  $("redeemOut").textContent = STATE && STATE.supply ? fmt(STATE.vault * a / STATE.supply, 6) : "0";
+// ---------- prices + trade ----------
+let PRICE = { sui: null, chg: null };
+async function loadPrice() {
+  try {
+    const j = await (await fetch("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd&include_24hr_change=true")).json();
+    if (!j.sui?.usd) throw new Error("no price");
+    PRICE = { sui: j.sui.usd, chg: j.sui.usd_24h_change };
+  } catch {
+    try {
+      const j = await (await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT")).json();
+      PRICE = { sui: +j.lastPrice, chg: +j.priceChangePercent };
+    } catch {}
+  }
+  render();
+}
+// $1.23, $0.0456, $0.000123: two decimals above $1, three significant digits below.
+const usd = x => x == null || !isFinite(x) ? "—" : x >= 1 ? `$${fmt(x, 2)}` : x === 0 ? "$0" : `$${Number(x.toPrecision(3))}`;
+const gtsUsd = () => (PRICE.sui && STATE ? STATE.floor * PRICE.sui : null);
+function renderTicker() {
+  $("tSuiUsd").textContent = usd(PRICE.sui);
+  $("tGtsUsd").textContent = STATE ? (PRICE.sui ? usd(gtsUsd()) : `${fmt(STATE.floor, 5)} SUI`) : "—";
+  const c = $("tSuiChg");
+  c.hidden = PRICE.chg == null;
+  if (PRICE.chg != null) { c.textContent = `${PRICE.chg >= 0 ? "+" : ""}${fmt(PRICE.chg, 2)}%`; c.classList.toggle("dn", PRICE.chg < 0); }
+}
+
+let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS (needs a market)
+function renderTrade() {
+  const sell = swapDir === "sell";
+  const [tin, tout] = sell ? ["GTS", "SUI"] : ["SUI", "GTS"];
+  $("swTokIn").textContent = tin; $("swTokOut").textContent = tout;
+  $("swIconIn").className = `tok ${tin.toLowerCase()}`; $("swIconOut").className = `tok ${tout.toLowerCase()}`;
+  const balIn = USER ? (sell ? USER.gts : USER.sui) : 0, balOut = USER ? (sell ? USER.sui : USER.gts) : 0;
+  $("swBalIn").textContent = USER ? `Balance ${sui(balIn, 4)}` : "Balance —";
+  $("swBalOut").textContent = USER ? `Balance ${sui(balOut, 4)}` : "";
+  const amt = parseAmt($("swIn").value);
+  const floor = STATE?.floor || 0;
+  const out = sell && STATE?.supply ? STATE.vault * amt / STATE.supply : 0;
+  $("swOut").textContent = sell ? fmt(out, 6) : "—";
+  $("swUsdIn").textContent = PRICE.sui ? usd(amt * (sell ? floor : 1) * PRICE.sui) : "";
+  $("swUsdOut").textContent = PRICE.sui && sell ? usd(out * PRICE.sui) : "";
+  $("swRate").textContent = STATE ? `1 GTS = ${fmt(floor, 6)} SUI` : "—";
+  $("swRoute").textContent = sell ? "GTS reserve (burn at floor)" : "No GTS pool yet";
+  $("swHint").innerHTML = sell
+    ? "Sells GTS to the on-chain reserve at the floor price. The GTS is burned and SUI is sent to your wallet."
+    : `GTS has no trading pool yet, so it cannot be bought. <a href="#mine">Mine GTS</a> on the board: every player earns it each round.`;
+  if (!busy) {
+    const btn = $("btnSwap"), need = toMist($("swIn").value);
+    let label = "Swap", dis = false;
+    if (!sell) { label = "No GTS market yet"; dis = true; }
+    else if (!account) label = "Connect wallet";
+    else if (need <= 0) { label = "Enter an amount"; dis = true; }
+    else if (need > balIn) { label = "Insufficient GTS"; dis = true; }
+    btn.textContent = label; btn.disabled = dis;
+  }
+  document.querySelectorAll("#swPct button").forEach(b => (b.disabled = !sell));
 }
 
 function render() {
-  $("tFloor").textContent = STATE ? `${fmt(STATE.floor, 5)} SUI` : "—";
-  $("tGtsWrap").hidden = !USER; if (USER) $("tGts").textContent = sui(USER.gts, 4);
-  renderWallet();
+  renderTicker(); renderWallet(); renderRewards();
   if (view === "home") renderHome();
   if (view === "mine") { renderBoard(); renderMine(); }
+  if (view === "trade") renderTrade();
   if (view === "explorer") renderExplorer();
   if (view === "tokenomics") renderTokenomics();
   if (view === "stake") renderStake();
@@ -726,7 +971,7 @@ function render() {
 async function refresh() {
   try {
     const [g, u] = await Promise.all([loadGlobal(), account ? loadUser(account.address) : Promise.resolve(null)]);
-    STATE = g; USER = u; render();
+    STATE = g; USER = u; trackRounds(); render();
   } catch (e) { console.warn("refresh failed", e); }
 }
 let histBusy = false;
@@ -768,9 +1013,19 @@ $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "
 $("selAll").onclick = () => { selected = new Set([...Array(25).keys()]); render(); };
 $("selNone").onclick = () => { selected.clear(); render(); };
 $("btnPlay").onclick = () => (account && phase() === "ended" ? settle() : play());
-$("btnClaim").onclick = claim;
+$("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
+$("hdrClaim").onclick = claimAll;
+$("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
+$("btnSwap").onclick = () => (account ? swap() : openWalletModal());
+$("swIn").addEventListener("input", renderTrade);
+$("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; renderTrade(); };
+$("swBalIn").onclick = () => { if (USER && swapDir === "sell") { $("swIn").value = String(USER.gts / MIST); renderTrade(); } };
+document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
+  if (!USER) return openWalletModal();
+  const v = +b.dataset.pct === 100 ? USER.gts : Math.floor(USER.gts * +b.dataset.pct / 100);
+  $("swIn").value = String(v / MIST); renderTrade();
+}));
 $("btnStake").onclick = () => (account ? stake() : openWalletModal());
-$("btnRedeem").onclick = () => (account ? redeem() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));
 document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
@@ -786,8 +1041,6 @@ document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button")
 $("btnStakeClaim").onclick = () => (account ? claimStake() : openWalletModal());
 $("btnCompound").onclick = () => (account ? compound() : openWalletModal());
 $("stakeAmt").addEventListener("input", renderStake);
-$("redeemMax").onclick = () => { if (USER) { $("redeemAmt").value = String(USER.gts / MIST); renderRedeem(); } };
-$("redeemAmt").addEventListener("input", renderRedeem);
 $("moreAct").onclick = () => { actShown += 25; renderExplorer(); };
 window.addEventListener("hashchange", route);
 window.addEventListener("resize", () => { if (view === "tokenomics" && $("chart").clientWidth !== chartSize) renderTokenomics(); });
@@ -804,7 +1057,9 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) chec
 $("netNotice").hidden = CFG.network === "mainnet";
 $("pkgLink").href = `${SCAN}/object/${IDS.package}`;
 $("amt").value = "0.01";
-buildBoard(); buildArt(); route(); refresh(); autoReconnect();
-setInterval(refresh, 4000);
+buildBoard(); buildArt(); route(); autoReconnect(); loadPrice();
+setInterval(loadPrice, 60_000);
+// Poll faster on the board, fastest while a finished round is waiting to be drawn.
+(function poll() { refresh().finally(() => setTimeout(poll, view !== "mine" ? 4000 : phase() === "ended" ? 1000 : 2000)); })();
 setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 15000);
-setInterval(() => { if (view === "mine") renderMine(); if (view === "stake") renderStake(); }, 1000);
+setInterval(() => { if (view === "mine") { renderBoard(); renderMine(); } if (view === "stake") renderStake(); }, 1000);

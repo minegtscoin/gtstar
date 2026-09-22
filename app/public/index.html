@@ -22,14 +22,16 @@
     </a>
     <nav class="tabs" aria-label="Main">
       <a href="#mine" data-view="mine">Mine</a>
+      <a href="#trade" data-view="trade">Trade</a>
+      <a href="#stake" data-view="stake">Stake</a>
       <a href="#explorer" data-view="explorer">Explorer</a>
       <a href="#tokenomics" data-view="tokenomics">Tokenomics</a>
-      <a href="#stake" data-view="stake">Stake</a>
       <a href="docs.html">Docs</a>
     </nav>
     <div class="bar-right">
-      <div class="ticker"><span class="k">Floor</span><span class="v" id="tFloor">—</span></div>
-      <div class="ticker" id="tGtsWrap" hidden><span class="k">GTS</span><span class="v" id="tGts">—</span></div>
+      <div class="ticker" title="GTS, valued at the reserve floor"><i class="tok gts" aria-hidden="true"></i><span class="v" id="tGtsUsd">—</span></div>
+      <div class="ticker" title="SUI, 24h change"><i class="tok sui" aria-hidden="true"></i><span class="v" id="tSuiUsd">—</span><span class="chg" id="tSuiChg"></span></div>
+      <button class="pill gold-pill" id="hdrClaim" type="button" hidden>Claim</button>
       <div class="acct">
         <button class="pill" id="btnConnect" type="button" aria-haspopup="true">Connect</button>
         <div class="menu" id="acctMenu" hidden>
@@ -92,16 +94,24 @@
   <!-- MINE -->
   <section class="view" id="view-mine" hidden>
     <div class="mine">
-      <div class="board-wrap">
-        <div class="board" id="board" role="grid" aria-label="Game board"></div>
+      <div class="board-col">
+        <div class="round-bar">
+          <div class="rb"><span>Round</span><b id="sRound">—</b></div>
+          <div class="rb"><span>Players</span><b id="sPlayers">—</b></div>
+          <div class="rb"><span>Pot, SUI</span><b id="sDeployed">—</b></div>
+          <div class="rb rb-time"><span id="sPhase">Time left</span><b id="sTime">—</b></div>
+          <div class="prog" aria-hidden="true"><i id="sProg"></i></div>
+        </div>
+        <div class="result" id="result" role="status" aria-live="polite" hidden></div>
+        <div class="board-wrap">
+          <div class="board" id="board" role="grid" aria-label="Game board"></div>
+        </div>
+        <div class="recent">
+          <span class="lbl">Recent winning tiles</span>
+          <div class="recent-list" id="recent"></div>
+        </div>
       </div>
       <aside class="side">
-        <div class="stats3">
-          <div><b id="sDeployed">—</b><span>Deployed</span></div>
-          <div><b id="sRound">—</b><span>Round</span></div>
-          <div><b id="sTime">—</b><span>Time</span></div>
-        </div>
-        <div class="row-line"><span class="lbl">Last round</span><a class="val link" id="lastRound" href="#explorer">—</a></div>
         <div class="amount">
           <input id="amt" type="text" inputmode="decimal" value="0" aria-label="SUI per tile" autocomplete="off" />
           <span class="unit">SUI per tile</span>
@@ -114,19 +124,64 @@
         </div>
         <div class="row-line">
           <span class="lbl">Tiles</span>
-          <span class="val tiles-ctl"><button type="button" class="chip" id="selAll">All</button><button type="button" class="chip" id="selNone">None</button><b id="tileCount">0</b></span>
+          <span class="val tiles-ctl"><button type="button" class="chip" id="selAll">All</button><button type="button" class="chip" id="selRand">Random</button><button type="button" class="chip" id="selNone">None</button><b id="tileCount">0</b></span>
         </div>
         <div class="row-line"><span class="lbl">Total</span><span class="val"><b id="totalCost">0</b> SUI</span></div>
         <button class="primary" id="btnPlay" type="button">Deploy</button>
         <p class="hint" id="playHint"></p>
-        <div class="divider"></div>
-        <div class="row-line"><span class="lbl">Your GTS</span><span class="val"><b id="myGts">—</b></span></div>
-        <div class="row-line"><span class="lbl">Your SUI</span><span class="val"><b id="mySui">—</b></span></div>
-        <div class="row-line" id="claimRow" hidden>
-          <span class="lbl">Unclaimed round</span>
-          <span class="val"><button class="chip strong" id="btnClaim" type="button">Claim</button></span>
+        <div class="rewards">
+          <div class="rw-h"><span class="lbl">Rewards</span><span class="rw-bal">Wallet <b id="mySui">—</b> SUI · <b id="myGts">—</b> GTS</span></div>
+          <div class="rw"><span><i class="tok sui" aria-hidden="true"></i>SUI winnings</span><b id="rwSui">0</b></div>
+          <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Mined GTS</span><b id="rwGts">0</b></div>
+          <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Staking yield</span><b id="rwYield">0</b></div>
+          <button class="gold-btn" id="btnClaimAll" type="button">Claim all</button>
         </div>
       </aside>
+    </div>
+    <div class="live">
+      <div class="block-h"><h2 id="liveTitle">Live round</h2><span class="muted" id="liveSub"></span></div>
+      <div class="feed-live" id="feed"></div>
+    </div>
+  </section>
+
+  <!-- TRADE -->
+  <section class="view" id="view-trade" hidden>
+    <div class="ore-card">
+      <div class="ore-head"><h1>Trade</h1><p class="sub">Swap between GTS and SUI.</p></div>
+      <div class="swap">
+        <div class="sw-box">
+          <div class="sw-top"><span>You pay</span><button type="button" class="sw-bal" id="swBalIn">Balance —</button></div>
+          <div class="sw-row">
+            <input id="swIn" type="text" inputmode="decimal" placeholder="0" aria-label="Amount to pay" autocomplete="off" />
+            <span class="tok-pill"><i class="tok" id="swIconIn" aria-hidden="true"></i><b id="swTokIn">GTS</b></span>
+          </div>
+          <div class="sw-usd" id="swUsdIn">$0.00</div>
+        </div>
+        <button type="button" class="sw-flip" id="swFlip" aria-label="Switch direction">
+          <svg viewBox="0 0 24 24"><path d="M7 4v16M7 20l-4-4M7 20l4-4M17 20V4M17 4l-4 4M17 4l4 4"/></svg>
+        </button>
+        <div class="sw-box">
+          <div class="sw-top"><span>You receive</span><span class="sw-bal" id="swBalOut"></span></div>
+          <div class="sw-row">
+            <output id="swOut">0</output>
+            <span class="tok-pill"><i class="tok" id="swIconOut" aria-hidden="true"></i><b id="swTokOut">SUI</b></span>
+          </div>
+          <div class="sw-usd" id="swUsdOut">$0.00</div>
+        </div>
+      </div>
+      <div class="quick" id="swPct">
+        <button type="button" data-pct="25">25%</button>
+        <button type="button" data-pct="50">50%</button>
+        <button type="button" data-pct="75">75%</button>
+        <button type="button" data-pct="100">MAX</button>
+      </div>
+      <button class="primary" id="btnSwap" type="button">Swap</button>
+      <p class="hint" id="swHint"></p>
+      <dl class="dl">
+        <div><dt>Rate</dt><dd id="swRate">—</dd></div>
+        <div><dt>Route</dt><dd id="swRoute">—</dd></div>
+        <div><dt>Fee</dt><dd>None</dd></div>
+      </dl>
     </div>
   </section>
 
@@ -251,13 +306,8 @@
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Redeem from reserve</h2></div>
-        <p class="note-sm" style="margin:0 0 10px">Burn GTS for your share of the SUI reserve at any time. This is what gives GTS its floor.</p>
-        <div class="input-row">
-          <input id="redeemAmt" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="GTS to redeem" />
-          <span class="suffix">GTS</span><button type="button" class="chip" id="redeemMax">Max</button>
-        </div>
-        <div class="row-line"><span class="lbl">You receive</span><span class="val"><b id="redeemOut">0</b> SUI</span></div>
-        <button class="secondary" id="btnRedeem" type="button">Redeem</button>
+        <p class="note-sm" style="margin:0 0 12px">Burn GTS for your share of the SUI reserve at any time. This is what gives GTS its floor.</p>
+        <a class="secondary btn-link" href="#trade">Sell GTS to the reserve</a>
       </div>
     </div>
   </section>
