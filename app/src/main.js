@@ -220,6 +220,7 @@ function friendlyError(e) {
   if (mod && ERRORS[mod]?.[code]) return ERRORS[mod][code];
   if (/reject|cancel/i.test(m)) return "Transaction cancelled.";
   if (/InsufficientGas|insufficient|GasBalanceTooLow|balance/i.test(m)) return "Insufficient SUI balance.";
+  if (/not found|deleted|version/i.test(m)) return "Your balance just changed. Try again.";
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
 }
@@ -239,6 +240,9 @@ async function exec(label, btnId, build, needMist = 0) {
   const b = $(btnId), old = b.textContent;
   b.disabled = true; b.textContent = "Confirm in wallet";
   try {
+    // Re-read the wallet's objects first: coin and miner IDs from a cached view
+    // may already have been consumed by an earlier transaction.
+    USER = await loadUser(account.address);
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
