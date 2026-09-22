@@ -6,7 +6,7 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 
-const WINDOW_MS = 25_000;
+const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async () => {
