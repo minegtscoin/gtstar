@@ -303,6 +303,7 @@
           <div><dt>Unclaimed by miners</dt><dd id="kUnclaimed">—</dd></div>
         </dl>
       </div>
+      <div class="t-stack">
       <div class="panel">
         <div class="panel-h"><h2>Market and backing</h2></div>
         <dl class="dl">
@@ -313,6 +314,16 @@
           <div><dt>Staked share of supply</dt><dd id="kStakedPct">—</dd></div>
         </dl>
         <p class="note-sm">Market price is read from the Cetus GTS/SUI pool. The floor is what the reserve pays for each GTS when it is burned.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>Add to the reserve</h2></div>
+        <p class="note-sm" style="margin:0">Send SUI straight into the reserve. It raises the floor for every GTS holder at once. It is a gift: it can only leave the reserve when GTS is burned.</p>
+        <div class="amount">
+          <input id="resAmt" type="text" inputmode="decimal" placeholder="0" aria-label="SUI to add to the reserve" autocomplete="off" />
+          <span class="unit" id="resNote">SUI</span>
+        </div>
+        <button class="primary" id="btnReserve" type="button">Add to reserve</button>
+      </div>
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Fair launch</h2></div>
@@ -332,15 +343,6 @@
           <div><dt>Creator</dt><dd>1%</dd></div>
         </dl>
         <p class="note-sm">If no one deployed on the winning tile, the winners' 95% rolls into the Supernova. Every round with a winner has a 1 in 100 chance to pay the whole Supernova to the winning tile, split like the pot. The GTStar House wallet never keeps any of it.</p>
-      </div>
-      <div class="panel">
-        <div class="panel-h"><h2>Add to the reserve</h2></div>
-        <p class="note-sm" style="margin:0">Send SUI straight into the reserve. It raises the floor for every GTS holder at once. It is a gift: it can only leave the reserve when GTS is burned.</p>
-        <div class="amount">
-          <input id="resAmt" type="text" inputmode="decimal" placeholder="0" aria-label="SUI to add to the reserve" autocomplete="off" />
-          <span class="unit" id="resNote">SUI</span>
-        </div>
-        <button class="primary" id="btnReserve" type="button">Add to reserve</button>
       </div>
     </div>
   </section>
