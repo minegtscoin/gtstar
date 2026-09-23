@@ -535,6 +535,8 @@ function roundPlayers(round) {
   return [...m.values()].sort((x, y) => (y.ts > x.ts ? 1 : -1));
 }
 const winOf = (p, r) => { const w = p.amounts[r.tile] || 0; return w > 0 && r.winners > 0 ? w + Math.floor(r.payout * w / r.winners) : 0; };
+// Profit on the winning tile: the share of the losing tiles, without the stake that comes back.
+const profitOf = (p, r) => winOf(p, r) - (p.amounts[r.tile] || 0);
 
 // Round reveal: tiles flicker while the round is being drawn, then slow down and land on the winner.
 let lastSeen = null, reveal = null, scanT = null;
@@ -617,16 +619,18 @@ function renderResult() {
   if (!L || !b || reveal?.landing || (b.cur_started && !fresh)) { box.hidden = true; return; }
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
-  const pot = L.winners + L.payout;
-  let sub = L.winners > 0
-    ? `${winners.length || "The"} ${winners.length === 1 ? "winner takes" : "winners split"} ${sui(pot, 4)} SUI`
-    : "No one was on this tile. The pot went to the reserve.";
-  if (winners[0]) sub += ` · Top <span${nameOf(winners[0].p.player) ? "" : ' class="mono"'}>${esc(winners[0].p.player === account?.address ? "You" : label(winners[0].p.player))}</span> +${sui(winners[0].won, 4)} SUI`;
+  const n = winners.length;
+  let sub = L.winners === 0 ? "No one was on this tile. The pot went to the reserve."
+    : L.payout > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI from the other tiles`
+    : "Only this tile was played. Stakes returned.";
+  const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
+  if (top && topProfit > 0) sub += ` · Top <span${nameOf(top.p.player) ? "" : ' class="mono"'}>${esc(top.p.player === account?.address ? "You" : label(top.p.player))}</span> +${sui(topProfit, 4)} SUI`;
+  // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
-  const m = USER?.miner;
-  if (m && m.round_id === L.round && rewards().sui > 0) me = `<div class="res-me won">You won <b>+${sui(rewards().sui, 4)} SUI</b></div>`;
-  const youWon = !!(m && m.round_id === L.round && rewards().sui > 0);
-  if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(rewards().sui, 4)} SUI on tile ${L.tile + 1}.`); }
+  const m = USER?.miner, back = m && m.round_id === L.round ? rewards().sui : 0, net = back - (m?.total || 0);
+  if (back > 0) me = net > 0 ? `<div class="res-me won">You won <b>+${sui(net, 4)} SUI</b></div>` : `<div class="res-me">Your tile won · <b>${sui(back, 4)} SUI back</b></div>`;
+  const youWon = back > 0 && net > 0;
+  if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}.`); }
   box.hidden = false;
   box.classList.toggle("fresh", !!fresh);
   box.classList.toggle("won", youWon);
@@ -743,6 +747,8 @@ function renderMine() {
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
   $("totalCost").textContent = fmt(per * selected.size, 4);
+  $("mbTiles").textContent = `${selected.size} ${selected.size === 1 ? "tile" : "tiles"} · ${fmt(per, 4)} SUI each`;
+  $("mbTotal").textContent = `Total ${fmt(per * selected.size, 4)} SUI`;
 
   const claimable = rewards().ready;
   const min = b ? b.min_deploy / MIST : 0.01;
@@ -817,11 +823,11 @@ function renderActivity() {
   if (actTab === "rounds") {
     $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
     const rows = HIST.rounds.slice(0, actShown);
-    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Winnings</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
+    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
       const winner = w.size === 0 ? `<span class="muted">Reserve</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
-      const winnings = r.winners > 0 ? r.winners + r.payout : 0;
+      const winnings = r.winners > 0 ? r.payout : 0;
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
         <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td><td class="r">${sui(vaulted(r), 4)}</td>
@@ -856,10 +862,10 @@ function minersHtml(r) {
   const agg = new Map();
   list.forEach(d => { const a = agg.get(d.player) || { total: 0, onWin: 0 }; a.total += d.total; a.onWin += d.amounts[r.tile] || 0; agg.set(d.player, a); });
   return `<div class="miners">` + [...agg.entries()].sort((x, y) => y[1].total - x[1].total).map(([p, a]) => {
-    const won = a.onWin > 0 && r.winners > 0 ? a.onWin + Math.floor(r.payout * a.onWin / r.winners) : 0;
+    const won = a.onWin > 0 && r.winners > 0 ? Math.floor(r.payout * a.onWin / r.winners) : 0;
     const gts = r.total ? r.reward * a.total / r.total : 0;
     return `<div class="m">${acctLink(p)}<span>${sui(a.total, 3)} SUI deployed · ${sui(gts, 4)} GTS mined</span>
-      <span class="${won ? "won" : "muted"}">${won ? `Won ${sui(won, 4)} SUI` : "No SUI win"}</span></div>`;
+      <span class="${won ? "won" : "muted"}">${won ? `Won +${sui(won, 4)} SUI` : a.onWin > 0 && r.winners > 0 ? "Stake returned" : "No SUI win"}</span></div>`;
   }).join("") + `</div>`;
 }
 function renderRevenue() {
@@ -884,10 +890,10 @@ function renderLeaderboard() {
     const m = new Map(); HIST.deployed.forEach(e => m.set(e.j.player, (m.get(e.j.player) || 0) + num(e.j.total)));
     rows = [...m.entries()];
   } else if (lbTab === "winners") {
-    sub = "Top winners by total SUI won.";
+    sub = "Top winners by SUI won from other tiles (stakes returned are not counted).";
     const m = new Map();
-    HIST.rounds.forEach(r => { if (!r.winners) return; winnersOf(r).forEach((amt, p) => m.set(p, (m.get(p) || 0) + amt + Math.floor(r.payout * amt / r.winners))); });
-    rows = [...m.entries()];
+    HIST.rounds.forEach(r => { if (!r.winners) return; winnersOf(r).forEach((amt, p) => m.set(p, (m.get(p) || 0) + Math.floor(r.payout * amt / r.winners))); });
+    rows = [...m.entries()].filter(([, v]) => v > 0);
   } else {
     sub = "Top stakers by GTS currently staked."; unit = "GTS";
     rows = [...HIST.stakes.entries()].filter(([, v]) => v > 0);
@@ -1085,7 +1091,14 @@ function renderTrade() {
   $("swRate").textContent = rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
   $("swRoute").textContent = viaPool ? "Cetus GTS/SUI pool" : "GTS reserve (burn at floor)";
   $("swFee").textContent = viaPool ? `1% pool fee, ${SLIPPAGE * 100}% max slippage` : "None";
-  $("swHint").textContent = sell
+  // Price impact: how far this trade's price is from the pool's current price, fee included.
+  const spot = STATE?.market || 0, px = known ? (sell ? outMist / need : need / outMist) : 0;
+  const impact = viaPool && spot && px ? (sell ? 1 - px / spot : px / spot - 1) : 0;
+  const warn = impact >= 0.05;
+  $("swHint").classList.toggle("warn", warn);
+  $("swHint").textContent = warn
+    ? `Price impact ${fmt(impact * 100, 1)}%. ${sell ? "You receive" : "You pay"} ${fmt(impact * 100, 1)}% ${sell ? "less" : "more per GTS"} than at the current pool price of ${fmt(spot, 6)} SUI per GTS, because the pool is small. A smaller amount gets a better price.`
+    : sell
     ? "Sells at the better of two prices: the GTS/SUI pool, or the on-chain reserve at the floor price (the GTS is burned). The route is picked for the exact amount."
     : "Buys GTS directly from the GTS/SUI pool. The price moves with the size of the trade.";
   if (!busy) {
@@ -1188,6 +1201,15 @@ $("amt").addEventListener("focus", e => { if (e.target.value === "0") e.target.v
 $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "0"; });
 $("selAll").onclick = () => { selected = new Set([...Array(25).keys()]); render(); };
 $("selNone").onclick = () => { selected.clear(); render(); };
+// Phones: while the real Deploy button is off screen, a fixed bar mirrors it (same label, same state, same action).
+const syncBar = () => { $("mbPlay").textContent = $("btnPlay").textContent; $("mbPlay").disabled = $("btnPlay").disabled; };
+new MutationObserver(syncBar).observe($("btnPlay"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+new IntersectionObserver(([e]) => {
+  $("mbar").hidden = e.isIntersecting;
+  document.body.classList.toggle("mbar-on", !$("mbar").hidden);
+}).observe($("btnPlay"));
+$("mbPlay").onclick = () => $("btnPlay").click();
+$("mbSum").onclick = () => $("amt").scrollIntoView({ behavior: "smooth", block: "center" });
 $("btnPlay").onclick = async () => {
   if (!(account && phase() === "ended")) return play();
   const r = await settle();

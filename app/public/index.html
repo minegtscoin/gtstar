@@ -7,6 +7,21 @@
 <meta name="description" content="GTStar is a fair mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta name="theme-color" content="#09090d" />
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="GTStar" />
+<meta property="og:title" content="GTStar: Mine GTS. Backed by SUI." />
+<meta property="og:description" content="A 60-second mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta property="og:url" content="https://minegts.fun/" />
+<meta property="og:image" content="https://minegts.fun/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="GTStar: Mine GTS. Backed by SUI." />
+<meta name="twitter:description" content="A 60-second mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="twitter:image" content="https://minegts.fun/og.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -136,12 +151,16 @@
         <p class="hint" id="playHint"></p>
         <div class="rewards">
           <div class="rw-h"><span class="lbl">Rewards</span><span class="rw-bal">Wallet <b id="mySui">—</b> SUI · <b id="myGts">—</b> GTS</span></div>
-          <div class="rw"><span><i class="tok sui" aria-hidden="true"></i>SUI winnings</span><b id="rwSui">0</b></div>
+          <div class="rw"><span><i class="tok sui" aria-hidden="true"></i>SUI to claim</span><b id="rwSui">0</b></div>
           <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Mined GTS</span><b id="rwGts">0</b></div>
           <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Staking yield</span><b id="rwYield">0</b></div>
           <button class="gold-btn" id="btnClaimAll" type="button">Claim all</button>
         </div>
       </aside>
+    </div>
+    <div class="mbar" id="mbar" hidden>
+      <button type="button" class="mb-sum" id="mbSum"><b id="mbTiles">0 tiles</b><span id="mbTotal">0 SUI</span></button>
+      <button type="button" class="pill" id="mbPlay">Deploy</button>
     </div>
     <div class="live">
       <div class="block-h"><h2 id="liveTitle">Live round</h2><span class="muted" id="liveSub"></span></div>
