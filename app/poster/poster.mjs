@@ -1,4 +1,4 @@
-// GTStar X poster — Hostinger cron entry (runs once a day, posts at most every POST_EVERY_H hours).
+// GTStar X poster — Hostinger cron entry (runs once a day, posts once a week).
 // Reads live protocol data from Sui, compares it with the last posted snapshot, and posts one
 // update to X through the v2 API (OAuth 1.0a user context). No dependencies: Node 22 only.
 //   node poster.mjs            post if due
@@ -18,7 +18,7 @@ if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").
 }
 const DRY = process.argv.includes("--dry");
 const FORCE = process.argv.includes("--force");
-const POST_EVERY_H = Number(process.env.POST_EVERY_H) || 84; // 3.5 days
+const POST_EVERY_H = Number(process.env.POST_EVERY_H) || 167; // weekly (an hour of slack for cron timing)
 const stateFile = path.join(dir, "state.json");
 
 const IDS = {
@@ -87,10 +87,12 @@ async function suiUsd() {
 }
 
 // ---------- text ----------
+// One post a week, rotating between four angles. Every number comes from the chain; nothing is invented.
 const fmt = (x, dp = 2) => x.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const int = x => Math.round(x).toLocaleString("en-US");
 const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
 const usd = x => (x >= 0.01 ? "$" + fmt(x, 2) : "$" + x.toPrecision(2));
+const small = x => (x >= 100 ? int(x) : fmt(x, x >= 1 ? 2 : 3));
 
 const MILESTONES = {
   rounds: [100, 500, 1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000],
@@ -101,53 +103,59 @@ function milestone(prev, s) {
   if (!prev) return null;
   const crossed = k => MILESTONES[k].filter(v => prev[k] < v && s[k] >= v).pop();
   const r = crossed("rounds");
-  if (r) return `Milestone: ${int(r)} rounds mined on GTStar.`;
+  if (r) return `Milestone: ${int(r)} rounds played on GTStar.`;
   const v = crossed("vault");
-  if (v) return `Milestone: the GTS reserve now holds over ${int(v)} SUI.`;
+  if (v) return `Milestone: the GTS reserve just passed ${int(v)} SUI.`;
   const g = crossed("supply");
   if (g) return `Milestone: ${int(g)} GTS mined by players.`;
   return null;
 }
 
-function nextHalving(genesis) {
+function daysToHalving(genesis) {
   if (!genesis) return null;
   const t = genesis + Math.ceil((Date.now() - genesis) / HALVING_MS) * HALVING_MS;
-  return Math.round((t - Date.now()) / 86_400_000);
+  return Math.max(1, Math.round((t - Date.now()) / 86_400_000));
 }
 
 function compose(s, prev, a, price, variant) {
-  const lines = [];
+  const week = s.genesis ? Math.floor((s.ts - s.genesis) / (7 * 86_400_000)) + 1 : null;
+  const unmined = 100 - pct(s.supply, MAX_SUPPLY);
   const floorUsd = price ? ` (${usd(s.floor * price)})` : "";
+  const dv = a.vaultIn;
+  const h = daysToHalving(s.genesis);
+  const active = a.rounds > 0;
+  let v = variant;
+  if (!active && (v === 0 || v === 2)) v = 3;
+  let body;
+  if (v === 0) body = [
+    `GTStar weekly${week ? `, week ${week}` : ""}.`, "",
+    `${int(a.rounds)} rounds played`,
+    `${small(a.sui)} SUI deployed`,
+    `${small(a.mined)} GTS mined by players`,
+    `Reserve now ${small(s.vault)} SUI`, "",
+    `${fmt(unmined, 2)}% of all GTS is still unmined, and emission halves every 6 months. The earlier you mine, the more you get.`,
+  ];
+  else if (v === 1) body = [
+    "Every GTS is backed by real SUI.", "",
+    dv > 0 && dv < s.vault ? `The reserve grew +${small(dv)} SUI this week to ${small(s.vault)} SUI.` : `The reserve holds ${small(s.vault)} SUI.`,
+    `Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}. Burn GTS any time for your share.`, "",
+    "It grows as more people play. No premine, no team tokens.",
+  ];
+  else if (v === 2) body = [
+    `Biggest pot this week: ${small(a.biggest)} SUI.`, "",
+    "A new round every 60 seconds. One tile takes the pot, and every player mines GTS, win or lose.", "",
+    `This week: ${int(a.rounds)} rounds, ${small(a.sui)} SUI deployed, ${small(a.mined)} GTS mined.`,
+  ];
+  else body = [
+    h ? `Next GTS halving in ${int(h)} days.` : "GTS emission halves every 6 months.", "",
+    "After it, every round mints half as much GTS. Mine now, stake what you mine, and earn more GTS with no lock-up.", "",
+    `Staked: ${small(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`,
+  ];
+  const tail = ["", "Play: https://minegts.fun"];
   const head = milestone(prev, s);
-  const days = prev ? Math.max(1, Math.round((s.ts - prev.ts) / 86_400_000)) : null;
-
-  if (variant === 0 || head) {
-    lines.push(head || "GTStar update.", "");
-    if (a && a.rounds) lines.push(`Last ${days} days: ${int(a.rounds)} rounds, ${fmt(a.sui)} SUI deployed.`);
-    lines.push(`Total mined: ${fmt(s.supply)} GTS of ${int(MAX_SUPPLY)} max.`);
-    lines.push(`Reserve: ${fmt(s.vault)} SUI backing all GTS.`);
-    lines.push(`Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}.`);
-  } else if (variant === 1) {
-    lines.push(prev && s.vault > prev.vault ? "The GTS reserve keeps growing." : "The GTS reserve.", "");
-    lines.push("4% of every losing pot goes into an on-chain SUI reserve. Any holder can burn GTS for a pro-rata share of it.", "");
-    if (prev && s.vault > prev.vault) lines.push(`Reserve: ${fmt(s.vault)} SUI (+${fmt(s.vault - prev.vault)} in ${days} days).`);
-    else lines.push(`Reserve: ${fmt(s.vault)} SUI.`);
-    lines.push(`Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}.`);
-    if (s.burned > 0) lines.push(`Burned so far: ${fmt(s.burned)} GTS.`);
-  } else if (variant === 2) {
-    lines.push("Staking update.", "");
-    lines.push("Stake GTS, earn GTS. No lock-up. Stakers receive an extra 10% on top of every round's emission.", "");
-    lines.push(`Staked: ${fmt(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`);
-    lines.push(`Total mined: ${fmt(s.supply)} GTS.`);
-  } else {
-    const h = nextHalving(s.genesis);
-    lines.push("How GTS is mined.", "");
-    lines.push("A round every 60 seconds. Deploy SUI on any of 25 tiles. One tile wins the pot, and every player mines GTS by their share of the round.", "");
-    if (a && a.rounds) lines.push(`Last ${days} days: ${int(a.rounds)} rounds, biggest pot ${fmt(a.biggest)} SUI.`);
-    if (h != null) lines.push(`Next emission halving in ${int(h)} days.`);
-  }
-  lines.push("", "https://minegts.fun");
-  return lines.join("\n");
+  const withHead = head ? [head, "", ...body, ...tail].join("\n") : null;
+  const plain = [...body, ...tail].join("\n");
+  return withHead && xLength(withHead) <= 280 ? withHead : plain;
 }
 
 // X counts every URL as 23 characters.
@@ -179,7 +187,18 @@ const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "
 if (!FORCE && !DRY && state.last && Date.now() - state.last.ts < POST_EVERY_H * 3_600_000) process.exit(0);
 
 const s = await snapshot();
-const a = state.last ? await activitySince(state.last.ts) : null;
+// Weekly GTS mined and reserve growth come from snapshot differences (exact). Before the first
+// post there is no snapshot, so launch week counts from genesis (empty state at genesis).
+const base = state.last || (s.ts - s.genesis < 8 * 86_400_000 ? { ts: s.genesis, rounds: 0, supply: 0, minted: 0, vault: 0, staked: 0 } : null);
+if (!base) {
+  // No reference point yet: record one now and post from next week on.
+  if (!DRY) fs.writeFileSync(stateFile, JSON.stringify({ last: s, variant: state.variant }, null, 2));
+  console.log("baseline saved, first post next week");
+  process.exit(0);
+}
+const a = await activitySince(base.ts);
+a.mined = s.minted - base.minted;
+a.vaultIn = s.vault - base.vault;
 const price = await suiUsd();
 const text = compose(s, state.last, a, price, state.variant % 4);
 if (xLength(text) > 280) throw new Error(`post too long (${xLength(text)}):\n${text}`);
