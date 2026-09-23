@@ -1,9 +1,10 @@
-// GTStar X poster — Hostinger cron entry (runs once a day, posts once a week).
-// Reads live protocol data from Sui, compares it with the last posted snapshot, and posts one
-// update to X through the v2 API (OAuth 1.0a user context). No dependencies: Node 22 only.
-//   node poster.mjs            post if due
-//   node poster.mjs --dry      print the post, do not send or save
-//   node poster.mjs --force    post now even if not due
+// GTStar X poster — Hostinger cron entry (started once a day, posts twice a week).
+// Tuesday: a data post built from live Sui numbers, compared with the last data snapshot.
+// Friday: a short, light post from a rotating pool (how it works, a question, a tip).
+// Posts through the X v2 API (OAuth 1.0a user context). No dependencies: Node 22 only.
+//   node poster.mjs                  post if today is a posting day and nothing went out yet
+//   node poster.mjs --dry            print both posts, do not send or save
+//   node poster.mjs --force data     post the data post now (or: --force fun)
 // Needs ~/gtstar-poster/.env with X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET.
 import fs from "fs";
 import path from "path";
@@ -17,8 +18,8 @@ if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").
   if (m) process.env[m[1]] ??= m[2];
 }
 const DRY = process.argv.includes("--dry");
-const FORCE = process.argv.includes("--force");
-const POST_EVERY_H = Number(process.env.POST_EVERY_H) || 167; // weekly (an hour of slack for cron timing)
+const FORCE = process.argv.includes("--force") ? process.argv[process.argv.indexOf("--force") + 1] || "data" : null;
+const DATA_DAY = 2, FUN_DAY = 5; // UTC weekdays: Tuesday and Friday
 const stateFile = path.join(dir, "state.json");
 
 const IDS = {
@@ -127,36 +128,78 @@ function compose(s, prev, a, price, variant) {
   if (!active && (v === 0 || v === 2)) v = 3;
   let body;
   if (v === 0) body = [
-    `GTStar weekly${week ? `, week ${week}` : ""}.`, "",
+    `GTStar${week ? `, week ${week}` : ""}:`, "",
     `${int(a.rounds)} rounds played`,
-    `${small(a.sui)} SUI deployed`,
-    `${small(a.mined)} GTS mined by players`,
-    `Reserve now ${small(s.vault)} SUI`, "",
-    `${fmt(unmined, 2)}% of all GTS is still unmined, and emission halves every 262,000 rounds. The earlier you mine, the more you get.`,
+    `${small(a.sui)} SUI in the pots`,
+    `${small(a.mined)} GTS mined by players`, "",
+    unmined >= 99.9 ? "Almost all GTS is still up for grabs. Early miners get the most." : `${fmt(unmined, 1)}% of all GTS is still up for grabs. Early miners get the most.`,
   ];
   else if (v === 1) body = [
     "Every GTS is backed by real SUI.", "",
-    dv > 0 && dv < s.vault ? `The reserve grew +${small(dv)} SUI this week to ${small(s.vault)} SUI.` : `The reserve holds ${small(s.vault)} SUI.`,
-    `Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}. Burn GTS any time for your share.`, "",
-    "It grows as more people play. No premine, no team tokens.",
+    dv > 0 && dv < s.vault ? `The reserve grew +${small(dv)} SUI this week. It now holds ${small(s.vault)} SUI.` : `The reserve holds ${small(s.vault)} SUI.`,
+    `That's a floor of ${fmt(s.floor, 5)} SUI per GTS${floorUsd}, and you can burn for it any time.`, "",
+    "No premine. No team tokens. Just players.",
   ];
   else if (v === 2) body = [
     `Biggest pot this week: ${small(a.biggest)} SUI.`, "",
-    "A new round every 60 seconds. One tile takes the pot, and every player mines GTS, win or lose.", "",
-    `This week: ${int(a.rounds)} rounds, ${small(a.sui)} SUI deployed, ${small(a.mined)} GTS mined.`,
+    `${int(a.rounds)} rounds, one winning tile each time, and everyone mined GTS along the way.`, "",
+    "Next round starts in under a minute.",
   ];
   else body = [
-    h ? `Next GTS halving in ${int(h)} rounds.` : "GTS emission halves every 262,000 rounds.", "",
-    "After it, every round mints half as much GTS. Mine now, stake what you mine, and earn more GTS with no lock-up.", "",
-    `Staked: ${small(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`,
+    h ? `${int(h)} rounds until the GTS halving.` : "GTS emission halves every 262,000 rounds.", "",
+    "After that, every round mints half as much. Mining now is the cheapest GTS will ever be.", "",
+    `${small(s.staked)} GTS is already staked and earning.`,
   ];
   // No URL in the text: X charges $0.20 for a post with a link and $0.015 without. The site is in the bio.
-  const tail = ["", "Play now. Link in bio."];
+  const tail = ["", "Link in bio."];
   const head = milestone(prev, s);
   const withHead = head ? [head, "", ...body, ...tail].join("\n") : null;
   const plain = [...body, ...tail].join("\n");
   return withHead && xLength(withHead) <= 280 ? withHead : plain;
 }
+
+// Friday posts: short and human, no numbers that could go stale. Rotates in order.
+const FUN = [
+  `Pick a number from 1 to 25.
+
+That's the whole game. A new round every minute on Sui, one tile takes the pot, and everyone mines GTS, win or lose.
+
+Drop your lucky tile below.`,
+  `Weekend plan: 0.01 SUI, one tile, 60 seconds.
+
+Worst case you still walk away with GTS. Best case you take the pot.
+
+Link in bio.`,
+  `Lost the round? You still got paid.
+
+Every player mines GTS, not just the winner. Stake it and it earns more GTS, no lock-up.
+
+Link in bio.`,
+  `Two kinds of players:
+
+Spread across a few tiles and win more often.
+Go all in on one and take a bigger cut when it hits.
+
+Which one are you?`,
+  `No premine. No team tokens. No VC bags.
+
+Every GTS out there was mined by a player, and every one is backed by SUI in the reserve.
+
+Go mine yours. Link in bio.`,
+  `25 tiles. 60 seconds. One winner.
+
+The fastest game on Sui is live right now. Come take a tile.
+
+Link in bio.`,
+  `Be honest: what tile are you picking first?
+
+1 to 25. Wrong answers only.`,
+  `You don't need to win to mine.
+
+Play one round, claim your GTS, stake it. That's it. Your GTS keeps working while you sleep.
+
+Link in bio.`,
+];
 
 // X counts every URL as 23 characters.
 const xLength = t => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
@@ -183,30 +226,45 @@ async function tweet(text) {
 }
 
 // ---------- main ----------
-const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : { last: null, variant: 0 };
-if (!FORCE && !DRY && state.last && Date.now() - state.last.ts < POST_EVERY_H * 3_600_000) process.exit(0);
+const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+state.variant ??= 0; state.fun ??= 0;
+const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+const today = new Date().toISOString().slice(0, 10), wd = new Date().getUTCDay();
+const kind = FORCE || (DRY ? "both" : wd === DATA_DAY ? "data" : wd === FUN_DAY ? "fun" : null);
+if (!kind || (!FORCE && !DRY && state.day === today)) process.exit(0);
 
-const s = await snapshot();
-// Weekly GTS mined and reserve growth come from snapshot differences (exact). Before the first
-// post there is no snapshot, so launch week counts from genesis (empty state at genesis).
-const base = state.last || (s.ts - s.genesis < 8 * 86_400_000 ? { ts: s.genesis, rounds: 0, supply: 0, minted: 0, vault: 0, staked: 0 } : null);
-if (!base) {
-  // No reference point yet: record one now and post from next week on.
-  if (!DRY) fs.writeFileSync(stateFile, JSON.stringify({ last: s, variant: state.variant }, null, 2));
-  console.log("baseline saved, first post next week");
-  process.exit(0);
+async function dataPost() {
+  const s = await snapshot();
+  // Weekly GTS mined and reserve growth come from snapshot differences (exact). Before the first
+  // post there is no snapshot, so launch week counts from genesis (empty state at genesis).
+  const base = state.last || (s.ts - s.genesis < 8 * 86_400_000 ? { ts: s.genesis, rounds: 0, supply: 0, minted: 0, vault: 0, staked: 0 } : null);
+  if (!base) {
+    // No reference point yet: record one now and post from next week on.
+    if (!DRY) { state.last = s; save(); }
+    console.log("baseline saved, first data post next week");
+    return null;
+  }
+  const a = await activitySince(base.ts);
+  a.mined = s.minted - base.minted;
+  a.vaultIn = s.vault - base.vault;
+  return { s, text: compose(s, state.last, a, await suiUsd(), state.variant % 4) };
 }
-const a = await activitySince(base.ts);
-a.mined = s.minted - base.minted;
-a.vaultIn = s.vault - base.vault;
-const price = await suiUsd();
-const text = compose(s, state.last, a, price, state.variant % 4);
-if (xLength(text) > 280) throw new Error(`post too long (${xLength(text)}):\n${text}`);
 
-if (DRY) {
-  console.log(text + `\n\n[${xLength(text)} chars]`);
-} else {
+async function send(text, done) {
+  if (xLength(text) > 280) throw new Error(`post too long (${xLength(text)}):
+${text}`);
+  if (DRY) return console.log(text + `
+
+[${xLength(text)} chars]
+---`);
+  state.day = today; save(); // claim the day first so an overlapping run can't post twice
   const id = await tweet(text);
-  fs.writeFileSync(stateFile, JSON.stringify({ last: s, variant: state.variant + 1, lastId: id }, null, 2));
+  done(); state.lastId = id; save();
   console.log(new Date().toISOString(), "posted", id);
 }
+
+if (kind === "data" || kind === "both") {
+  const d = await dataPost();
+  if (d) await send(d.text, () => { state.last = d.s; state.variant++; });
+}
+if (kind === "fun" || kind === "both") await send(FUN[state.fun % FUN.length], () => state.fun++);

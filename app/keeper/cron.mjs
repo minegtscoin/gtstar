@@ -17,10 +17,10 @@ try {
 } catch {
   if (Date.now() - fs.statSync(lock).mtimeMs < 110_000) process.exit(0);
 }
-// Once a day (16:00 UTC) start the X poster in its own process; it posts only when a week has passed.
+// 16:00-16:04 UTC start the X poster in its own process; it posts at most once a day, on Tuesday and Friday only.
 const poster = path.join(dir, "..", "gtstar-poster", "poster.mjs");
 const now = new Date();
-if (now.getUTCHours() === 16 && now.getUTCMinutes() === 0 && fs.existsSync(poster)) {
+if (now.getUTCHours() === 16 && now.getUTCMinutes() < 5 && fs.existsSync(poster)) {
   const { spawn } = await import("child_process");
   const log = fs.openSync(path.join(path.dirname(poster), "log.txt"), "a");
   spawn(process.execPath, [poster], { detached: true, stdio: ["ignore", log, log] }).unref();
