@@ -50,6 +50,9 @@
 .icon-btn:hover svg{stroke:var(--text)}
 .menu-bal{display:flex;justify-content:space-between;padding:6px 8px;font-size:13px;color:var(--muted)}
 .menu-bal b{color:var(--text);font-family:var(--disp);font-weight:600}
+.menu-name{display:flex;gap:6px;padding:4px 4px 8px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.menu-name input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;color:var(--text);font-size:13px}
+.menu-name .pill{padding:6px 12px;font-size:13px}
 .menu-item{display:block;width:100%;text-align:left;padding:9px 8px;border-radius:8px;font-size:13.5px;color:var(--text)}
 .menu-item:hover{background:var(--tile-h)}
 .modal-sub{color:var(--muted);font-size:13px;margin:-4px 0 14px}

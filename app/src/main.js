@@ -26,6 +26,10 @@ const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake"];
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
 const short = s => (s ? s.slice(0, 6) + "…" + s.slice(-4) : "");
+// Usernames players set for their address (served by names.php); falls back to the short address.
+let NAMES = {};
+const nameOf = a => NAMES[a] || "";
+const label = a => nameOf(a) || short(a);
 const fmt = (n, d = 4) => Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
 const sui = (mist, d = 4) => fmt(mist / MIST, d);
 const parseAmt = v => { const x = parseFloat(String(v).replace(/,/g, "")); return isFinite(x) && x > 0 ? x : 0; };
@@ -189,15 +193,17 @@ async function disconnect() {
   try { await wallet?.features["standard:disconnect"]?.disconnect(); } catch {}
   try { localStorage.removeItem("gtstar.wallet"); } catch {}
   wallet = null; account = null; USER = null;
-  $("acctMenu").hidden = true;
+  $("acctMenu").hidden = true; $("mNameForm").hidden = true;
   renderWallet(); refresh();
 }
 function renderWallet() {
   const b = $("btnConnect");
-  b.textContent = account ? short(account.address) : "Connect";
+  b.textContent = account ? label(account.address) : "Connect";
   b.classList.toggle("ghost", !!account);
   if (account) {
-    $("mAddr").textContent = short(account.address);
+    $("mAddr").textContent = label(account.address);
+    $("mAddr").classList.toggle("mono", !nameOf(account.address));
+    $("mName").textContent = nameOf(account.address) ? "Edit username" : "Set username";
     $("mScan").href = `${SCAN}/account/${account.address}`;
     $("mSui").textContent = USER ? sui(USER.sui) : "—";
     $("mGts").textContent = USER ? sui(USER.gts) : "—";
@@ -615,7 +621,7 @@ function renderResult() {
   let sub = L.winners > 0
     ? `${winners.length || "The"} ${winners.length === 1 ? "winner takes" : "winners split"} ${sui(pot, 4)} SUI`
     : "No one was on this tile. The pot went to the reserve.";
-  if (winners[0]) sub += ` · Top <span class="mono">${esc(winners[0].p.player === account?.address ? "You" : short(winners[0].p.player))}</span> +${sui(winners[0].won, 4)} SUI`;
+  if (winners[0]) sub += ` · Top <span${nameOf(winners[0].p.player) ? "" : ' class="mono"'}>${esc(winners[0].p.player === account?.address ? "You" : label(winners[0].p.player))}</span> +${sui(winners[0].won, 4)} SUI`;
   let me = "";
   const m = USER?.miner;
   if (m && m.round_id === L.round && rewards().sui > 0) me = `<div class="res-me won">You won <b>+${sui(rewards().sui, 4)} SUI</b></div>`;
@@ -659,7 +665,7 @@ function renderFeed() {
     if (r) { const w = winOf(p, r); res = w ? `<span class="res won">+${sui(w, 4)} SUI</span>` : `<span class="res">No win</span>`; }
     return { key, html: `<div class="fr${isNew ? " new" : ""}${you ? " you" : ""}" data-tiles="${idx.join(",")}">
       <span class="av" style="--h:${hue(p.player)}"></span>
-      <span class="who">${you ? "You" : `<a class="mono" href="${SCAN}/account/${p.player}" target="_blank" rel="noopener">${short(p.player)}</a>`}</span>
+      <span class="who">${you ? "You" : `<a${nameOf(p.player) ? "" : ' class="mono"'} href="${SCAN}/account/${p.player}" target="_blank" rel="noopener">${esc(label(p.player))}</a>`}</span>
       <span class="tl">${tilesTxt(idx)}</span>
       <span class="am">${sui(p.total, 3)} SUI</span>${res}
       <span class="tm"><a href="${SCAN}/tx/${p.digest}" target="_blank" rel="noopener">${ago(p.ts)}</a></span></div>` };
@@ -773,7 +779,7 @@ function renderMine() {
 let actShown = 25, actTab = "rounds", revTab = "reserve", lbTab = "miners";
 const openRounds = new Set();
 const txLink = d => `<a href="${SCAN}/tx/${d}" target="_blank" rel="noopener" data-stop>${d.slice(0, 6)}…</a>`;
-const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener" class="mono" data-stop>${short(a)}</a>`;
+const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener"${nameOf(a) ? "" : ' class="mono"'} data-stop>${esc(label(a))}</a>`;
 function winnersOf(r) {
   const list = HIST.byRound.get(r.round) || [];
   const agg = new Map();
@@ -1138,6 +1144,37 @@ $("btnConnect").onclick = e => {
 };
 document.addEventListener("click", e => { if (!e.target.closest(".acct")) $("acctMenu").hidden = true; });
 $("mDisconnect").onclick = disconnect;
+async function loadNames() {
+  try { const r = await fetch("/api/names", { cache: "no-store" }); if (r.ok) { NAMES = await r.json(); renderWallet(); render(); } } catch {}
+}
+loadNames(); setInterval(loadNames, 60_000);
+$("mName").onclick = () => {
+  const f = $("mNameForm"); f.hidden = !f.hidden;
+  if (!f.hidden) { $("mNameIn").value = nameOf(account.address); $("mNameIn").focus(); }
+};
+$("mNameForm").onsubmit = async e => {
+  e.preventDefault();
+  const name = $("mNameIn").value.trim().replace(/\s+/g, " ");
+  if (name === nameOf(account.address)) { $("mNameForm").hidden = true; return; }
+  if (name && !/^[A-Za-z0-9][A-Za-z0-9 ._-]{1,14}[A-Za-z0-9]$/.test(name)) return toast("3 to 16 characters: letters, numbers, space, dot, dash or underscore.", true);
+  const signer = wallet?.features["sui:signPersonalMessage"];
+  if (!signer) return toast("This wallet cannot sign messages.", true);
+  const btn = $("mNameSave"); btn.disabled = true; btn.textContent = "Sign…";
+  try {
+    const address = account.address, ts = Date.now();
+    const message = new TextEncoder().encode(`GTStar username: ${name}\nAddress: ${address}\nTime: ${ts}`);
+    const { signature } = await signer.signPersonalMessage({ message, account, chain: CHAIN });
+    btn.textContent = "Saving…";
+    const r = await fetch("/api/names", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, name, ts, signature }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(j.error || "Could not save the username.", true);
+    if (name) NAMES[address] = name; else delete NAMES[address];
+    $("mNameForm").hidden = true; renderWallet(); render();
+    toast(name ? `Username set: ${name}` : "Username removed.");
+  } catch (err) {
+    toast(/reject|cancel|denied/i.test(err?.message || "") ? "Signature cancelled." : "Could not sign the message.", true);
+  } finally { btn.disabled = false; btn.textContent = "Save"; }
+};
 $("mCopy").onclick = async () => { try { await navigator.clipboard.writeText(account.address); toast("Address copied."); } catch { toast(account.address); } };
 $("closeModal").onclick = closeModal;
 $("walletModal").onclick = e => { if (e.target.id === "walletModal") closeModal(); };

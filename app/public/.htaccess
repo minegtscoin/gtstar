@@ -4,6 +4,7 @@ RewriteCond %{HTTPS} off
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 RewriteRule ^(whitepaper\.html|whitepaper|docs)/?$ /docs.html [L,R=301]
 RewriteRule ^api/supply/(total|circulating|max)/?$ /supply.php?q=$1 [L]
+RewriteRule ^api/names/?$ /names.php [L]
 
 <IfModule mod_headers.c>
   Header set Cache-Control "no-cache"
