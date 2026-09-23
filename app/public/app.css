@@ -177,11 +177,9 @@
 .tok.gts{background-color:#1c1a14;box-shadow:inset 0 0 0 1px rgba(230,196,134,.45);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e6c486' d='M12 2c.9 5.4 3.6 8.1 9 9-5.4.9-8.1 3.6-9 9-.9-5.4-3.6-8.1-9-9 5.4-.9 8.1-3.6 9-9z'/%3E%3C/svg%3E")}
 .tok.sui{background-color:#4da2ff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M12 2.5c3.6 4.3 6.5 8 6.5 11.4A6.5 6.5 0 0 1 5.5 13.9C5.5 10.5 8.4 6.8 12 2.5z'/%3E%3C/svg%3E")}
 .ticker{align-items:center;gap:7px}
-.ticker .chg{font-size:12px;color:var(--win);font-weight:500}
-.ticker .chg.dn{color:var(--bad)}
 .gold-pill{background:var(--gold);color:#17130a}
 .gold-pill:hover{opacity:.9}
-@media(max-width:420px){.ticker{display:flex;gap:5px;font-size:12px}.ticker .chg{display:none}.bar-right{gap:10px}.logo span{letter-spacing:.1em}}
+@media(max-width:420px){.ticker{display:flex;gap:5px;font-size:12px}.bar-right{gap:10px}.logo span{letter-spacing:.1em}}
 @media(max-width:350px){.ticker:first-child{display:none}}
 
 .board-col{display:flex;flex-direction:column;gap:14px;min-width:0}

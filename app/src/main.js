@@ -68,6 +68,9 @@ const settledRow = (j, ts) => ({
   winners: num(j.winners_total), payout: num(j.winners_payout), reward: num(j.round_reward),
   vault: num(j.vault_fee), stakerReward: num(j.staker_reward), dev: num(j.dev_fee), players: num(j.players), ts,
 });
+// SUI a settled round added to the reserve. With no miner on the winning tile the whole pot
+// except the 1% creator fee goes there, but the event's vault_fee only carries the 4% part.
+const vaulted = r => (r.winners === 0 ? r.total - r.dev : r.vault);
 async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
@@ -151,9 +154,9 @@ async function loadHistory() {
       rounds: rounds.length,
       volume: rounds.reduce((a, r) => a + r.total, 0),
       paid: rounds.reduce((a, r) => a + (r.winners > 0 ? r.winners + r.payout : 0), 0),
-      reserve: rounds.reduce((a, r) => a + r.vault + (r.winners === 0 ? r.payout : 0), 0),
+      reserve: rounds.reduce((a, r) => a + vaulted(r), 0),
       stakerGts: rounds.reduce((a, r) => a + r.stakerReward, 0),
-      fees: rounds.reduce((a, r) => a + r.vault + r.dev, 0),
+      fees: rounds.reduce((a, r) => a + vaulted(r) + r.dev, 0),
       emitted: rounds.reduce((a, r) => a + r.reward + r.stakerReward, 0),
       burned: redeemed.list.reduce((a, e) => a + num(e.j.gts_burned), 0),
       players: new Set(deployed.list.map(e => e.j.player)).size,
@@ -291,13 +294,14 @@ function claimInto(tx, minerArg) {
   const [g, s] = tx.moveCall({ target: T("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
   tx.transferObjects([g, s], account.address);
 }
-function gtsCoin(tx, amount) {
+// `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
+function gtsCoin(tx, amount, split = amount) {
   const coins = USER?.gtsCoins || [];
   const total = coins.reduce((a, c) => a + c.balance, 0);
   if (!coins.length || total < amount) throw new Error("Insufficient GTS balance.");
   const primary = tx.object(coins[0].id);
   if (coins.length > 1) tx.mergeCoins(primary, coins.slice(1).map(c => tx.object(c.id)));
-  const [c] = tx.splitCoins(primary, [amount]);
+  const [c] = tx.splitCoins(primary, [split]);
   return c;
 }
 async function play() {
@@ -352,38 +356,43 @@ const stake = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnSta
     tx.transferObjects([g], account.address);
   }
 }).then(r => { if (r) $("stakeAmt").value = ""; });
-// GTS -> SUI routes through the reserve (burn at the floor). There is no GTS pool to buy from yet.
-// Buy GTS with SUI straight from the Cetus GTS/SUI pool (Pool<GTS, SUI>, so buying is b2a).
+// Pool<GTS, SUI> on Cetus: selling GTS is a2b, buying GTS is b2a.
+// Selling takes whichever pays more for the exact amount: the pool, or the reserve (burn at the floor).
 const CETUS_PKG = "0x260693ec785a6e6c9d81d58c7d2ff72f1288ae0fa6a9725abe05a6478b11f084"; // clmm, latest version
 const CETUS_CFG = "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f";  // clmm GlobalConfig
-const MAX_SQRT = "79226673515401279992447579055";
+const MAX_SQRT = "79226673515401279992447579055", MIN_SQRT = "4295048016";
 const SLIPPAGE = 0.01;
 const POOL_T = [T_GTS, "0x2::sui::SUI"];
 const sim = new SuiGraphQLClient({ url: GQL, network: CFG.network });
-let QUOTE = { amt: 0, out: 0, exceed: false }, quoteSeq = 0;
-// Exact amount out for `amt` MIST of SUI, read from the pool itself (a simulated call, nothing is signed).
-async function quoteBuy(amt) {
+const NO_QUOTE = { amt: 0, a2b: false, out: 0, exceed: false };
+let QUOTE = NO_QUOTE, quoteSeq = 0;
+// Exact pool output for `amt` in, read from the pool itself (a simulated call, nothing is signed).
+async function quotePool(amt, a2b) {
   const seq = ++quoteSeq;
-  if (amt <= 0 || !IDS.market) { QUOTE = { amt: 0, out: 0, exceed: false }; return renderTrade(); }
+  if (amt <= 0 || !IDS.market) { QUOTE = NO_QUOTE; return renderTrade(); }
   try {
     const tx = new Transaction();
     tx.setSender("0x0000000000000000000000000000000000000000000000000000000000000000");
-    const r = tx.moveCall({ target: `${CETUS_PKG}::pool::calculate_swap_result`, typeArguments: POOL_T, arguments: [tx.object(IDS.market), tx.pure.bool(false), tx.pure.bool(true), tx.pure.u64(amt)] });
+    const r = tx.moveCall({ target: `${CETUS_PKG}::pool::calculate_swap_result`, typeArguments: POOL_T, arguments: [tx.object(IDS.market), tx.pure.bool(a2b), tx.pure.bool(true), tx.pure.u64(amt)] });
     tx.moveCall({ target: `${CETUS_PKG}::pool::calculated_swap_result_amount_out`, arguments: [r] });
     tx.moveCall({ target: `${CETUS_PKG}::pool::calculated_swap_result_is_exceed`, arguments: [r] });
     const res = await sim.simulateTransaction({ transaction: tx, checksEnabled: false, include: { commandResults: true } });
     if (seq !== quoteSeq) return;
     const out = res.commandResults[1].returnValues[0].bcs, ex = res.commandResults[2].returnValues[0].bcs;
-    QUOTE = { amt, out: Number(new DataView(Uint8Array.from(out).buffer).getBigUint64(0, true)), exceed: ex[0] === 1 };
-  } catch (e) { if (seq === quoteSeq) QUOTE = { amt: 0, out: 0, exceed: false }; console.warn("quote failed", e); }
+    QUOTE = { amt, a2b, out: Number(new DataView(Uint8Array.from(out).buffer).getBigUint64(0, true)), exceed: ex[0] === 1 };
+  } catch (e) { if (seq === quoteSeq) QUOTE = NO_QUOTE; console.warn("quote failed", e); }
   renderTrade();
 }
 let quoteTimer = 0;
-const requestQuote = () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(() => quoteBuy(toMist($("swIn").value)), 250); };
+const requestQuote = () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(() => quotePool(toMist($("swIn").value), swapDir === "sell"), 250); };
+// Pool output for this amount and direction, or 0 when there is no usable quote.
+const poolOut = (amt, a2b) => (QUOTE.amt === amt && QUOTE.a2b === a2b && !QUOTE.exceed ? QUOTE.out : 0);
+const reserveOut = amt => (STATE?.supply ? Math.floor(STATE.vault * amt / STATE.supply) : 0);
+const sellViaPool = amt => poolOut(amt, true) > reserveOut(amt);
 const buy = () => exec("Swap", "btnSwap", async tx => {
   const amt = toMist($("swIn").value);
   if (amt <= 0) throw new Error("Enter an amount.");
-  if (QUOTE.amt !== amt) await quoteBuy(amt);
+  if (QUOTE.amt !== amt || QUOTE.a2b) await quotePool(amt, false);
   if (QUOTE.exceed || QUOTE.out <= 0) throw new Error("Not enough liquidity in the pool for this amount.");
   const minOut = Math.floor(QUOTE.out * (1 - SLIPPAGE));
   const [gts, suiLeft, receipt] = tx.moveCall({ target: `${CETUS_PKG}::pool::flash_swap`, typeArguments: POOL_T, arguments: [
@@ -394,18 +403,32 @@ const buy = () => exec("Swap", "btnSwap", async tx => {
   const noGts = tx.moveCall({ target: "0x2::balance::zero", typeArguments: [T_GTS] });
   tx.moveCall({ target: `${CETUS_PKG}::pool::repay_flash_swap`, typeArguments: POOL_T, arguments: [tx.object(CETUS_CFG), tx.object(IDS.market), noGts, payBal, receipt] });
   tx.moveCall({ target: "0x2::balance::destroy_zero", typeArguments: [POOL_T[1]], arguments: [suiLeft] });
-  // Slippage guard: splitting minOut aborts the whole transaction if the pool gave less.
-  const part = tx.moveCall({ target: "0x2::balance::split", typeArguments: [T_GTS], arguments: [gts, tx.pure.u64(minOut)] });
-  tx.moveCall({ target: "0x2::balance::join", typeArguments: [T_GTS], arguments: [gts, part] });
-  const [coin] = tx.moveCall({ target: "0x2::coin::from_balance", typeArguments: [T_GTS], arguments: [gts] });
-  tx.transferObjects([coin], account.address);
-}, toMist($("swIn").value)).then(r => { if (r) { $("swIn").value = ""; QUOTE = { amt: 0, out: 0, exceed: false }; renderTrade(); } });
-const swap = () => exec("Swap", "btnSwap", tx => {
+  tx.transferObjects([guardedCoin(tx, gts, T_GTS, minOut)], account.address);
+}, toMist($("swIn").value)).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
+// Slippage guard: splitting minOut aborts the whole transaction if the pool gave less.
+function guardedCoin(tx, bal, type, minOut) {
+  const part = tx.moveCall({ target: "0x2::balance::split", typeArguments: [type], arguments: [bal, tx.pure.u64(minOut)] });
+  tx.moveCall({ target: "0x2::balance::join", typeArguments: [type], arguments: [bal, part] });
+  return tx.moveCall({ target: "0x2::coin::from_balance", typeArguments: [type], arguments: [bal] })[0];
+}
+const swap = () => exec("Swap", "btnSwap", async tx => {
   const amt = toMist($("swIn").value);
   if (amt <= 0) throw new Error("Enter an amount.");
-  const [out] = tx.moveCall({ target: TK("gts::redeem"), arguments: [tx.object(IDS.treasury), gtsCoin(tx, amt)] });
-  tx.transferObjects([out], account.address);
-}).then(r => { if (r) { $("swIn").value = ""; renderTrade(); } });
+  if (QUOTE.amt !== amt || !QUOTE.a2b) await quotePool(amt, true);
+  if (!sellViaPool(amt)) {
+    const [out] = tx.moveCall({ target: TK("gts::redeem"), arguments: [tx.object(IDS.treasury), gtsCoin(tx, amt)] });
+    return tx.transferObjects([out], account.address);
+  }
+  const minOut = Math.floor(QUOTE.out * (1 - SLIPPAGE));
+  const [gtsLeft, sui, receipt] = tx.moveCall({ target: `${CETUS_PKG}::pool::flash_swap`, typeArguments: POOL_T, arguments: [
+    tx.object(CETUS_CFG), tx.object(IDS.market), tx.pure.bool(true), tx.pure.bool(true), tx.pure.u64(amt), tx.pure.u128(MIN_SQRT), tx.object.clock()] });
+  const pay = tx.moveCall({ target: `${CETUS_PKG}::pool::swap_pay_amount`, typeArguments: POOL_T, arguments: [receipt] });
+  const payBal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: [T_GTS], arguments: [gtsCoin(tx, amt, pay)] });
+  const noSui = tx.moveCall({ target: "0x2::balance::zero", typeArguments: [POOL_T[1]] });
+  tx.moveCall({ target: `${CETUS_PKG}::pool::repay_flash_swap`, typeArguments: POOL_T, arguments: [tx.object(CETUS_CFG), tx.object(IDS.market), payBal, noSui, receipt] });
+  tx.moveCall({ target: "0x2::balance::destroy_zero", typeArguments: [T_GTS], arguments: [gtsLeft] });
+  tx.transferObjects([guardedCoin(tx, sui, POOL_T[1], minOut)], account.address);
+}).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
 const claimStake = () => exec("Yield claim", "btnStakeClaim", tx => {
   const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(myPos().id), tx.object.clock()] });
   tx.transferObjects([c], account.address);
@@ -465,7 +488,7 @@ function renderHome() {
   $("hRound").textContent = STATE ? `#${STATE.board.cur_id}` : "—";
   $("hReserve").textContent = STATE ? sui(STATE.vault, 3) : "—";
   $("hFloor").textContent = STATE ? fmt(STATE.floor, 5) : "—";
-  $("hMined").textContent = STATE ? sui(STATE.supply, 2) : "—";
+  $("hMined").textContent = STATE ? sui(STATE.minted, 2) : "—";
   $("hVolume").textContent = HIST ? sui(HIST.totals.volume, 2) : "—";
 }
 
@@ -607,7 +630,7 @@ let cheered = null;
 function renderRecent() {
   const list = STATE?.recent || [];
   $("recent").innerHTML = list.length ? list.map(r =>
-    `<a href="#explorer" class="rc${r.winners ? "" : " none"}" title="Round #${r.round}: ${sui(r.total, 3)} SUI deployed, ${r.players} players"><b>${r.tile + 1}</b><span>#${r.round}</span></a>`).join("")
+    `<a href="#explorer" class="rc${r.winners ? "" : " none"}" title="Round #${r.round}: ${sui(r.total, 3)} SUI deployed, ${r.players} ${r.players === 1 ? "player" : "players"}"><b>${r.tile + 1}</b><span>#${r.round}</span></a>`).join("")
     : `<span class="muted">No rounds yet.</span>`;
 }
 
@@ -792,10 +815,9 @@ function renderActivity() {
       const w = winnersOf(r);
       const winner = w.size === 0 ? `<span class="muted">Reserve</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
       const winnings = r.winners > 0 ? r.winners + r.payout : 0;
-      const vaulted = r.vault + (r.winners === 0 ? r.payout : 0);
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
-        <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td><td class="r">${sui(vaulted, 4)}</td>
+        <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td><td class="r">${sui(vaulted(r), 4)}</td>
         <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sui(r.reward, 3)}</td>
         <td class="r muted">${txLinkAgo(r)}</td></tr>`;
       if (openRounds.has(r.round)) html += `<tr class="detail"><td colspan="9">${minersHtml(r)}</td></tr>`;
@@ -835,7 +857,7 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    reserve: { v: r => r.vault + (r.winners === 0 ? r.payout : 0), unit: "SUI", share: "4% of losing pot", label: "Added to the GTS reserve" },
+    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot, 99% with no winner", label: "Added to the GTS reserve" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -1005,18 +1027,19 @@ function renderStake() {
   }
 }
 // ---------- prices + trade ----------
-let PRICE = { sui: null, chg: null };
+let PRICE = { sui: null };
 // A failed or rate-limited source never overwrites the last good price.
-const okPrice = (sui, chg) => (sui > 0 && isFinite(sui) ? { sui, chg: isFinite(chg) ? chg : null } : null);
+const okPrice = sui => (sui > 0 && isFinite(sui) ? { sui } : null);
+const getJson = url => within(fetch(url).then(r => r.json()), 8000);
 async function loadPrice() {
   let p = null;
   try {
-    const j = await (await fetch("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd&include_24hr_change=true")).json();
-    p = okPrice(+j.sui?.usd, +j.sui?.usd_24h_change);
+    const j = await getJson("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd");
+    p = okPrice(+j.sui?.usd);
   } catch {}
   if (!p) try {
-    const j = await (await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT")).json();
-    p = okPrice(+j.lastPrice, +j.priceChangePercent);
+    const j = await getJson("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT");
+    p = okPrice(+j.lastPrice);
   } catch {}
   if (p) PRICE = p;
   render();
@@ -1024,37 +1047,37 @@ async function loadPrice() {
 }
 // $1.23, $0.0456, $0.000123: two decimals above $1, three significant digits below.
 const usd = x => x == null || !isFinite(x) ? "—" : x >= 1 ? `$${fmt(x, 2)}` : x === 0 ? "$0" : `$${Number(x.toPrecision(3))}`;
-const gtsUsd = () => (PRICE.sui && STATE ? STATE.floor * PRICE.sui : null);
+// Header GTS price: the pool (market) price; the reserve floor only while there is no pool price.
+const gtsSui = () => (STATE ? STATE.market || STATE.floor : 0);
 function renderTicker() {
   $("tSuiUsd").textContent = usd(PRICE.sui);
-  $("tGtsUsd").textContent = STATE ? (PRICE.sui ? usd(gtsUsd()) : `${fmt(STATE.floor, 5)} SUI`) : "—";
-  const c = $("tSuiChg");
-  c.hidden = PRICE.chg == null;
-  if (PRICE.chg != null) { c.textContent = `${PRICE.chg >= 0 ? "+" : ""}${fmt(PRICE.chg, 2)}%`; c.classList.toggle("dn", PRICE.chg < 0); }
+  $("tGtsUsd").textContent = STATE ? (PRICE.sui ? usd(gtsSui() * PRICE.sui) : `${fmt(gtsSui(), 5)} SUI`) : "—";
+  $("tGts").title = STATE?.market ? "GTS market price, Cetus GTS/SUI pool" : "GTS, valued at the reserve floor";
 }
 
-let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS from the Cetus pool
+let swapDir = "sell";   // sell: GTS -> SUI via the pool or the reserve, whichever pays more; buy: SUI -> GTS from the pool
 function renderTrade() {
-  const sell = swapDir === "sell", market = STATE?.market || 0;
+  const sell = swapDir === "sell";
   const [tin, tout] = sell ? ["GTS", "SUI"] : ["SUI", "GTS"];
   $("swTokIn").textContent = tin; $("swTokOut").textContent = tout;
   $("swIconIn").className = `tok ${tin.toLowerCase()}`; $("swIconOut").className = `tok ${tout.toLowerCase()}`;
   const balIn = USER ? (sell ? USER.gts : USER.sui) : 0, balOut = USER ? (sell ? USER.sui : USER.gts) : 0;
   $("swBalIn").textContent = USER ? `Balance ${sui(balIn, 4)}` : "Balance —";
   $("swBalOut").textContent = USER ? `Balance ${sui(balOut, 4)}` : "";
-  const amt = parseAmt($("swIn").value);
-  const floor = STATE?.floor || 0;
-  const need = toMist($("swIn").value), quoted = !sell && QUOTE.amt === need && QUOTE.out > 0;
-  const out = sell ? (STATE?.supply ? STATE.vault * amt / STATE.supply : 0) : quoted ? QUOTE.out / MIST : 0;
-  $("swOut").textContent = sell || quoted ? fmt(out, 6) : "—";
-  $("swUsdIn").textContent = PRICE.sui ? usd(amt * (sell ? floor : 1) * PRICE.sui) : "";
-  $("swUsdOut").textContent = PRICE.sui && (sell || quoted) ? usd(out * (sell ? 1 : market) * PRICE.sui) : "";
-  const rate = sell ? floor : market;
-  $("swRate").textContent = STATE && rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
-  $("swRoute").textContent = sell ? "GTS reserve (burn at floor)" : "Cetus GTS/SUI pool";
-  $("swFee").textContent = sell ? "None" : `1% pool fee, ${SLIPPAGE * 100}% max slippage`;
+  const need = toMist($("swIn").value);
+  const viaPool = sell ? sellViaPool(need) : true;
+  const outMist = sell ? (viaPool ? poolOut(need, true) : reserveOut(need)) : poolOut(need, false);
+  const known = need > 0 && outMist > 0;
+  $("swOut").textContent = known ? fmt(outMist / MIST, 6) : "—";
+  const inSui = sell ? outMist / MIST : need / MIST;   // both sides valued at what this trade actually pays
+  $("swUsdIn").textContent = PRICE.sui && known ? usd(inSui * PRICE.sui) : "";
+  $("swUsdOut").textContent = PRICE.sui && known ? usd(inSui * PRICE.sui) : "";
+  const rate = known ? (sell ? outMist / need : need / outMist) : sell ? STATE?.floor : STATE?.market;
+  $("swRate").textContent = rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
+  $("swRoute").textContent = viaPool ? "Cetus GTS/SUI pool" : "GTS reserve (burn at floor)";
+  $("swFee").textContent = viaPool ? `1% pool fee, ${SLIPPAGE * 100}% max slippage` : "None";
   $("swHint").textContent = sell
-    ? "Sells GTS to the on-chain reserve at the floor price. The GTS is burned and SUI is sent to your wallet."
+    ? "Sells at the better of two prices: the GTS/SUI pool, or the on-chain reserve at the floor price (the GTS is burned). The route is picked for the exact amount."
     : "Buys GTS directly from the GTS/SUI pool. The price moves with the size of the trade.";
   if (!busy) {
     const btn = $("btnSwap"), tok = sell ? "GTS" : "SUI";
@@ -1062,7 +1085,7 @@ function renderTrade() {
     if (!account) label = "Connect wallet";
     else if (need <= 0) { label = "Enter an amount"; dis = true; }
     else if (need > balIn) { label = `Insufficient ${tok}`; dis = true; }
-    else if (!sell && QUOTE.amt === need && QUOTE.exceed) { label = "Not enough liquidity"; dis = true; }
+    else if (!sell && QUOTE.amt === need && !QUOTE.a2b && QUOTE.exceed) { label = "Not enough liquidity"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
   }
 }
@@ -1094,6 +1117,7 @@ async function refreshHistory() {
 
 // ---------- routing ----------
 function route() {
+  if (stale && !busy) return location.reload();
   const v = (location.hash || "#home").slice(1);
   view = VIEWS.includes(v) ? v : "home";
   VIEWS.forEach(n => ($("view-" + n).hidden = n !== view));
@@ -1132,9 +1156,9 @@ $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
 $("hdrClaim").onclick = claimAll;
 $("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
 $("btnSwap").onclick = () => (!account ? openWalletModal() : swapDir === "buy" ? buy() : swap());
-const swInput = () => { renderTrade(); if (swapDir === "buy") requestQuote(); };
+const swInput = () => { renderTrade(); requestQuote(); };
 $("swIn").addEventListener("input", swInput);
-$("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; QUOTE = { amt: 0, out: 0, exceed: false }; renderTrade(); };
+$("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); };
 $("swBalIn").onclick = () => { if (USER) { $("swIn").value = String(swapMax() / MIST); swInput(); } };
 document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
@@ -1161,14 +1185,18 @@ $("moreAct").onclick = () => { actShown += 25; renderExplorer(); };
 window.addEventListener("hashchange", route);
 window.addEventListener("resize", () => { if (view === "tokenomics" && $("chart").clientWidth !== chartSize) renderTokenomics(); });
 
+// A new site version never reloads the page under the user: it is picked up on the next
+// tab switch, or when the user comes back to the browser tab.
+let stale = false;
+const reloadIfStale = () => { if (stale && !busy) location.reload(); };
 async function checkVersion() {
   try {
-    const v = (await (await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" })).json()).v;
-    if (window.GTSTAR_VERSION && v && v !== window.GTSTAR_VERSION && !busy) location.reload();
+    const v = (await getJson(`version.json?t=${Date.now()}`)).v;
+    stale = !!(window.GTSTAR_VERSION && v && v !== window.GTSTAR_VERSION);
   } catch {}
 }
 setInterval(checkVersion, 60_000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion().then(reloadIfStale); });
 
 $("pkgLink").href = `${SCAN}/object/${IDS.package}`;
 $("caAddr").textContent = T_GTS;

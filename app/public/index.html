@@ -29,8 +29,8 @@
       <a href="docs.html">Docs</a>
     </nav>
     <div class="bar-right">
-      <div class="ticker" title="GTS, valued at the reserve floor"><i class="tok gts" aria-hidden="true"></i><span class="v" id="tGtsUsd">—</span></div>
-      <div class="ticker" title="SUI, 24h change"><i class="tok sui" aria-hidden="true"></i><span class="v" id="tSuiUsd">—</span><span class="chg" id="tSuiChg"></span></div>
+      <div class="ticker" id="tGts" title="GTS market price, Cetus GTS/SUI pool"><i class="tok gts" aria-hidden="true"></i><span class="v" id="tGtsUsd">—</span></div>
+      <div class="ticker" title="SUI price"><i class="tok sui" aria-hidden="true"></i><span class="v" id="tSuiUsd">—</span></div>
       <button class="pill gold-pill" id="hdrClaim" type="button" hidden>Claim</button>
       <div class="acct">
         <button class="pill" id="btnConnect" type="button" aria-haspopup="true">Connect</button>
@@ -58,7 +58,7 @@
       <div class="hero-copy">
         <div class="eyebrow">Live on Sui</div>
         <h1 class="hero-h">Mine GTS.<br>Backed by SUI.</h1>
-        <p class="hero-p">A 60-second game on a 5×5 board. Every participant mines GTS, winners split the pot, and every token is backed by a growing on-chain reserve.</p>
+        <p class="hero-p">A 60-second game on a 5×5 board. Every participant mines GTS, winners split the pot, and every token is backed by SUI in an on-chain reserve.</p>
         <div class="hero-cta">
           <a class="btn-lg" href="#mine">Start mining</a>
           <a class="btn-lg ghost" href="#explorer">Explore data</a>
@@ -75,7 +75,7 @@
     </div>
     <div class="features">
       <div><h3>Everyone mines</h3><p>GTS is split across all participants by their share of each round. Winners and losers alike.</p></div>
-      <div><h3>SUI-backed floor</h3><p>4% of every losing pot flows into a reserve that backs every GTS. Burn GTS any time for your share of it.</p></div>
+      <div><h3>SUI-backed floor</h3><p>4% of every losing pot, and 99% of the pot when no one is on the winning tile, flows into a reserve that backs every GTS. Burn GTS any time for your share of it.</p></div>
       <div><h3>Fair launch</h3><p>1 GTS per round, halving every 6 months until 2030. No premine, no team tokens. Supply is locked in an immutable contract.</p></div>
       <div><h3>Provably fair</h3><p>Winning tiles are drawn with Sui's native randomness. Every round is verifiable on-chain.</p></div>
     </div>
@@ -311,11 +311,12 @@
           <div><dt>Reserve (backs GTS)</dt><dd>4%</dd></div>
           <div><dt>Creator</dt><dd>1%</dd></div>
         </dl>
+        <p class="note-sm">If no one deployed on the winning tile, the winners' 95% goes to the reserve too: 99% to the reserve, 1% to the creator.</p>
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Redeem from reserve</h2></div>
         <p class="note-sm" style="margin:0 0 12px">Burn GTS for your share of the SUI reserve at any time. This is what gives GTS its floor.</p>
-        <a class="secondary btn-link" href="#trade">Sell GTS to the reserve</a>
+        <a class="secondary btn-link" href="#trade">Sell GTS</a>
       </div>
     </div>
   </section>
