@@ -2,6 +2,7 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
+import { registerSuiSnapWallet } from "@kunalabs-io/sui-snap-wallet";
 
 const CFG = window.GTSTAR_CONFIG;
 const IDS = CFG.ids;
@@ -154,11 +155,17 @@ async function loadHistory() {
 }
 
 // ---------- wallet ----------
+// MetaMask exposes Sui through a Snap, which has to be registered as a wallet by the app.
+try { registerSuiSnapWallet(); } catch (e) { console.warn("Sui Snap unavailable", e); }
 const walletsApi = getWallets();
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
+// A wallet that never answers must not leave the app waiting forever.
+const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 async function connect(w, silent = false) {
-  const res = await w.features["standard:connect"].connect(silent ? { silent: true } : undefined);
+  const res = silent
+    ? await within(w.features["standard:connect"].connect({ silent: true }), 4000)
+    : await w.features["standard:connect"].connect();
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
   wallet = w; account = accs[0];
@@ -166,7 +173,7 @@ async function connect(w, silent = false) {
   w.features["standard:events"]?.on("change", ({ accounts }) => {
     if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); }
   });
-  renderWallet(); await refresh();
+  renderWallet(); refresh();
   return true;
 }
 async function disconnect() {
@@ -196,7 +203,15 @@ function openWalletModal() {
     const img = document.createElement("img"); img.src = w.icon; img.alt = "";
     const s = document.createElement("span"); s.textContent = w.name;
     b.append(img, s);
-    b.onclick = async () => { closeModal(); try { await connect(w); } catch (e) { toast("Connection failed: " + (e.message || e), true); } };
+    b.onclick = async () => {
+      closeModal();
+      const btn = $("btnConnect");
+      btn.textContent = "Connecting…"; btn.disabled = true;
+      toast(`Approve the connection in ${w.name}.`);
+      try { await connect(w); $("toast").hidden = true; }
+      catch (e) { toast(/reject|cancel|denied/i.test(String(e?.message || e)) ? "Connection cancelled." : "Connection failed: " + (e.message || e), true); }
+      finally { btn.disabled = false; renderWallet(); }
+    };
     box.appendChild(b);
   });
   $("walletModal").hidden = false;
