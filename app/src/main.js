@@ -261,7 +261,7 @@ function lowBalance(needMist) {
 async function exec(label, btnId, build, needMist = 0) {
   if (!account) { openWalletModal(); return; }
   if (busy || lowBalance(needMist)) return;
-  busy = true;
+  busy = btnId;
   const b = $(btnId), old = b.textContent;
   b.disabled = true; b.textContent = "Confirm in wallet";
   try {
@@ -271,7 +271,9 @@ async function exec(label, btnId, build, needMist = 0) {
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
-    const r = await signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN });
+    // If the wallet window is closed without an answer the request never settles; release the app after 90s.
+    const r = await within(signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN }), 90_000)
+      .catch(e => { throw e.message === "timeout" ? new Error("No answer from the wallet. Open it and try again.") : e; });
     txAt = Date.now();
     toast(`${label} confirmed. <a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">View transaction</a>`, false, true);
     refresh(); setTimeout(refresh, 1500); setTimeout(refresh, 4000);
@@ -431,7 +433,13 @@ function buildBoard() {
     c.type = "button"; c.className = "tile"; c.dataset.i = i;
     c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="add" hidden></span><span class="a"></span>`;
     c.addEventListener("animationend", () => c.classList.remove("bump"));
-    c.onclick = () => { selected.has(i) ? selected.delete(i) : selected.add(i); render(); };
+    c.onclick = () => {
+      selected.has(i) ? selected.delete(i) : selected.add(i);
+      // Picking a tile with no amount set starts at the minimum, so Deploy is ready right away.
+      const min = STATE ? STATE.board.min_deploy / MIST : 0.01;
+      if (selected.size && parseAmt($("amt").value) < min) $("amt").value = String(min);
+      render();
+    };
     g.appendChild(c);
   }
   tileEls = [...g.children];
@@ -621,6 +629,7 @@ function renderRewards() {
   $("rwGts").textContent = USER ? sui(R.gts, 4) : "—";
   $("rwYield").textContent = USER ? sui(Number(R.yield), 6) : "—";
   $("rwSui").classList.toggle("won", R.sui > 0);
+  if (busy && busy !== "btnClaimAll") $("btnClaimAll").disabled = true;
   if (!busy) {
     $("btnClaimAll").textContent = account ? "Claim all" : "Connect wallet";
     $("btnClaimAll").disabled = !!account && !R.any;
@@ -669,11 +678,11 @@ function renderMine() {
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
-  }
+  } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }
   let hint = `Minimum ${min} SUI per tile. Every participant mines GTS.`;
   if (claimable && (p === "open" || p === "live")) {
     const R = rewards();
-    hint = `You pay ${fmt(per * selected.size, 4)} SUI. Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
+    hint = `${per * selected.size > 0 ? `You pay ${fmt(per * selected.size, 4)} SUI. ` : ""}Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
     if (!selected.size) hint = "Your rewards from the last round are collected with your next deploy, or use Claim all.";
   } else if (p === "ended") hint = b.cur_total >= KEEPER_MIN_POT
     ? "The round has ended. The winner is drawn within seconds."
