@@ -3,7 +3,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
-import { registerSlushWallet } from "@mysten/slush-wallet";
+import { SlushWallet, SLUSH_WALLET_ICON } from "@mysten/slush-wallet";
 
 const CFG = window.GTSTAR_CONFIG;
 const IDS = CFG.ids;
@@ -174,9 +174,10 @@ async function loadHistory() {
 
 // ---------- wallet ----------
 const walletsApi = getWallets();
-// Slush in the browser: sign in with Google or Apple, no extension, no seed phrase (zkLogin).
-// It steps aside by itself when the Slush extension is installed.
-const SLUSH_WEB = registerSlushWallet("GTStar")?.wallet || null;
+// "Continue with Google": Slush in the browser (zkLogin), no extension, no seed phrase. Kept out of the
+// wallet registry so it is offered next to any installed wallet, the Slush extension included.
+const WEB_KEY = "slush-web";
+const SLUSH_WEB = new SlushWallet({ name: "GTStar", metadata: { id: "com.mystenlabs.suiwallet.web", walletName: "Slush", icon: SLUSH_WALLET_ICON, enabled: true } });
 const isWeb = w => !!w && w === SLUSH_WEB;
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
@@ -189,7 +190,7 @@ async function connect(w, silent = false) {
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
   wallet = w; account = accs[0];
-  try { localStorage.setItem("gtstar.wallet", w.name); } catch {}
+  try { localStorage.setItem("gtstar.wallet", isWeb(w) ? WEB_KEY : w.name); } catch {}
   w.features["standard:events"]?.on("change", ({ accounts }) => {
     if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); loadWelcome(); }
   });
@@ -205,7 +206,7 @@ async function disconnect() {
 }
 function renderWallet() {
   const b = $("btnConnect");
-  b.textContent = account ? label(account.address) : "Connect";
+  b.textContent = account ? label(account.address) : "Sign in";
   b.classList.toggle("ghost", !!account);
   if (account) {
     $("mAddr").textContent = label(account.address);
@@ -220,40 +221,39 @@ function openWalletModal() {
   const list = suiWallets();
   const box = $("walletList"); box.innerHTML = "";
   $("noWallet").hidden = list.length > 0;
-  list.sort((a, b) => isWeb(b) - isWeb(a)).forEach(w => {
+  $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first round is free.</b> " : "") +
+    "New to crypto? This creates your free wallet in seconds. No app, no seed phrase. Apple sign-in works too.";
+  $("btnGoogle").onclick = () => startConnect(SLUSH_WEB);
+  list.forEach(w => {
     const b = document.createElement("button"); b.type = "button";
     const img = document.createElement("img"); img.src = w.icon; img.alt = "";
-    const s = document.createElement("span"); s.textContent = isWeb(w) ? "Sign in with Google or Apple" : w.name;
-    if (isWeb(w)) {
-      b.classList.add("featured");
-      const sm = document.createElement("small");
-      sm.textContent = "Free Slush wallet in seconds, nothing to install. New wallets play their first round free.";
-      s.append(sm);
-    }
+    const s = document.createElement("span"); s.textContent = w.name;
     b.append(img, s);
-    b.onclick = async () => {
-      closeModal();
-      const btn = $("btnConnect");
-      btn.textContent = "Connecting…"; btn.disabled = true;
-      toast(isWeb(w) ? "Finish signing in in the Slush window." : `Approve the connection in ${w.name}.`);
-      try { await connect(w); $("toast").hidden = true; }
-      catch (e) {
-        const m = String(e?.message || e);
-        toast(/reject|cancel|denied/i.test(m) ? "Connection cancelled."
-          : /open new window/i.test(m) ? "Your browser blocked the sign-in window. Allow pop-ups for this site and try again."
-          : "Connection failed: " + m, true);
-      }
-      finally { btn.disabled = false; renderWallet(); }
-    };
+    b.onclick = () => startConnect(w);
     box.appendChild(b);
   });
   $("walletModal").hidden = false;
+}
+async function startConnect(w) {
+  closeModal();
+  const btn = $("btnConnect");
+  btn.textContent = "Connecting…"; btn.disabled = true;
+  toast(isWeb(w) ? "Finish signing in in the new window." : `Approve the connection in ${w.name}.`);
+  try { await connect(w); $("toast").hidden = true; }
+  catch (e) {
+    const m = String(e?.message || e);
+    toast(/reject|cancel|denied/i.test(m) ? "Connection cancelled."
+      : /open new window/i.test(m) ? "Your browser blocked the sign-in window. Allow pop-ups for this site and try again."
+      : "Connection failed: " + m, true);
+  }
+  finally { btn.disabled = false; renderWallet(); }
 }
 const closeModal = () => ($("walletModal").hidden = true);
 async function autoReconnect() {
   let name = null;
   try { name = localStorage.getItem("gtstar.wallet"); } catch {}
   if (!name) return;
+  if (name === WEB_KEY) { try { await connect(SLUSH_WEB, true); } catch {} return; }
   const tryIt = async () => { const w = suiWallets().find(x => x.name === name); if (w && !wallet) { try { await connect(w, true); } catch {} } };
   await tryIt();
   walletsApi.on("register", tryIt);
@@ -784,7 +784,7 @@ function renderRewards() {
   $("rwSui").classList.toggle("won", R.sui > 0);
   if (busy && busy !== "btnClaimAll") $("btnClaimAll").disabled = true;
   if (!busy) {
-    $("btnClaimAll").textContent = account ? "Claim all" : "Connect wallet";
+    $("btnClaimAll").textContent = account ? "Claim all" : "Sign in";
     $("btnClaimAll").disabled = !!account && !R.any;
   }
   const hc = $("hdrClaim");
@@ -827,7 +827,7 @@ function renderMine() {
   const min = b ? b.min_deploy / MIST : 0.01;
   if (!busy) {
     let label = "Deploy", dis = false;
-    if (!account) label = "Connect wallet";
+    if (!account) label = "Sign in to play";
     else if (p === "loading") { label = "Loading"; dis = true; }
     else if (p === "ended") label = selected.size ? "Draw winner, then deploy" : "Draw winner";
     else if (p === "frozen") { label = "Round closing"; dis = true; }
@@ -846,7 +846,7 @@ function renderMine() {
     : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
-  if (!account && WELCOME_OPEN && walletsApi.get().includes(SLUSH_WEB)) hint = "New here? Sign in with Google or Apple and play your first round free.";
+  if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first round free.";
   $("playHint").textContent = hint;
   $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
@@ -1099,7 +1099,7 @@ function renderStake() {
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
     let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;
-    if (!account) label = "Connect wallet";
+    if (!account) label = "Sign in";
     else if (amt <= 0) dis = true;
     else if (amt > avail) { label = stakeMode === "deposit" ? "Insufficient GTS" : "Exceeds your stake"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
@@ -1172,7 +1172,7 @@ function renderTrade() {
   if (!busy) {
     const btn = $("btnSwap"), tok = sell ? "GTS" : "SUI";
     let label = "Swap", dis = false;
-    if (!account) label = "Connect wallet";
+    if (!account) label = "Sign in";
     else if (need <= 0) { label = "Enter an amount"; dis = true; }
     else if (need > balIn) { label = `Insufficient ${tok}`; dis = true; }
     else if (sell && !known) { label = STATE?.supply && need > STATE.supply ? "Exceeds GTS supply" : "No quote for this amount"; dis = true; }
