@@ -377,3 +377,13 @@ button.sw-bal:hover{color:var(--text)}
   body.on-home .strip b{font-size:17px}
   body.on-home .strip span{font-size:11.5px}
 }
+
+/* Free first round (new Google/Apple wallets) */
+.welcome{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--line-2);border-radius:12px;margin-bottom:10px}
+.welcome div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.welcome b{font-size:14px}
+.welcome span{color:var(--muted);font-size:12.5px}
+.welcome .chip{flex:none}
+.wallets button.featured{border-color:var(--line-3)}
+.wallets button small{display:block;color:var(--muted);font-size:12px;font-weight:400;margin-top:2px}
+.wallets button span{text-align:left}

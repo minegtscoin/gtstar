@@ -11,6 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@mysten/slush-wallet": "^1.2.5",
     "@mysten/sui": "^2.31.3",
     "@mysten/wallet-standard": "^0.21.27",
     "@wallet-standard/app": "^1.1.1",

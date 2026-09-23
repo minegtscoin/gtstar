@@ -3,6 +3,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
+import { registerSlushWallet } from "@mysten/slush-wallet";
 
 const CFG = window.GTSTAR_CONFIG;
 const IDS = CFG.ids;
@@ -45,6 +46,7 @@ function ago(ts) {
 }
 
 let wallet = null, account = null;
+let WELCOME = null, welcomePoll = null, WELCOME_OPEN = false; // free first round (see welcome.php)
 let STATE = null, USER = null, HIST = null;
 let selected = new Set();
 let busy = false, view = "home";
@@ -172,6 +174,10 @@ async function loadHistory() {
 
 // ---------- wallet ----------
 const walletsApi = getWallets();
+// Slush in the browser: sign in with Google or Apple, no extension, no seed phrase (zkLogin).
+// It steps aside by itself when the Slush extension is installed.
+const SLUSH_WEB = registerSlushWallet("GTStar")?.wallet || null;
+const isWeb = w => !!w && w === SLUSH_WEB;
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
 // A wallet that never answers must not leave the app waiting forever.
@@ -185,9 +191,9 @@ async function connect(w, silent = false) {
   wallet = w; account = accs[0];
   try { localStorage.setItem("gtstar.wallet", w.name); } catch {}
   w.features["standard:events"]?.on("change", ({ accounts }) => {
-    if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); }
+    if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); loadWelcome(); }
   });
-  renderWallet(); refresh();
+  renderWallet(); refresh(); loadWelcome();
   return true;
 }
 async function disconnect() {
@@ -214,18 +220,29 @@ function openWalletModal() {
   const list = suiWallets();
   const box = $("walletList"); box.innerHTML = "";
   $("noWallet").hidden = list.length > 0;
-  list.forEach(w => {
+  list.sort((a, b) => isWeb(b) - isWeb(a)).forEach(w => {
     const b = document.createElement("button"); b.type = "button";
     const img = document.createElement("img"); img.src = w.icon; img.alt = "";
-    const s = document.createElement("span"); s.textContent = w.name;
+    const s = document.createElement("span"); s.textContent = isWeb(w) ? "Sign in with Google or Apple" : w.name;
+    if (isWeb(w)) {
+      b.classList.add("featured");
+      const sm = document.createElement("small");
+      sm.textContent = "Free Slush wallet in seconds, nothing to install. New wallets play their first round free.";
+      s.append(sm);
+    }
     b.append(img, s);
     b.onclick = async () => {
       closeModal();
       const btn = $("btnConnect");
       btn.textContent = "Connecting…"; btn.disabled = true;
-      toast(`Approve the connection in ${w.name}.`);
+      toast(isWeb(w) ? "Finish signing in in the Slush window." : `Approve the connection in ${w.name}.`);
       try { await connect(w); $("toast").hidden = true; }
-      catch (e) { toast(/reject|cancel|denied/i.test(String(e?.message || e)) ? "Connection cancelled." : "Connection failed: " + (e.message || e), true); }
+      catch (e) {
+        const m = String(e?.message || e);
+        toast(/reject|cancel|denied/i.test(m) ? "Connection cancelled."
+          : /open new window/i.test(m) ? "Your browser blocked the sign-in window. Allow pop-ups for this site and try again."
+          : "Connection failed: " + m, true);
+      }
       finally { btn.disabled = false; renderWallet(); }
     };
     box.appendChild(b);
@@ -829,6 +846,7 @@ function renderMine() {
     : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
+  if (!account && WELCOME_OPEN && walletsApi.get().includes(SLUSH_WEB)) hint = "New here? Sign in with Google or Apple and play your first round free.";
   $("playHint").textContent = hint;
   $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
@@ -1178,7 +1196,7 @@ function render() {
 async function refresh() {
   try {
     const [g, u] = await Promise.all([loadGlobal(), account ? loadUser(account.address) : Promise.resolve(null)]);
-    STATE = g; USER = u; trackRounds(); render();
+    STATE = g; USER = u; trackRounds(); render(); renderWelcome();
   } catch (e) { console.warn("refresh failed", e); }
 }
 let histBusy = false;
@@ -1238,6 +1256,64 @@ $("mNameForm").onsubmit = async e => {
   } catch (err) {
     toast(/reject|cancel|denied/i.test(err?.message || "") ? "Signature cancelled." : "Could not sign the message.", true);
   } finally { btn.disabled = false; btn.textContent = "Save"; }
+};
+// ---------- free first round ----------
+// A brand-new wallet made with Google or Apple (Slush in the browser) gets enough SUI for one 0.01 SUI tile.
+// welcome.php checks the signed request; the keeper sends the SUI within seconds.
+fetch("/api/welcome", { cache: "no-store" }).then(r => r.json()).then(j => { WELCOME_OPEN = !!j.open; render(); }).catch(() => {});
+async function loadWelcome() {
+  const addr = account?.address;
+  if (!addr || !isWeb(wallet)) { WELCOME = null; return renderWelcome(); }
+  try {
+    const r = await fetch(`/api/welcome?address=${addr}`, { cache: "no-store" });
+    const j = r.ok ? await r.json() : null;
+    if (account?.address !== addr) return;
+    const was = WELCOME?.addr === addr ? WELCOME.status : null;
+    WELCOME = j && { ...j, addr };
+    if (was === "queued" && j?.status === "sent") welcomeArrived();
+  } catch {}
+  renderWelcome();
+}
+function renderWelcome() {
+  const w = account && WELCOME?.addr === account.address ? WELCOME : null;
+  const fresh = USER && !USER.miner && USER.sui === 0;
+  const show = !!w && ((w.status === "none" && w.open && fresh) || w.status === "queued");
+  $("welcome").hidden = !show;
+  if (!show) return;
+  const amt = sui(w.amount || 0, 3);
+  $("welcomeTxt").textContent = w.status === "queued"
+    ? `Sending ${amt} SUI to your wallet…`
+    : `Get ${amt} SUI free to play your first tile.`;
+  $("btnWelcome").disabled = w.status === "queued";
+  $("btnWelcome").textContent = w.status === "queued" ? "Sending" : "Get it";
+  if (w.status === "queued" && !welcomePoll) welcomePoll = setInterval(loadWelcome, 3000);
+}
+async function welcomeArrived() {
+  clearInterval(welcomePoll); welcomePoll = null;
+  await refresh();
+  const min = STATE?.board.min_deploy || 10_000_000;
+  $("amt").value = String(min / MIST);
+  if (!selected.size) selected.add(Math.floor(Math.random() * 25));
+  render();
+  toast(`${sui(WELCOME.amount, 3)} SUI arrived. We picked a tile for you: press Deploy to play.`);
+}
+$("btnWelcome").onclick = async () => {
+  const signer = wallet?.features["sui:signPersonalMessage"];
+  if (!signer || !account) return;
+  const btn = $("btnWelcome"); btn.disabled = true; btn.textContent = "Sign…";
+  try {
+    const address = account.address, ts = Date.now();
+    const message = new TextEncoder().encode(`GTStar welcome\nAddress: ${address}\nTime: ${ts}`);
+    const { signature } = await signer.signPersonalMessage({ message, account, chain: CHAIN });
+    btn.textContent = "Sending";
+    const r = await fetch("/api/welcome", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, ts, signature }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { WELCOME = null; renderWelcome(); return toast(j.error || "Could not get the free round.", true); }
+    WELCOME = { ...WELCOME, status: j.status, addr: address };
+    if (j.status === "sent") welcomeArrived();
+  } catch (err) {
+    toast(/reject|cancel|denied/i.test(err?.message || "") ? "Signature cancelled." : "Could not sign the message.", true);
+  } finally { renderWelcome(); }
 };
 $("mCopy").onclick = async () => { try { await navigator.clipboard.writeText(account.address); toast("Address copied."); } catch { toast(account.address); } };
 $("closeModal").onclick = closeModal;
