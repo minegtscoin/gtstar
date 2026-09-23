@@ -1,5 +1,6 @@
 // GTStar dApp — static and non-custodial. Every player signs with their own wallet.
 import { Transaction } from "@mysten/sui/transactions";
+import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
 
@@ -9,7 +10,7 @@ const CHAIN = `sui:${CFG.network}`;
 const GQL = `https://graphql.${CFG.network}.sui.io/graphql`;
 const SCAN = `https://suiscan.xyz/${CFG.network}`;
 const MIST = 1e9;
-const MAX_SUPPLY = 1_000_000;
+const MAX_SUPPLY = 572_003.236678098;          // emission ceiling at 2030-01-01 for the mainnet genesis
 const HALVING_MS = 15_778_800_000;          // 6 months
 const EMISSION_END = 1_893_456_000_000;       // 2030-01-01T00:00:00Z
 const BASE_REWARD = 1;                        // GTS per round to miners at genesis
@@ -352,6 +353,53 @@ const stake = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnSta
   }
 }).then(r => { if (r) $("stakeAmt").value = ""; });
 // GTS -> SUI routes through the reserve (burn at the floor). There is no GTS pool to buy from yet.
+// Buy GTS with SUI straight from the Cetus GTS/SUI pool (Pool<GTS, SUI>, so buying is b2a).
+const CETUS_PKG = "0x260693ec785a6e6c9d81d58c7d2ff72f1288ae0fa6a9725abe05a6478b11f084"; // clmm, latest version
+const CETUS_CFG = "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f";  // clmm GlobalConfig
+const MAX_SQRT = "79226673515401279992447579055";
+const SLIPPAGE = 0.01;
+const POOL_T = [T_GTS, "0x2::sui::SUI"];
+const sim = new SuiGraphQLClient({ url: GQL, network: CFG.network });
+let QUOTE = { amt: 0, out: 0, exceed: false }, quoteSeq = 0;
+// Exact amount out for `amt` MIST of SUI, read from the pool itself (a simulated call, nothing is signed).
+async function quoteBuy(amt) {
+  const seq = ++quoteSeq;
+  if (amt <= 0 || !IDS.market) { QUOTE = { amt: 0, out: 0, exceed: false }; return renderTrade(); }
+  try {
+    const tx = new Transaction();
+    tx.setSender("0x0000000000000000000000000000000000000000000000000000000000000000");
+    const r = tx.moveCall({ target: `${CETUS_PKG}::pool::calculate_swap_result`, typeArguments: POOL_T, arguments: [tx.object(IDS.market), tx.pure.bool(false), tx.pure.bool(true), tx.pure.u64(amt)] });
+    tx.moveCall({ target: `${CETUS_PKG}::pool::calculated_swap_result_amount_out`, arguments: [r] });
+    tx.moveCall({ target: `${CETUS_PKG}::pool::calculated_swap_result_is_exceed`, arguments: [r] });
+    const res = await sim.simulateTransaction({ transaction: tx, checksEnabled: false, include: { commandResults: true } });
+    if (seq !== quoteSeq) return;
+    const out = res.commandResults[1].returnValues[0].bcs, ex = res.commandResults[2].returnValues[0].bcs;
+    QUOTE = { amt, out: Number(new DataView(Uint8Array.from(out).buffer).getBigUint64(0, true)), exceed: ex[0] === 1 };
+  } catch (e) { if (seq === quoteSeq) QUOTE = { amt: 0, out: 0, exceed: false }; console.warn("quote failed", e); }
+  renderTrade();
+}
+let quoteTimer = 0;
+const requestQuote = () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(() => quoteBuy(toMist($("swIn").value)), 250); };
+const buy = () => exec("Swap", "btnSwap", async tx => {
+  const amt = toMist($("swIn").value);
+  if (amt <= 0) throw new Error("Enter an amount.");
+  if (QUOTE.amt !== amt) await quoteBuy(amt);
+  if (QUOTE.exceed || QUOTE.out <= 0) throw new Error("Not enough liquidity in the pool for this amount.");
+  const minOut = Math.floor(QUOTE.out * (1 - SLIPPAGE));
+  const [gts, suiLeft, receipt] = tx.moveCall({ target: `${CETUS_PKG}::pool::flash_swap`, typeArguments: POOL_T, arguments: [
+    tx.object(CETUS_CFG), tx.object(IDS.market), tx.pure.bool(false), tx.pure.bool(true), tx.pure.u64(amt), tx.pure.u128(MAX_SQRT), tx.object.clock()] });
+  const pay = tx.moveCall({ target: `${CETUS_PKG}::pool::swap_pay_amount`, typeArguments: POOL_T, arguments: [receipt] });
+  const [payCoin] = tx.splitCoins(tx.gas, [pay]);
+  const payBal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: [POOL_T[1]], arguments: [payCoin] });
+  const noGts = tx.moveCall({ target: "0x2::balance::zero", typeArguments: [T_GTS] });
+  tx.moveCall({ target: `${CETUS_PKG}::pool::repay_flash_swap`, typeArguments: POOL_T, arguments: [tx.object(CETUS_CFG), tx.object(IDS.market), noGts, payBal, receipt] });
+  tx.moveCall({ target: "0x2::balance::destroy_zero", typeArguments: [POOL_T[1]], arguments: [suiLeft] });
+  // Slippage guard: splitting minOut aborts the whole transaction if the pool gave less.
+  const part = tx.moveCall({ target: "0x2::balance::split", typeArguments: [T_GTS], arguments: [gts, tx.pure.u64(minOut)] });
+  tx.moveCall({ target: "0x2::balance::join", typeArguments: [T_GTS], arguments: [gts, part] });
+  const [coin] = tx.moveCall({ target: "0x2::coin::from_balance", typeArguments: [T_GTS], arguments: [gts] });
+  tx.transferObjects([coin], account.address);
+}, toMist($("swIn").value)).then(r => { if (r) { $("swIn").value = ""; QUOTE = { amt: 0, out: 0, exceed: false }; renderTrade(); } });
 const swap = () => exec("Swap", "btnSwap", tx => {
   const amt = toMist($("swIn").value);
   if (amt <= 0) throw new Error("Enter an amount.");
@@ -979,8 +1027,7 @@ function renderTicker() {
   if (PRICE.chg != null) { c.textContent = `${PRICE.chg >= 0 ? "+" : ""}${fmt(PRICE.chg, 2)}%`; c.classList.toggle("dn", PRICE.chg < 0); }
 }
 
-let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS on Cetus
-const CETUS = dir => `https://app.cetus.zone/swap/?${dir === "buy" ? `from=0x2::sui::SUI&to=${T_GTS}` : `from=${T_GTS}&to=0x2::sui::SUI`}`;
+let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS from the Cetus pool
 function renderTrade() {
   const sell = swapDir === "sell", market = STATE?.market || 0;
   const [tin, tout] = sell ? ["GTS", "SUI"] : ["SUI", "GTS"];
@@ -991,29 +1038,30 @@ function renderTrade() {
   $("swBalOut").textContent = USER ? `Balance ${sui(balOut, 4)}` : "";
   const amt = parseAmt($("swIn").value);
   const floor = STATE?.floor || 0;
-  const out = sell && STATE?.supply ? STATE.vault * amt / STATE.supply : 0;
-  $("swOut").textContent = sell ? fmt(out, 6) : "—";
+  const need = toMist($("swIn").value), quoted = !sell && QUOTE.amt === need && QUOTE.out > 0;
+  const out = sell ? (STATE?.supply ? STATE.vault * amt / STATE.supply : 0) : quoted ? QUOTE.out / MIST : 0;
+  $("swOut").textContent = sell || quoted ? fmt(out, 6) : "—";
   $("swUsdIn").textContent = PRICE.sui ? usd(amt * (sell ? floor : 1) * PRICE.sui) : "";
-  $("swUsdOut").textContent = PRICE.sui && sell ? usd(out * PRICE.sui) : "";
+  $("swUsdOut").textContent = PRICE.sui && (sell || quoted) ? usd(out * (sell ? 1 : market) * PRICE.sui) : "";
   const rate = sell ? floor : market;
   $("swRate").textContent = STATE && rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
   $("swRoute").textContent = sell ? "GTS reserve (burn at floor)" : "Cetus GTS/SUI pool";
-  $("swFee").textContent = sell ? "None" : "1% pool fee";
-  $("swHint").innerHTML = sell
+  $("swFee").textContent = sell ? "None" : `1% pool fee, ${SLIPPAGE * 100}% max slippage`;
+  $("swHint").textContent = sell
     ? "Sells GTS to the on-chain reserve at the floor price. The GTS is burned and SUI is sent to your wallet."
-      + (market > floor ? ` The market price is higher right now: <a href="${CETUS("sell")}" target="_blank" rel="noopener">sell on Cetus</a>.` : "")
-    : "Buying opens Cetus with GTS selected. The price is set by the GTS/SUI pool.";
+    : "Buys GTS directly from the GTS/SUI pool. The price moves with the size of the trade.";
   if (!busy) {
-    const btn = $("btnSwap"), need = toMist($("swIn").value);
+    const btn = $("btnSwap"), tok = sell ? "GTS" : "SUI";
     let label = "Swap", dis = false;
-    if (!sell) label = "Buy GTS on Cetus";
-    else if (!account) label = "Connect wallet";
+    if (!account) label = "Connect wallet";
     else if (need <= 0) { label = "Enter an amount"; dis = true; }
-    else if (need > balIn) { label = "Insufficient GTS"; dis = true; }
+    else if (need > balIn) { label = `Insufficient ${tok}`; dis = true; }
+    else if (!sell && QUOTE.amt === need && QUOTE.exceed) { label = "Not enough liquidity"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
   }
-  document.querySelectorAll("#swPct button").forEach(b => (b.disabled = !sell));
 }
+// Amount the percentage buttons work from: all GTS when selling, SUI minus gas when buying.
+const swapMax = () => (swapDir === "sell" ? USER.gts : Math.max(0, USER.sui - 2 * GAS_RESERVE));
 
 function render() {
   if (view !== "mine") document.title = "GTStar";
@@ -1077,14 +1125,15 @@ $("btnPlay").onclick = async () => {
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
 $("hdrClaim").onclick = claimAll;
 $("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
-$("btnSwap").onclick = () => (swapDir === "buy" ? window.open(CETUS("buy"), "_blank", "noopener") : account ? swap() : openWalletModal());
-$("swIn").addEventListener("input", renderTrade);
-$("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; renderTrade(); };
-$("swBalIn").onclick = () => { if (USER && swapDir === "sell") { $("swIn").value = String(USER.gts / MIST); renderTrade(); } };
+$("btnSwap").onclick = () => (!account ? openWalletModal() : swapDir === "buy" ? buy() : swap());
+const swInput = () => { renderTrade(); if (swapDir === "buy") requestQuote(); };
+$("swIn").addEventListener("input", swInput);
+$("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; QUOTE = { amt: 0, out: 0, exceed: false }; renderTrade(); };
+$("swBalIn").onclick = () => { if (USER) { $("swIn").value = String(swapMax() / MIST); swInput(); } };
 document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
-  const v = +b.dataset.pct === 100 ? USER.gts : Math.floor(USER.gts * +b.dataset.pct / 100);
-  $("swIn").value = String(v / MIST); renderTrade();
+  const max = swapMax(), v = +b.dataset.pct === 100 ? max : Math.floor(max * +b.dataset.pct / 100);
+  $("swIn").value = String(v / MIST); swInput();
 }));
 $("btnStake").onclick = () => (account ? stake() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));

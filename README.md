@@ -11,7 +11,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 
 | | |
 |---|---|
-| Hard cap | 1,000,000 GTS, enforced on every mint |
+| Max supply | 572,003 GTS, the most the immutable emission schedule can ever mint (enforced on every mint) |
 | Premine / team / presale | None |
 | Emission | 1 GTS per round to miners, +10% to stakers, halving every 6 months, ending January 1, 2030 |
 | Losing pot | 95% winners · 4% reserve · 1% creator |
@@ -25,7 +25,7 @@ The protocol is split so that the economics are locked while the product can sti
 
 | Package | Path | Contents | Upgradeable |
 |---|---|---|---|
-| `gts_token` | [`contracts/token`](contracts/token) | GTS coin, hard cap, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
+| `gts_token` | [`contracts/token`](contracts/token) | GTS coin, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
 | `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements |
 
 The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, zero from 2030). Burned GTS is never re-minted. No game upgrade can change this.

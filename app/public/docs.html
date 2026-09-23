@@ -120,7 +120,7 @@
     <p>Most tokens start with an insider advantage: a premine, a team allocation, a presale, or an admin key that can mint more. GTStar has none of these. Like Bitcoin, every GTS that will ever exist has to be mined, and the rules that govern supply are locked in code that no one can change, including us.</p>
     <ul>
       <li><strong>Fair launch.</strong> Zero GTS existed before the first round. There is no premine, no presale and no team allocation, and no function that could ever create one. Every token in circulation was earned by a player.</li>
-      <li><strong>Fixed supply.</strong> The emission schedule, the hard cap and the reserve live in an immutable token contract. No upgrade, key or vote can mint a single extra GTS, and burned GTS is never minted again.</li>
+      <li><strong>Fixed supply.</strong> The emission schedule, the 572,003 GTS maximum and the reserve live in an immutable token contract. No upgrade, key or vote can mint a single extra GTS, and burned GTS is never minted again.</li>
       <li><strong>Provably random.</strong> Winners are drawn by Sui's native randomness beacon, produced jointly by the network's validators. No server, no operator and no player can see or steer the result in advance.</li>
       <li><strong>Everyone mines.</strong> Unlike single-winner games, every participant earns GTS every round, win or lose.</li>
       <li><strong>Backed by SUI.</strong> Any holder can burn GTS at any time for a share of the SUI reserve. Value that exists on-chain, not only on an exchange.</li>
@@ -162,7 +162,7 @@ my_gts     = round_reward * my_deposits / round_total</span>
     </ul>
 
     <h2 id="tokenomics">Tokenomics</h2>
-    <p class="sub">A hard cap, a halving, and a SUI floor.</p>
+    <p class="sub">A fixed schedule, a halving, and a SUI floor.</p>
     <h3>Supply</h3>
     <p>Each round mints 1 GTS to miners and 0.1 GTS to stakers. Both halve every six months, counted from the first round, and emission stops for good on January 1, 2030. At most 572,003 GTS can ever exist.</p>
     <div class="tbl"><table>
@@ -177,7 +177,7 @@ my_gts     = round_reward * my_deposits / round_total</span>
         <tr><td>Month 36 – Jan 2030</td><td class="n">0.015625</td><td class="n">0.0015625</td><td class="n">572,003</td></tr>
       </tbody>
     </table></div>
-    <p>The maximum assumes a round every minute, around the clock. Rounds only happen when people play, so real supply ends up lower, and GTS not mined in its period is never minted later. On top of the schedule, the token contract enforces an absolute cap of 1,000,000 GTS on every mint.</p>
+    <p>The maximum assumes a round every minute, around the clock. Rounds only happen when people play, so real supply ends up lower. The token contract checks every mint against this schedule, so total supply can never go above 572,003 GTS. The contract code also carries a 1,000,000 GTS safety limit, which the schedule never reaches.</p>
     <h3>Fees</h3>
     <p>Fees come only from the losing pot, never from a winner's stake.</p>
     <div class="tbl"><table>
@@ -201,7 +201,7 @@ floor_price   = reserve / total_supply</span>
 
     <h2 id="links">Links</h2>
     <p class="sub">Don't trust, verify.</p>
-    <p>GTStar is split into two contracts. The <strong>token contract</strong> holds GTS, the hard cap, the emission schedule and the reserve, and is immutable: no one can ever change it. The <strong>game contract</strong> holds the board, fees and staking. It can receive fixes and improvements, but it can only mint through the token contract and within its schedule, and it can never touch the reserve. Every upgrade is public on-chain.</p>
+    <p>GTStar is split into two contracts. The <strong>token contract</strong> holds GTS, the emission schedule and the reserve, and is immutable: no one can ever change it. The <strong>game contract</strong> holds the board, fees and staking. It can receive fixes and improvements, but it can only mint through the token contract and within its schedule, and it can never touch the reserve. Every upgrade is public on-chain.</p>
     <p>Contracts on <strong id="netName">Sui</strong>:</p>
     <div class="addr" id="addrList"></div>
     <h3>Transaction proofs</h3>
