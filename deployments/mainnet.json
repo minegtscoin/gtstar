@@ -106,5 +106,27 @@
   "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6",
   "timelockPkg": "0x6c90bed3ffa9c429ab2381ad3cfeb45ceadb0e10c22df9b90f995d0892158bd5",
   "timelock": "0x8390bf694f67a332d0916f0adde76bf64c351a6560401c3a53401442c220a68c",
-  "lpBurnProof": "0x46f49864c203020bf9d2687d6e8d62b684a2ff37823d2772e0bff5920509e84a"
+  "lpBurnProof": "0x46f49864c203020bf9d2687d6e8d62b684a2ff37823d2772e0bff5920509e84a",
+  "siteProof": [
+    [
+      "Token contract made immutable",
+      "4Lzkqp56jrnAMcCaFEX6nCkkdGVdsVcmGhByLMMhWF5Q"
+    ],
+    [
+      "Minting right given to the game, no premine",
+      "NkPHyKMLDSA6mocKWfgwoVvcP5axvPnJ2jBSmAsVdg6"
+    ],
+    [
+      "Game upgrade key locked in a 48-hour timelock",
+      "8dA3nFNhhy7TKaPdym1A9sDSvteX7GuLARGxD7SM3BXn"
+    ],
+    [
+      "Timelock contract made immutable",
+      "4865Yn3nhMcho18ssu5EDa8mfXUzPf5g9xADiXHh5qSf"
+    ],
+    [
+      "Trading liquidity burned on Cetus",
+      "2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y"
+    ]
+  ]
 }
