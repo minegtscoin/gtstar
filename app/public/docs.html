@@ -163,7 +163,7 @@
     <span class="code">losing_pot = total_deposits - winning_tile_total
 payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
 my_gts     = round_reward * my_deposits / round_total</span>
-    <p>If no one deployed on the winning tile, the winners' 95% rolls into the <strong>Motherlode</strong>, a jackpot that keeps growing. Every round that has a winner also has a 1 in 100 chance, drawn on-chain with sui::random, to pay the whole Motherlode to the winning tile, split by stake like the normal pot. The 4% reserve and 1% creator fees are unchanged. The GTStar House wallet never keeps Motherlode SUI: the contract sends its share straight back.</p>
+    <p>If no one deployed on the winning tile, the winners' 95% rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract). Every round that has a winner also has a 1 in 100 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve and 1% creator fees are unchanged. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
     <h3>Fairness of the draw</h3>
     <p>The winning tile comes from <code>sui::random</code>. The draw runs in a private entry function, so no other contract can wrap it and cancel the transaction when it dislikes the result. The rules are the same for every player, and every result is recorded on-chain.</p>
 

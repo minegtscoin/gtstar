@@ -692,8 +692,8 @@ function renderResult() {
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
-  let sub = L.winners === 0 ? (L.ml ? "No one was on this tile. The pot rolled into the Motherlode." : "No one was on this tile. The pot went to the reserve.")
-    : L.ml?.paid > 0 ? `Motherlode hit: ${sui(L.ml.paid, 4)} SUI. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI`
+  let sub = L.winners === 0 ? (L.ml ? "No one was on this tile. The pot rolled into the Supernova." : "No one was on this tile. The pot went to the reserve.")
+    : L.ml?.paid > 0 ? `Supernova! ${sui(L.ml.paid, 4)} SUI exploded onto this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI`
     : L.payout > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
   const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
@@ -911,7 +911,7 @@ function renderActivity() {
     const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
-      const winner = w.size === 0 ? `<span class="muted">${r.ml ? "Motherlode" : "Reserve"}</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
+      const winner = w.size === 0 ? `<span class="muted">${r.ml ? "Supernova" : "Reserve"}</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
       const winnings = r.winners > 0 ? r.payout : 0;
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
