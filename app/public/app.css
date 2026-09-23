@@ -232,6 +232,9 @@ body.on-home .hero{padding:8px 0 32px}
 .res-me{font-size:13px;color:var(--muted)}
 .res-me b{color:var(--text);font-family:var(--disp)}
 .res-me.won b:first-child{color:var(--win)}
+.share-x{font-size:12.5px;font-weight:600;color:var(--text);padding:6px 12px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line-2);white-space:nowrap}
+.share-x:hover{box-shadow:inset 0 0 0 1px var(--line-3)}
+.toast .share-x{text-decoration:none;margin-left:6px}
 
 .recent{display:flex;align-items:center;gap:12px;min-width:0}
 .recent .lbl{font-size:11px;color:var(--dim);letter-spacing:.07em;text-transform:uppercase;white-space:nowrap}

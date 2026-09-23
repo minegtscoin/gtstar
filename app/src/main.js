@@ -674,9 +674,9 @@ function renderResult() {
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
   const m = USER?.miner, back = m && m.round_id === L.round ? rewards().sui : 0, net = back - (m?.total || 0);
-  if (back > 0) me = net > 0 ? `<div class="res-me won">You won <b>+${sui(net, 4)} SUI</b></div>` : `<div class="res-me">Your tile won · <b>${sui(back, 4)} SUI back</b></div>`;
+  if (back > 0) me = net > 0 ? `<div class="res-me won">You won <b>+${sui(net, 4)} SUI</b></div>${shareLink(net, L)}` : `<div class="res-me">Your tile won · <b>${sui(back, 4)} SUI back</b></div>`;
   const youWon = back > 0 && net > 0;
-  if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}.`); }
+  if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}. ${shareLink(net, L)}`, false, true); }
   box.hidden = false;
   box.classList.toggle("fresh", !!fresh);
   box.classList.toggle("won", youWon);
@@ -684,6 +684,14 @@ function renderResult() {
 }
 
 let cheered = null;
+// Prefilled X post for a win. `related` makes X suggest following @MineGTS1 right after the post goes out.
+const shareUrl = (net, L) => "https://x.com/intent/post?" + new URLSearchParams({
+  text: `Just won +${sui(net, 4)} SUI on tile ${L.tile + 1} in round #${fmt(L.round, 0)} of @MineGTS1
+
+25 tiles, one winner every round, GTS mined on Sui. Pick your tile:`,
+  url: "https://minegts.fun/", related: "MineGTS1",
+});
+const shareLink = (net, L) => `<a class="share-x" href="${shareUrl(net, L)}" target="_blank" rel="noopener">Share on X</a>`;
 function renderRecent() {
   const list = STATE?.recent || [];
   $("recent").innerHTML = list.length ? list.map(r =>
