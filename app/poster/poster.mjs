@@ -151,7 +151,8 @@ function compose(s, prev, a, price, variant) {
     "After it, every round mints half as much GTS. Mine now, stake what you mine, and earn more GTS with no lock-up.", "",
     `Staked: ${small(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`,
   ];
-  const tail = ["", "Play: https://minegts.fun"];
+  // No URL in the text: X charges $0.20 for a post with a link and $0.015 without. The site is in the bio.
+  const tail = ["", "Play now. Link in bio."];
   const head = milestone(prev, s);
   const withHead = head ? [head, "", ...body, ...tail].join("\n") : null;
   const plain = [...body, ...tail].join("\n");
