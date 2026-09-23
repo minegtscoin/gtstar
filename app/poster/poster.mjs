@@ -5,6 +5,7 @@
 //   node poster.mjs                  post if today is a posting day and nothing went out yet
 //   node poster.mjs --dry            print both posts, do not send or save
 //   node poster.mjs --force data     post the data post now (or: --force fun)
+//   node poster.mjs --engage         like new mentions of @MineGTS1, repost players' win shares
 // Needs ~/gtstar-poster/.env with X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET.
 import fs from "fs";
 import path from "path";
@@ -19,7 +20,7 @@ if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").
 }
 const DRY = process.argv.includes("--dry");
 const FORCE = process.argv.includes("--force") ? process.argv[process.argv.indexOf("--force") + 1] || "data" : null;
-const DATA_DAY = 2, FUN_DAY = 5; // UTC weekdays: Tuesday and Friday
+const DATA_DAY = 2, FUN_DAY = 5; // US Eastern weekdays: Tuesday and Friday
 const stateFile = path.join(dir, "state.json");
 
 const IDS = {
@@ -206,30 +207,61 @@ const xLength = t => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
 
 // ---------- X API (OAuth 1.0a) ----------
 const enc = s => encodeURIComponent(s).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase());
-async function tweet(text) {
+async function x(method, path, { query = {}, body } = {}) {
   const { X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET } = process.env;
   if (!X_API_KEY || !X_API_SECRET || !X_ACCESS_TOKEN || !X_ACCESS_SECRET) throw new Error("X API keys missing in .env");
-  const url = "https://api.x.com/2/tweets";
+  const url = "https://api.x.com/2/" + path;
   const o = {
     oauth_consumer_key: X_API_KEY, oauth_nonce: crypto.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1", oauth_timestamp: String(Math.floor(Date.now() / 1000)),
     oauth_token: X_ACCESS_TOKEN, oauth_version: "1.0",
   };
-  const params = Object.keys(o).sort().map(k => `${enc(k)}=${enc(o[k])}`).join("&");
-  const base = `POST&${enc(url)}&${enc(params)}`;
+  // Query parameters are part of the OAuth signature; the JSON body is not.
+  const all = { ...o, ...query };
+  const params = Object.keys(all).sort().map(k => `${enc(k)}=${enc(all[k])}`).join("&");
+  const base = `${method}&${enc(url)}&${enc(params)}`;
   o.oauth_signature = crypto.createHmac("sha1", `${enc(X_API_SECRET)}&${enc(X_ACCESS_SECRET)}`).update(base).digest("base64");
   const auth = "OAuth " + Object.keys(o).sort().map(k => `${enc(k)}="${enc(o[k])}"`).join(", ");
-  const r = await fetch(url, { method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  const qs = Object.keys(query).length ? "?" + Object.keys(query).map(k => `${enc(k)}=${enc(query[k])}`).join("&") : "";
+  const r = await fetch(url + qs, { method, headers: { Authorization: auth, ...(body && { "Content-Type": "application/json" }) }, body: body && JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`X API ${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
-  return j.data?.id;
+  if (!r.ok) throw new Error(`X API ${method} ${path} ${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
+  return j;
+}
+const tweet = async text => (await x("POST", "tweets", { body: { text } })).data?.id;
+
+// Engagement: only with people who mentioned @MineGTS1 first (X automation rules allow that, not
+// cold replies or follows). Like every new mention; repost players' win shares, a few a day at most.
+async function engage() {
+  state.me ??= (await x("GET", "users/me")).data.id;
+  const query = { max_results: "20", "tweet.fields": "author_id" };
+  if (state.mentionSince) query.since_id = state.mentionSince;
+  const j = await x("GET", `users/${state.me}/mentions`, { query });
+  const list = (j.data || []).filter(t => t.author_id !== state.me).reverse(); // oldest first
+  if (j.meta?.newest_id) state.mentionSince = j.meta.newest_id;
+  if (!state.mentionSince && !list.length) return console.log("no mentions yet");
+  const day = new Date().toISOString().slice(0, 10);
+  if (state.rtDay !== day) { state.rtDay = day; state.rtCount = 0; }
+  let liked = 0, reposted = 0;
+  for (const t of list) {
+    if (DRY) { console.log("would like", t.id, t.text.slice(0, 80)); continue; }
+    try { await x("POST", `users/${state.me}/likes`, { body: { tweet_id: t.id } }); liked++; } catch (e) { console.log(e.message); }
+    if (/just won/i.test(t.text) && state.rtCount < 5) {
+      try { await x("POST", `users/${state.me}/retweets`, { body: { tweet_id: t.id } }); state.rtCount++; reposted++; } catch (e) { console.log(e.message); }
+    }
+  }
+  if (!DRY) save();
+  console.log(new Date().toISOString(), `engage: ${list.length} mentions, ${liked} liked, ${reposted} reposted`);
 }
 
 // ---------- main ----------
 const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
 state.variant ??= 0; state.fun ??= 0;
 const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
-const today = new Date().toISOString().slice(0, 10), wd = new Date().getUTCDay();
+// Posting days and times follow US Eastern time (6 PM ET, the evening peak), including daylight saving.
+const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+const today = et.toISOString().slice(0, 10), wd = et.getDay();
+if (process.argv.includes("--engage")) { await engage(); process.exit(0); }
 const kind = FORCE || (DRY ? "both" : wd === DATA_DAY ? "data" : wd === FUN_DAY ? "fun" : null);
 if (!kind || (!FORCE && !DRY && state.day === today)) process.exit(0);
 

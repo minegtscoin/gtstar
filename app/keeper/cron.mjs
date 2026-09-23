@@ -17,13 +17,17 @@ try {
 } catch {
   if (Date.now() - fs.statSync(lock).mtimeMs < 110_000) process.exit(0);
 }
-// 16:00-16:04 UTC start the X poster in its own process; it posts at most once a day, on Tuesday and Friday only.
+// X poster, each run in its own process. 6:00-6:04 PM US Eastern: the post (it posts at most once a day,
+// Tuesday and Friday only). Minute 30 of every third hour: engagement with new mentions.
 const poster = path.join(dir, "..", "gtstar-poster", "poster.mjs");
-const now = new Date();
-if (now.getUTCHours() === 16 && now.getUTCMinutes() < 5 && fs.existsSync(poster)) {
-  const { spawn } = await import("child_process");
+const now = new Date(), et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+const runPoster = args => import("child_process").then(({ spawn }) => {
   const log = fs.openSync(path.join(path.dirname(poster), "log.txt"), "a");
-  spawn(process.execPath, [poster], { detached: true, stdio: ["ignore", log, log] }).unref();
+  spawn(process.execPath, [poster, ...args], { detached: true, stdio: ["ignore", log, log] }).unref();
+});
+if (fs.existsSync(poster)) {
+  if (et.getHours() === 18 && et.getMinutes() < 5) await runPoster([]);
+  if (now.getUTCHours() % 3 === 0 && now.getUTCMinutes() === 30) await runPoster(["--engage"]);
 }
 
 try {
