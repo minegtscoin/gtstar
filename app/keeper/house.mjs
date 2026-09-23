@@ -1,7 +1,7 @@
 // GTStar House: a public, named house wallet that joins a round only after a real player has
 // started it, so nobody plays alone and every round has a winner. It never starts a round itself.
-// It puts HOUSE_PER_TILE_MIST on all 25 tiles, so it always holds part of the winning tile and loses
-// little more than the 5% round fee. It claims its previous round inside the same transaction.
+// Like a normal player it puts HOUSE_PER_TILE_MIST on one random tile. It claims its previous round
+// inside the same transaction.
 // Signs with HOUSE_KEY; does nothing when that is unset.
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
@@ -39,9 +39,10 @@ export function makeHouse(client, CFG, log) {
     if (miner && miner.round_id === Number(b.cur_id)) return false;
     const balance = await load();
     if (miner && miner.round_id === Number(b.cur_id)) return false;
-    const total = PER_TILE * 25n;
+    const total = PER_TILE;
     if (balance < total + KEEP) { failedRound = Number(b.cur_id); log.push(`house low balance ${Number(balance) / 1e9} SUI`); return false; }
 
+    const tile = Math.floor(Math.random() * 25);
     const tx = new Transaction();
     tx.setSender(me);
     let m, fresh = false;
@@ -56,7 +57,7 @@ export function makeHouse(client, CFG, log) {
       fresh = true;
     }
     const [pay] = tx.splitCoins(tx.gas, [total]);
-    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array(25).fill(PER_TILE)), tx.object.clock()] });
+    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array.from({ length: 25 }, (_, i) => (i === tile ? PER_TILE : 0n))), tx.object.clock()] });
     if (fresh) tx.transferObjects([m], me);
 
     failedRound = Number(b.cur_id); // cleared below on success; a throw also stops retries this round
