@@ -192,6 +192,11 @@ body.on-home .hero{padding:8px 0 32px}
 @media(max-width:350px){.ticker:first-child{display:none}}
 
 .board-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.ml-bar{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:10px;border:1px solid color-mix(in srgb,var(--gold) 45%,var(--line));border-radius:14px}
+.ml-l{font-size:11px;color:var(--gold);letter-spacing:.07em;text-transform:uppercase}
+.ml-bar b{font-family:var(--disp);font-size:22px;font-weight:600;color:var(--gold);line-height:1.2}
+.ml-odds{margin-left:auto;font-size:12px;color:var(--dim)}
+@media(max-width:560px){.ml-bar{padding:8px 12px}.ml-bar b{font-size:19px}.ml-odds{margin-left:0;flex-basis:100%}}
 .round-bar{position:relative;display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:14px;overflow:hidden}
 .rb{padding:12px 14px 14px;min-width:0}
 .rb+.rb{border-left:1px solid var(--line)}

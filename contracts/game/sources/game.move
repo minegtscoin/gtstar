@@ -9,11 +9,17 @@
 /// PROPORTIONALLY among everyone on the winning square (fairer than ORE's single
 /// winner). Separately, a halving GTS emission is split among ALL participants —
 /// winners and losers alike ("rewards everyone").
+///
+/// Motherlode: when no one is on the winning square, the winners' pot (after the 5% fee)
+/// rolls into the Motherlode instead of being lost. Every round that has a winner also has a
+/// 1 in MOTHERLODE_ODDS chance (drawn with `sui::random`) to pay the whole Motherlode to the
+/// winning square, split like the normal pot. The GTStar House wallet never keeps any of it.
 module gtstar::game;
 
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
+use sui::dynamic_field as df;
 use sui::event;
 use sui::random::{Self, Random};
 use sui::sui::SUI;
@@ -36,6 +42,11 @@ const EMISSION_PERIODS: u64 = 7;
 /// Creator/dev reward: 1% of the losing pot each round, accrued on the Board and
 /// paid out (permissionlessly) only to this address via `withdraw_dev_fees`.
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
+
+/// Chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS.
+const MOTHERLODE_ODDS: u64 = 100;
+/// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
+const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -88,6 +99,11 @@ public struct Board has key {
     dev_bps: u64,
 }
 
+/// Dynamic field on the Board holding the Motherlode (Balance<SUI>).
+public struct MotherlodeKey has copy, drop, store {}
+/// Dynamic field on the Board: SUI a round received from the Motherlode (only rounds that hit).
+public struct JackpotKey has copy, drop, store { round_id: u64 }
+
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
     id: UID,
@@ -109,6 +125,21 @@ public struct RoundSettled has copy, drop {
     staker_reward: u64,   // GTS minted to the staking stream
     dev_fee: u64,
     players: u64,
+}
+
+/// Emitted on every settle by this version: SUI added to / paid from the Motherlode, and what is left.
+public struct MotherlodeUpdate has copy, drop {
+    round_id: u64,
+    added: u64,
+    paid: u64,
+    balance: u64,
+}
+
+/// The GTStar House's share of a Motherlode payout, returned to the Motherlode at claim.
+public struct MotherlodeReturned has copy, drop {
+    round_id: u64,
+    amount: u64,
+    balance: u64,
 }
 
 public struct Deployed has copy, drop {
@@ -250,6 +281,18 @@ entry fun settle(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    settle_with_odds(board, treasury, pool, r, clock, MOTHERLODE_ODDS, ctx)
+}
+
+fun settle_with_odds(
+    board: &mut Board,
+    treasury: &mut Treasury,
+    pool: &mut StakePool,
+    r: &Random,
+    clock: &Clock,
+    odds: u64,
+    ctx: &mut TxContext,
+) {
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
 
@@ -267,11 +310,36 @@ entry fun settle(
     if (vault_part > 0) { gts::vault_add(treasury, balance::split(&mut board.pot, vault_part)); };
     if (dev_part > 0) { balance::join(&mut board.dev_fees, balance::split(&mut board.pot, dev_part)); };
 
-    // No one on the winning square: route the whole winners' pot to the vault (benefits all holders).
-    if (winners_total == 0 && losing_after_fee > 0) {
-        gts::vault_add(treasury, balance::split(&mut board.pot, losing_after_fee));
-        losing_after_fee = 0;
+    // Motherlode: with no one on the winning square the winners' pot rolls into it; with a
+    // winner there is a 1 in MOTHERLODE_ODDS chance it is paid out to the winning square.
+    if (!df::exists(&board.id, MotherlodeKey {})) {
+        df::add(&mut board.id, MotherlodeKey {}, balance::zero<SUI>());
     };
+    let mut ml_added = 0;
+    let mut ml_paid = 0;
+    if (winners_total == 0) {
+        if (losing_after_fee > 0) {
+            let part = balance::split(&mut board.pot, losing_after_fee);
+            balance::join(df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {}), part);
+            ml_added = losing_after_fee;
+            losing_after_fee = 0;
+        };
+    } else {
+        let hit = random::generate_u64_in_range(&mut gen, 0, odds - 1) == 0;
+        let ml = df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {});
+        if (hit && balance::value(ml) > 0) {
+            ml_paid = balance::value(ml);
+            balance::join(&mut board.pot, balance::withdraw_all(ml));
+            losing_after_fee = losing_after_fee + ml_paid;
+            df::add(&mut board.id, JackpotKey { round_id: board.cur_id }, ml_paid);
+        };
+    };
+    event::emit(MotherlodeUpdate {
+        round_id: board.cur_id,
+        added: ml_added,
+        paid: ml_paid,
+        balance: balance::value(df::borrow<MotherlodeKey, Balance<SUI>>(&board.id, MotherlodeKey {})),
+    });
 
     let reward = reward_for_round(board.cur_id);
     // Stakers earn +10% of the round reward in GTS, streamed over 7 days.
@@ -337,7 +405,20 @@ public fun claim(
     let my_win = *vector::borrow(&miner.deployed, w);
     let sui_coin = if (my_win > 0 && info.winners_total > 0) {
         let share = (((info.losing_pot_after_fee as u128) * (my_win as u128)) / (info.winners_total as u128)) as u64;
-        let payout = my_win + share; // own stake back + share of the losing pot
+        let mut payout = my_win + share; // own stake back + share of the losing pot (and any Motherlode)
+        let jk = JackpotKey { round_id: miner.round_id };
+        if (tx_context::sender(ctx) == HOUSE_ADDR && df::exists(&board.id, jk)) {
+            // The House never keeps Motherlode SUI: its share goes back into the Motherlode.
+            let jackpot = *df::borrow<JackpotKey, u64>(&board.id, jk);
+            let back = (((jackpot as u128) * (my_win as u128)) / (info.winners_total as u128)) as u64;
+            if (back > 0) {
+                payout = payout - back;
+                let part = balance::split(&mut board.pot, back);
+                let ml = df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {});
+                balance::join(ml, part);
+                event::emit(MotherlodeReturned { round_id: miner.round_id, amount: back, balance: balance::value(ml) });
+            };
+        };
         coin::from_balance(balance::split(&mut board.pot, payout), ctx)
     } else {
         coin::zero<SUI>(ctx)
@@ -378,6 +459,16 @@ public fun current_total(board: &Board): u64 { board.cur_total }
 public fun pot_value(board: &Board): u64 { balance::value(&board.pot) }
 public fun dev_fees_value(board: &Board): u64 { balance::value(&board.dev_fees) }
 public fun genesis_ms(board: &Board): u64 { board.genesis_ms }
+public fun motherlode_value(board: &Board): u64 {
+    if (df::exists(&board.id, MotherlodeKey {})) {
+        balance::value(df::borrow<MotherlodeKey, Balance<SUI>>(&board.id, MotherlodeKey {}))
+    } else { 0 }
+}
+/// SUI round `round_id` received from the Motherlode (0 if it did not hit).
+public fun motherlode_paid(board: &Board, round_id: u64): u64 {
+    let k = JackpotKey { round_id };
+    if (df::exists(&board.id, k)) { *df::borrow<JackpotKey, u64>(&board.id, k) } else { 0 }
+}
 public fun installed(board: &Board): bool { option::is_some(&board.minter) }
 public fun current_reward(board: &Board, _clock: &Clock): u64 {
     if (option::is_none(&board.minter)) { 0 } else { reward_for_round(board.cur_id) }
@@ -394,3 +485,9 @@ public fun settle_for_testing(
     board: &mut Board, treasury: &mut Treasury, pool: &mut StakePool,
     r: &Random, clock: &Clock, ctx: &mut TxContext,
 ) { settle(board, treasury, pool, r, clock, ctx) }
+
+#[test_only]
+public fun settle_with_odds_for_testing(
+    board: &mut Board, treasury: &mut Treasury, pool: &mut StakePool,
+    r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
+) { settle_with_odds(board, treasury, pool, r, clock, odds, ctx) }

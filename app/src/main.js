@@ -22,7 +22,8 @@ const T = name => `${IDS.package}::${name}`;          // game package (upgradeab
 const C = name => `${IDS.latest || IDS.package}::${name}`; // latest game version: calls
 const TK = name => `${IDS.token}::${name}`;           // token package (immutable)
 const T_MINER = T("game::Miner"), T_GTS = TK("gts::GTS"), T_POS = T("staking::StakePosition");
-const EV = { settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
+const ML_PKG = IDS.motherlode;                    // version that introduced the Motherlode (its types)
+const EV = { ml: ML_PKG ? `${ML_PKG}::game::MotherlodeUpdate` : "", settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
 const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake"];
 
 const $ = id => document.getElementById(id);
@@ -75,26 +76,33 @@ const settledRow = (j, ts) => ({
   winners: num(j.winners_total), payout: num(j.winners_payout), reward: num(j.round_reward),
   vault: num(j.vault_fee), stakerReward: num(j.staker_reward), dev: num(j.dev_fee), players: num(j.players), ts,
 });
-// SUI a settled round added to the reserve. With no miner on the winning tile the whole pot
-// except the 1% creator fee goes there, but the event's vault_fee only carries the 4% part.
-const vaulted = r => (r.winners === 0 ? r.total - r.dev : r.vault);
+// Motherlode events by round: SUI a round rolled into it (added) or received from it (paid).
+const mlRows = nodes => new Map(nodes.map(j => [num(j.round_id), { added: num(j.added), paid: num(j.paid), balance: num(j.balance) }]));
+const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
+// SUI a settled round added to the reserve. Before the Motherlode, a round with no miner on the
+// winning tile sent the whole pot except the 1% creator fee there (the event's vault_fee only
+// carries the 4% part); since then that pot rolls into the Motherlode instead.
+const vaulted = r => (r.winners === 0 && !r.ml ? r.total - r.dev : r.vault);
 async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
-    dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}}`);
+    dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
+    ${ML_PKG ? `ml:object(address:"${IDS.board}"){dynamicField(name:{type:"${ML_PKG}::game::MotherlodeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
+    mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}` : ""}}`);
   const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
   const sq = num(m.current_sqrt_price) / 2 ** 64;
   const supply = num(t.cap?.total_supply?.value), vault = num(t.vault);
   const minted = num(t.minted), tGenesis = num(t.genesis_ms);
-  const recent = (d.st?.nodes || []).map(n => settledRow(n.contents?.json || {}, n.timestamp)).reverse();
+  const ml = mlRows((d.mu?.nodes || []).map(n => n.contents?.json || {}));
+  const recent = (d.st?.nodes || []).map(n => withMl(settledRow(n.contents?.json || {}, n.timestamp), ml)).reverse();
   const deploys = (d.dp?.nodes || []).map(n => {
     const j = n.contents?.json || {};
     return { round: num(j.round_id), player: j.player, amounts: (j.amounts || []).map(num), total: num(j.total), ts: n.timestamp, digest: n.transaction?.digest };
   }).reverse();
   return {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
-    staked: num(p.total_staked),
+    staked: num(p.total_staked), motherlode: num(d.ml?.dynamicField?.value?.json),
     pool: {
       total: BigInt(p.total_staked || 0), acc: BigInt(p.acc_reward_per_share || 0), rate: BigInt(p.reward_rate || 0),
       finish: num(p.period_finish), last: num(p.last_update),
@@ -143,7 +151,8 @@ async function allEvents(type) {
   return { list: out, capped: more };
 }
 async function loadHistory() {
-  const [settled, deployed, redeemed, staked, unstaked] = await Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.staked), allEvents(EV.unstaked)]);
+  const [settled, deployed, redeemed, staked, unstaked, mlEv] = await Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.staked), allEvents(EV.unstaked), EV.ml ? allEvents(EV.ml) : { list: [] }]);
+  const ml = mlRows(mlEv.list.map(e => e.j));
   const stakes = new Map();
   staked.list.forEach(e => stakes.set(e.j.player, (stakes.get(e.j.player) || 0) + num(e.j.amount)));
   unstaked.list.forEach(e => stakes.set(e.j.player, (stakes.get(e.j.player) || 0) - num(e.j.amount)));
@@ -153,7 +162,7 @@ async function loadHistory() {
     if (!byRound.has(r)) byRound.set(r, []);
     byRound.get(r).push({ player: e.j.player, total: num(e.j.total), amounts: (e.j.amounts || []).map(num) });
   });
-  const rounds = settled.list.map(e => ({ ...settledRow(e.j, e.ts), digest: e.digest }));
+  const rounds = settled.list.map(e => ({ ...withMl(settledRow(e.j, e.ts), ml), digest: e.digest }));
   return {
     rounds, byRound, stakes, deployed: deployed.list, redeemed: redeemed.list,
     capped: settled.capped || deployed.capped,
@@ -511,7 +520,7 @@ function buildArt() {
   }, 700);
 }
 function renderHome() {
-  $("hRound").textContent = STATE ? `#${STATE.board.cur_id}` : "—";
+  $("hMotherlode").textContent = STATE ? sui(STATE.motherlode, 3) : "—";
   $("hReserve").textContent = STATE ? sui(STATE.vault, 3) : "—";
   $("hFloor").textContent = STATE ? fmt(STATE.floor, 5) : "—";
   $("hMined").textContent = STATE ? sui(STATE.minted, 2) : "—";
@@ -683,7 +692,8 @@ function renderResult() {
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
-  let sub = L.winners === 0 ? "No one was on this tile. The pot went to the reserve."
+  let sub = L.winners === 0 ? (L.ml ? "No one was on this tile. The pot rolled into the Motherlode." : "No one was on this tile. The pot went to the reserve.")
+    : L.ml?.paid > 0 ? `Motherlode hit: ${sui(L.ml.paid, 4)} SUI. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI`
     : L.payout > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
   const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
@@ -795,6 +805,7 @@ function renderRewards() {
 function renderMine() {
   const b = STATE?.board, p = phase();
   $("sDeployed").textContent = b ? sui(b.cur_total, 3) : "—";
+  $("sMotherlode").textContent = STATE ? `${sui(STATE.motherlode, 4)} SUI` : "—";
   $("sRound").textContent = b ? `#${fmt(b.cur_id, 0)}` : "—";
   $("sPlayers").textContent = b ? fmt(b.cur_players, 0) : "—";
   let t = "—", lbl = "Time left", prog = 0;
@@ -900,7 +911,7 @@ function renderActivity() {
     const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
-      const winner = w.size === 0 ? `<span class="muted">Reserve</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
+      const winner = w.size === 0 ? `<span class="muted">${r.ml ? "Motherlode" : "Reserve"}</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
       const winnings = r.winners > 0 ? r.payout : 0;
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
@@ -944,7 +955,7 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot, 99% with no winner", label: "Added to the GTS reserve" },
+    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot", label: "Added to the GTS reserve" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -953,7 +964,7 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : r.winners === 0 ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
+    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : r.winners === 0 && !r.ml ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
 }

@@ -68,7 +68,12 @@
     [
       "Game upgraded: GTS halves by rounds played, not by date",
       "F7wAuBV8NqSccxmvyP5pFGwVfTDbARuN1pHT4zRnZbAs"
+    ],
+    [
+      "Game upgraded: Motherlode jackpot",
+      "4UTVJtTEmR3Z9har71Ht3RVvYEwMTwxS3NzJ21x3tBYw"
     ]
   ],
-  "latest": "0xa186477cd3f3a71a0a5a8bf9069d17fe0eb382f6604ff000b086e218f29f9484"
+  "latest": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6",
+  "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6"
 }

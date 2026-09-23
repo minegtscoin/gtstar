@@ -87,7 +87,7 @@
       <div class="hero-art" aria-hidden="true"><div class="art-grid" id="artGrid"></div></div>
     </div>
     <div class="strip">
-      <div><b id="hRound">—</b><span>Current round</span></div>
+      <div><b id="hMotherlode" class="gold">—</b><span>Motherlode, SUI</span></div>
       <div><b id="hVolume">—</b><span>SUI deployed, all time</span></div>
       <div><b id="hReserve">—</b><span>SUI in reserve</span></div>
       <div><b id="hMined">—</b><span>GTS mined</span></div>
@@ -99,6 +99,9 @@
   <section class="view" id="view-mine" hidden>
     <div class="mine">
       <div class="board-col">
+        <div class="ml-bar" title="When no one is on the winning tile, the pot rolls into the Motherlode. Every round with a winner has a 1 in 100 chance to pay all of it to the winning tile.">
+          <span class="ml-l">Motherlode</span><b id="sMotherlode">—</b><span class="ml-odds">1 in 100 chance each round with a winner</span>
+        </div>
         <div class="round-bar">
           <div class="rb"><span>Round</span><b id="sRound">—</b></div>
           <div class="rb"><span>Players</span><b id="sPlayers">—</b></div>
@@ -328,7 +331,7 @@
           <div><dt>Reserve (backs GTS)</dt><dd>4%</dd></div>
           <div><dt>Creator</dt><dd>1%</dd></div>
         </dl>
-        <p class="note-sm">If no one deployed on the winning tile, the winners' 95% goes to the reserve too: 99% to the reserve, 1% to the creator.</p>
+        <p class="note-sm">If no one deployed on the winning tile, the winners' 95% rolls into the Motherlode. Every round with a winner has a 1 in 100 chance to pay the whole Motherlode to the winning tile, split like the pot. The GTStar House wallet never keeps any of it.</p>
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Redeem from reserve</h2></div>

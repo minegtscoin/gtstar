@@ -449,3 +449,157 @@ fun test_install_once() {
     game::install(&mut board, fake, &mut treasury, &clk);
     abort 0
 }
+
+// ===== Motherlode =====
+
+const HOUSE: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
+
+#[test_only]
+fun all_tiles(amt: u64): vector<u64> {
+    let mut v = vector[];
+    let mut k = 0;
+    while (k < 25) { vector::push_back(&mut v, amt); k = k + 1; };
+    v
+}
+
+/// Play single-tile rounds (never a hit) until one loses, so the Motherlode holds SUI.
+/// Returns the next free clock time.
+#[test_only]
+fun fill_motherlode(
+    board: &mut Board, treasury: &mut Treasury, pool: &mut StakePool, rs: &Random,
+    clk: &mut clock::Clock, amt: u64, sc: &mut ts::Scenario,
+): u64 {
+    let mut t = 1_000;
+    let mut guard = 0;
+    while (game::motherlode_value(board) == 0 && guard < 60) {
+        clock::set_for_testing(clk, t);
+        let mut m = game::new_miner(ts::ctx(sc));
+        game::deploy(board, &mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(sc)), one_tile(0, amt), clk, ts::ctx(sc));
+        clock::set_for_testing(clk, t + 60_000);
+        let vault_before = gts::vault_value(treasury);
+        game::settle_with_odds_for_testing(board, treasury, pool, rs, clk, 1_000_000_000, ts::ctx(sc));
+        let (g, s) = game::claim(board, &mut m, treasury, clk, ts::ctx(sc));
+        if (coin::value(&s) == 0) {
+            // Lost: 95% rolled into the Motherlode, the reserve only got its 4%.
+            assert!(game::motherlode_value(board) == amt - amt * 4 / 100 - amt / 100, 100);
+            assert!(gts::vault_value(treasury) - vault_before == amt * 4 / 100, 101);
+        };
+        coin::burn_for_testing(g); coin::burn_for_testing(s);
+        transfer::public_transfer(m, BOB);
+        t = t + 100_000; guard = guard + 1;
+    };
+    assert!(game::motherlode_value(board) > 0, 102);
+    t
+}
+
+/// No one on the winning tile: the pot rolls into the Motherlode. A round with a winner and a
+/// sure hit pays the whole Motherlode on top of the normal pot; every mist is accounted for.
+#[test]
+fun test_motherlode_rollover_and_payout() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, &mut sc);
+    let ml = game::motherlode_value(&board);
+
+    clock::set_for_testing(&mut clk, t);
+    let mut b = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut b, coin::mint_for_testing<SUI>(20_000_000 * 25, ts::ctx(&mut sc)), all_tiles(20_000_000), &clk, ts::ctx(&mut sc));
+    let id = game::current_round(&board);
+    let vault_before = gts::vault_value(&treasury);
+    let dev_before = game::dev_fees_value(&board);
+    clock::set_for_testing(&mut clk, t + 60_000);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, 1, ts::ctx(&mut sc));
+    assert!(game::motherlode_value(&board) == 0, 0);
+    assert!(game::motherlode_paid(&board, id) == ml, 1);
+    let (g, s) = game::claim(&mut board, &mut b, &mut treasury, &clk, ts::ctx(&mut sc));
+    let fees = gts::vault_value(&treasury) - vault_before + game::dev_fees_value(&board) - dev_before;
+    assert!(coin::value(&s) + fees == 20_000_000 * 25 + ml, 2);
+    assert!(game::pot_value(&board) == 0, 3);
+
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(b, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
+/// With a winner but no hit, the Motherlode stays untouched and the round pays as before.
+#[test]
+fun test_motherlode_no_hit_keeps_balance() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 10_000_000, &mut sc);
+    let ml = game::motherlode_value(&board);
+
+    clock::set_for_testing(&mut clk, t);
+    let mut b = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut b, coin::mint_for_testing<SUI>(10_000_000 * 25, ts::ctx(&mut sc)), all_tiles(10_000_000), &clk, ts::ctx(&mut sc));
+    let id = game::current_round(&board);
+    clock::set_for_testing(&mut clk, t + 60_000);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, 1_000_000_000_000, ts::ctx(&mut sc));
+    assert!(game::motherlode_paid(&board, id) == 0, 0);
+    assert!(game::motherlode_value(&board) == ml, 1);
+    let (g, s) = game::claim(&mut board, &mut b, &mut treasury, &clk, ts::ctx(&mut sc));
+    let losing = 10_000_000 * 24;
+    assert!(coin::value(&s) == 10_000_000 * 25 - losing * 4 / 100 - losing / 100, 2);
+    assert!(game::pot_value(&board) == 0, 3);
+
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(b, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
+/// The House wallet never keeps Motherlode SUI: its share goes back, a player keeps theirs.
+#[test]
+fun test_house_returns_motherlode_share() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, &mut sc);
+    let ml = game::motherlode_value(&board);
+
+    // House and a player both cover every tile with equal stakes; sure hit.
+    clock::set_for_testing(&mut clk, t);
+    let mut h = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut h, coin::mint_for_testing<SUI>(10_000_000 * 25, ts::ctx(&mut sc)), all_tiles(10_000_000), &clk, ts::ctx(&mut sc));
+    let mut p = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut p, coin::mint_for_testing<SUI>(10_000_000 * 25, ts::ctx(&mut sc)), all_tiles(10_000_000), &clk, ts::ctx(&mut sc));
+    let id = game::current_round(&board);
+    clock::set_for_testing(&mut clk, t + 60_000);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, 1, ts::ctx(&mut sc));
+    assert!(game::motherlode_paid(&board, id) == ml, 0);
+    assert!(game::motherlode_value(&board) == 0, 1);
+
+    let (gp, sp) = game::claim(&mut board, &mut p, &mut treasury, &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, HOUSE);
+    let (gh, sh) = game::claim(&mut board, &mut h, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(game::motherlode_value(&board) == ml / 2, 2);
+    assert!(coin::value(&sp) == coin::value(&sh) + ml / 2, 3);
+    assert!(game::pot_value(&board) <= 1, 4);
+
+    coin::burn_for_testing(gp); coin::burn_for_testing(sp);
+    coin::burn_for_testing(gh); coin::burn_for_testing(sh);
+    transfer::public_transfer(p, BOB); transfer::public_transfer(h, HOUSE);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}

@@ -62,6 +62,12 @@
     [
       "Stake withdrawn at any time",
       "2Wngck5VdRWbGDMjHMygxHZTk9FyGMyNwvjBaKiFgxUX"
+    ],
+    [
+      "Game upgraded: Motherlode",
+      "Ete1Cop4vg3cY1MNDHsBmZ6JjidrLkjaLukAsNiFzdwx"
     ]
-  ]
+  ],
+  "latest": "0x7d10d487196f36de8da81d999ad43f8b7b2d2f98b18dfdcb521ead0faaed9a59",
+  "motherlodePkg": "0x7d10d487196f36de8da81d999ad43f8b7b2d2f98b18dfdcb521ead0faaed9a59"
 }
