@@ -280,3 +280,19 @@ button.sw-bal:hover{color:var(--text)}
 .quick button:disabled{opacity:.4;cursor:not-allowed}
 .hint a{color:var(--text);text-decoration:underline;text-underline-offset:2px}
 .btn-link{display:block;text-align:center}
+
+/* v4: small feedback touches */
+.tile{transition:border-color .15s,background .15s,transform .12s}
+.tile:active{transform:scale(.96)}
+.tile .add{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--disp);font-weight:600;font-size:15px;color:var(--gold);pointer-events:none;white-space:nowrap}
+.tile.sel{border-color:var(--gold);background:#17150f}
+.tile.bump{animation:bump .7s ease-out}
+@keyframes bump{0%{box-shadow:0 0 0 0 rgba(230,196,134,.55)}100%{box-shadow:0 0 0 10px rgba(230,196,134,0)}}
+.round-bar[data-urgent] .rb-time b{color:var(--gold);animation:tick 1s ease-in-out infinite}
+.round-bar[data-urgent] .prog i{background:var(--gold)}
+@keyframes tick{50%{opacity:.55}}
+.win-est{color:var(--win)}
+.result.won{border-color:rgba(127,220,180,.5);background:linear-gradient(90deg,rgba(127,220,180,.1),transparent 70%)}
+.result.won .res-tile{border-color:var(--win);color:var(--win)}
+@media(max-width:520px){.tile .add{font-size:12px}}
+@media (prefers-reduced-motion:reduce){.tile.bump,.round-bar[data-urgent] .rb-time b,.tile.win,.result.fresh,.fr.new{animation:none}}

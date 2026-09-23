@@ -409,7 +409,8 @@ function buildBoard() {
   for (let i = 0; i < 25; i++) {
     const c = document.createElement("button");
     c.type = "button"; c.className = "tile"; c.dataset.i = i;
-    c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="a"></span>`;
+    c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="add" hidden></span><span class="a"></span>`;
+    c.addEventListener("animationend", () => c.classList.remove("bump"));
     c.onclick = () => { selected.has(i) ? selected.delete(i) : selected.add(i); render(); };
     g.appendChild(c);
   }
@@ -473,6 +474,10 @@ function renderBoard() {
   players.forEach(pl => pl.amounts.forEach((v, i) => { if (v > 0) counts[i]++; }));
   const mine = USER?.miner && USER.miner.round_id === shown ? USER.miner.deployed : null;
   const max = Math.max(...dep, 1);
+  const per = parseAmt($("amt").value), minPer = b ? b.min_deploy / MIST : 0.01;
+  // Flash tiles that just received a deploy in the live round.
+  const bump = b?.cur_started && bumpRound === shown ? dep.map((v, i) => v > (bumpDep[i] || 0)) : [];
+  bumpRound = shown; bumpDep = dep.slice();
   if (p === "ended" && !landing) startScan(); else if (!landing) stopScan();
   $("board").classList.toggle("settled", showWin >= 0);
   $("board").classList.toggle("drawing", p === "ended" || !!landing);
@@ -488,8 +493,13 @@ function renderBoard() {
     const pc = c.querySelector(".pc");
     pc.hidden = !counts[i]; pc.querySelector("b").textContent = counts[i];
     c.querySelector(".me").hidden = !(mine && mine[i] > 0);
+    const add = c.querySelector(".add");
+    add.hidden = !(sel && per >= minPer);
+    if (!add.hidden) add.textContent = `+${fmt(per, 3)}`;
+    if (bump[i] && !reduceMotion) c.classList.add("bump");
   });
 }
+let bumpRound = null, bumpDep = [];
 
 function renderResult() {
   const box = $("result"), b = STATE?.board, L = STATE?.last;
@@ -511,12 +521,16 @@ function renderResult() {
       : `<div class="res-me">You mined <b>${sui(R.gts, 4)} GTS</b></div>`;
     me += `<button type="button" class="chip strong" data-claim>Claim</button>`;
   }
+  const youWon = !!(m && m.round_id === L.round && rewards().sui > 0);
+  if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(rewards().sui, 4)} SUI on tile ${L.tile + 1}.`); }
   box.hidden = false;
   box.classList.toggle("fresh", !!fresh);
+  box.classList.toggle("won", youWon);
   box.innerHTML = `<div class="res-main"><span class="res-tile">${L.tile + 1}</span><div><b>Round #${fmt(L.round, 0)} · Tile ${L.tile + 1} wins</b><small>${sub}</small></div></div>${me ? `<div class="res-side">${me}</div>` : ""}`;
   box.querySelector("[data-claim]")?.addEventListener("click", claimAll);
 }
 
+let cheered = null;
 function renderRecent() {
   const list = STATE?.recent || [];
   $("recent").innerHTML = list.length ? list.map(r =>
@@ -613,11 +627,29 @@ function renderMine() {
   } else if (p === "ended") { t = "Drawing"; lbl = "Picking the winner"; }
   $("sTime").textContent = t; $("sPhase").textContent = lbl;
   $("sProg").style.transform = `scaleX(${Math.min(1, prog).toFixed(4)})`;
-  document.querySelector(".round-bar").dataset.phase = p;
+  const bar = document.querySelector(".round-bar");
+  bar.dataset.phase = p;
+  bar.toggleAttribute("data-urgent", p === "live" && b.cur_end_ms - Date.now() <= 10_000);
+  // Countdown in the tab title brings players back from other tabs.
+  document.title = p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? "Drawing · GTStar" : "GTStar";
 
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
   $("totalCost").textContent = fmt(per * selected.size, 4);
+  // What a win would pay: stake back plus a pro-rata share of 95% of the losing pot (best selected tile).
+  const minTile = b ? b.min_deploy / MIST : 0.01;
+  const canEst = b && selected.size && per >= minTile && (p === "live" || p === "open");
+  $("winRow").hidden = !canEst;
+  if (canEst) {
+    const P = per * MIST, n = selected.size, total = (b.cur_started ? b.cur_total : 0) + P * n;
+    let best = 0;
+    selected.forEach(i => {
+      const tile = (b.cur_started ? b.cur_deployed[i] : 0) + P;
+      best = Math.max(best, P + 0.95 * (total - tile) * P / tile);
+    });
+    $("winEst").textContent = sui(best, 4);
+    $("winOdds").textContent = `· ${n} in 25 chance`;
+  }
 
   const claimable = rewards().ready;
   const min = b ? b.min_deploy / MIST : 0.01;
@@ -962,6 +994,7 @@ function renderTrade() {
 }
 
 function render() {
+  if (view !== "mine") document.title = "GTStar";
   renderTicker(); renderWallet(); renderRewards();
   if (view === "home") renderHome();
   if (view === "mine") { renderBoard(); renderMine(); }
