@@ -478,9 +478,11 @@ function renderBoard() {
   // Flash tiles that just received a deploy in the live round.
   const bump = b?.cur_started && bumpRound === shown ? dep.map((v, i) => v > (bumpDep[i] || 0)) : [];
   bumpRound = shown; bumpDep = dep.slice();
-  if (p === "ended" && !landing) startScan(); else if (!landing) stopScan();
+  // Only animate the draw when the keeper is about to settle; small rounds wait for a player to draw them.
+  const auto = p === "ended" && b.cur_total >= KEEPER_MIN_POT;
+  if (auto && !landing) startScan(); else if (!landing) stopScan();
   $("board").classList.toggle("settled", showWin >= 0);
-  $("board").classList.toggle("drawing", p === "ended" || !!landing);
+  $("board").classList.toggle("drawing", auto || !!landing);
   tileEls.forEach(c => {
     const i = +c.dataset.i, v = dep[i] / MIST, sel = selected.has(i);
     c.classList.toggle("has", v > 0);
@@ -624,14 +626,17 @@ function renderMine() {
     const ms = Math.max(0, b.cur_end_ms - Date.now()), s = Math.ceil(ms / 1000);
     t = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; prog = ms / b.round_ms;
     if (p === "frozen") lbl = "Closing";
-  } else if (p === "ended") { t = "Drawing"; lbl = "Picking the winner"; }
+  } else if (p === "ended") {
+    const auto = b.cur_total >= KEEPER_MIN_POT;
+    t = auto ? "Drawing" : "Ready"; lbl = auto ? "Picking the winner" : "Draw the winner";
+  }
   $("sTime").textContent = t; $("sPhase").textContent = lbl;
   $("sProg").style.transform = `scaleX(${Math.min(1, prog).toFixed(4)})`;
   const bar = document.querySelector(".round-bar");
   bar.dataset.phase = p;
   bar.toggleAttribute("data-urgent", p === "live" && b.cur_end_ms - Date.now() <= 10_000);
   // Countdown in the tab title brings players back from other tabs.
-  document.title = p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? "Drawing · GTStar" : "GTStar";
+  document.title = p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? `${t === "Ready" ? "Ready to draw" : "Drawing"} · GTStar` : "GTStar";
 
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
