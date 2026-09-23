@@ -34,12 +34,20 @@ export default async () => {
     await client.waitForTransaction({ digest: res.digest });
   }
 
+  let b;
   try {
-    let b = await board();
+    b = await board();
     if (new Date().getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {
       await run("sweep", tx => tx.moveCall({ target: T("game::withdraw_dev_fees"), arguments: [tx.object(CFG.board)] }));
     }
-    while (Date.now() - start < WINDOW_MS) {
+  } catch (e) {
+    log.push(`error ${String(e.message || e).slice(0, 200)}`);
+  }
+  // A failed attempt (e.g. the chain clock still a moment behind the round end) is retried
+  // within the same run instead of waiting for the next cron minute.
+  while (Date.now() - start < WINDOW_MS) {
+    try {
+      if (!b) b = await board();
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;
       if (b.cur_started === true && !worth) {
@@ -55,9 +63,11 @@ export default async () => {
         await sleep(2000);
       }
       b = await board();
+    } catch (e) {
+      log.push(`error ${String(e.message || e).slice(0, 200)}`);
+      b = null;
+      await sleep(1500);
     }
-  } catch (e) {
-    log.push(`error ${String(e.message || e).slice(0, 200)}`);
   }
   console.log(log.join("\n") || "idle");
   return new Response(log.join("\n") || "idle");
