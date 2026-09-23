@@ -248,7 +248,7 @@ function friendlyError(e) {
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
 }
-const KEEPER_MIN_POT = 200_000_000;   // keeper settles rounds from 0.2 SUI; smaller ones are drawn by players
+const KEEPER_MIN_POT = 0;   // the keeper draws every round; raise together with KEEPER_MIN_POT_MIST if that changes
 const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
   if (!USER || USER.sui >= needMist + GAS_RESERVE) return false;

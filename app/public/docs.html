@@ -141,7 +141,7 @@
       <li>A round starts with its first deposit and lasts 60 seconds. No deposits means no round and no emission.</li>
       <li>Deposits close 5 seconds before the end, which prevents last-second entries based on mempool information.</li>
       <li>The minimum deposit is 0.01 SUI per tile, which prevents dust spam.</li>
-      <li>Once time is up, anyone can call <code>settle</code> to draw the winner. A dedicated keeper does this automatically within seconds for rounds of 0.2 SUI or more; smaller rounds are drawn by any player with the Draw winner button.</li>
+      <li>Once time is up, anyone can call <code>settle</code> to draw the winner. A dedicated keeper does this automatically within seconds, and the app keeps a Draw winner button as a fallback.</li>
     </ul>
     <h3>Payout</h3>
     <span class="code">losing_pot     = total_deposits - winning_tile_total
@@ -214,7 +214,7 @@ floor_price          = reserve / total_supply</span>
     <ul>
       <li><strong>Non-custodial.</strong> The app is a static site with no backend and no keys. Every action is signed in the player's wallet, and all funds live in contract objects.</li>
       <li><strong>Composed transactions.</strong> Creating a miner, claiming the previous round and deploying into the next one happen in a single programmable transaction.</li>
-      <li><strong>Keeper.</strong> A keeper calls <code>settle</code> at the end of each round of 0.2 SUI or more, where the creator fee covers its gas. The function is permissionless, so any player can settle any round, including when the keeper is down.</li>
+      <li><strong>Keeper.</strong> A keeper calls <code>settle</code> at the end of each round. The function is permissionless, so any player can settle any round, including when the keeper is down.</li>
       <li><strong>Fully on-chain state.</strong> Board, reserve, supply and staking are read directly from the chain.</li>
     </ul>
 

@@ -7,9 +7,9 @@ import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
-// Settling costs ~0.004 SUI of keeper gas. Rounds below this pot are left for players to
-// settle themselves (the site offers "Settle and deploy"), so dust rounds cannot drain the keeper.
-const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST) || 200_000_000;
+// Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
+// raise the bar if dust rounds ever start draining the keeper; smaller rounds are then drawn by players.
+const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST ?? 0);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async () => {
