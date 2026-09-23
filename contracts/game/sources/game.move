@@ -51,6 +51,10 @@ const MOTHERLODE_SHARE_BPS: u64 = 5_000;
 /// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
+/// Package version. Every call that changes the Board runs `check_version`, which blocks all
+/// older versions of this package (see there). Bump it on every upgrade.
+const VERSION: u64 = 5;
+
 // ===== Errors =====
 const EBadLen: u64 = 1;
 const ERoundEnded: u64 = 2;
@@ -65,6 +69,7 @@ const ENothingToClaim: u64 = 10;
 const ENotSettled: u64 = 11;
 const ENotInstalled: u64 = 12;
 const EAlreadyInstalled: u64 = 13;
+const EWrongVersion: u64 = 14;
 
 
 /// Archived, settled round.
@@ -106,6 +111,10 @@ public struct Board has key {
 public struct MotherlodeKey has copy, drop, store {}
 /// Dynamic field on the Board: SUI a round received from the Motherlode (only rounds that hit).
 public struct JackpotKey has copy, drop, store { round_id: u64 }
+/// Dynamic field on the Board holding the MinterCap (since v5; versions 1-4 kept it in `minter`).
+public struct MinterKey has copy, drop, store {}
+/// Dynamic field on the Board: the newest package version that has used it.
+public struct VersionKey has copy, drop, store {}
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
@@ -198,12 +207,36 @@ fun reward_for_round(round_id: u64): u64 {
     if (epoch >= EMISSION_PERIODS) { 0 } else { INITIAL_ROUND_REWARD >> (epoch as u8) }
 }
 
+/// Only the latest package version may change the Board. Versions 1-4 read the MinterCap from
+/// `board.minter`, so the first call by v5 moves it into a field they do not know: from then on
+/// they abort in deploy, settle and claim. From v5 on, each version records itself in VersionKey
+/// and refuses to run once a newer version has.
+fun check_version(board: &mut Board) {
+    if (option::is_some(&board.minter)) {
+        let cap = option::extract(&mut board.minter);
+        df::add(&mut board.id, MinterKey {}, cap);
+    };
+    if (!df::exists(&board.id, VersionKey {})) {
+        df::add(&mut board.id, VersionKey {}, VERSION);
+    };
+    let v = df::borrow_mut<VersionKey, u64>(&mut board.id, VersionKey {});
+    assert!(*v <= VERSION, EWrongVersion);
+    *v = VERSION;
+}
+
+fun has_minter(board: &Board): bool {
+    option::is_some(&board.minter) || df::exists(&board.id, MinterKey {})
+}
+
+fun minter(board: &Board): &MinterCap { df::borrow<MinterKey, MinterCap>(&board.id, MinterKey {}) }
+
 /// One-time launch step: hand the game its minting right and start the emission clock.
 public fun install(board: &mut Board, cap: MinterCap, treasury: &mut Treasury, clock: &Clock) {
-    assert!(option::is_none(&board.minter), EAlreadyInstalled);
+    check_version(board);
+    assert!(!has_minter(board), EAlreadyInstalled);
     gts::start(treasury, &cap, clock);
     board.genesis_ms = clock::timestamp_ms(clock);
-    option::fill(&mut board.minter, cap);
+    df::add(&mut board.id, MinterKey {}, cap);
 }
 
 /// Create a miner object (once per player).
@@ -225,8 +258,9 @@ public fun deploy(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
+    check_version(board);
     assert!(vector::length(&amounts) == GRID, EBadLen);
-    assert!(option::is_some(&board.minter), ENotInstalled);
+    assert!(has_minter(board), ENotInstalled);
     let now = clock::timestamp_ms(clock);
 
     // Lazy-start the round on first deploy.
@@ -296,6 +330,7 @@ fun settle_with_odds(
     odds: u64,
     ctx: &mut TxContext,
 ) {
+    check_version(board);
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
 
@@ -355,7 +390,7 @@ fun settle_with_odds(
     // Stakers earn +10% of the round reward in GTS, streamed over 7 days.
     let staker_reward = reward * STAKER_SHARE_BPS / 10_000;
     if (staker_reward > 0) {
-        let c = gts::mint(treasury, option::borrow(&board.minter), staker_reward, clock, ctx);
+        let c = gts::mint(treasury, minter(board), staker_reward, clock, ctx);
         staking::add_rewards(pool, coin::into_balance(c), clock);
     };
     let deployed_copy = board.cur_deployed;
@@ -401,6 +436,7 @@ public fun claim(
     clock: &Clock,
     ctx: &mut TxContext,
 ): (Coin<GTS>, Coin<SUI>) {
+    check_version(board);
     assert!(miner.round_id != 0, ENothingToClaim);
     assert!(table::contains(&board.rounds, miner.round_id), ENotSettled);
     let info = table::borrow(&board.rounds, miner.round_id);
@@ -408,7 +444,7 @@ public fun claim(
     // GTS mining reward — proportional to this miner's share of the round (everyone earns).
     let gts_amt = if (info.total_deployed == 0) { 0 }
         else { (((info.round_reward as u128) * (miner.total_deployed as u128)) / (info.total_deployed as u128)) as u64 };
-    let gts_coin = gts::mint(treasury, option::borrow(&board.minter), gts_amt, clock, ctx);
+    let gts_coin = gts::mint(treasury, minter(board), gts_amt, clock, ctx);
 
     // SUI winnings if the miner had stake on the winning square.
     let w = (info.winning_square as u64);
@@ -456,6 +492,7 @@ public fun claim(
 
 /// Send accrued creator fees to DEV_ADDR. Anyone may call; funds can only go to DEV_ADDR.
 entry fun withdraw_dev_fees(board: &mut Board, ctx: &mut TxContext) {
+    check_version(board);
     let amt = balance::value(&board.dev_fees);
     if (amt > 0) {
         transfer::public_transfer(coin::from_balance(balance::split(&mut board.dev_fees, amt), ctx), DEV_ADDR);
@@ -479,13 +516,34 @@ public fun motherlode_paid(board: &Board, round_id: u64): u64 {
     let k = JackpotKey { round_id };
     if (df::exists(&board.id, k)) { *df::borrow<JackpotKey, u64>(&board.id, k) } else { 0 }
 }
-public fun installed(board: &Board): bool { option::is_some(&board.minter) }
+public fun installed(board: &Board): bool { has_minter(board) }
 public fun current_reward(board: &Board, _clock: &Clock): u64 {
-    if (option::is_none(&board.minter)) { 0 } else { reward_for_round(board.cur_id) }
+    if (!has_minter(board)) { 0 } else { reward_for_round(board.cur_id) }
 }
 
 #[test_only]
 public fun reward_for_round_for_testing(round_id: u64): u64 { reward_for_round(round_id) }
+
+#[test_only]
+public fun version_for_testing(board: &Board): u64 {
+    if (df::exists(&board.id, VersionKey {})) { *df::borrow<VersionKey, u64>(&board.id, VersionKey {}) } else { 0 }
+}
+
+#[test_only]
+public fun set_version_for_testing(board: &mut Board, v: u64) {
+    *df::borrow_mut<VersionKey, u64>(&mut board.id, VersionKey {}) = v;
+}
+
+#[test_only]
+/// Installs the way versions 1-4 did (MinterCap in `board.minter`), to test the v5 migration.
+public fun install_legacy_for_testing(board: &mut Board, cap: MinterCap, treasury: &mut Treasury, clock: &Clock) {
+    gts::start(treasury, &cap, clock);
+    board.genesis_ms = clock::timestamp_ms(clock);
+    option::fill(&mut board.minter, cap);
+}
+
+#[test_only]
+public fun legacy_minter_for_testing(board: &Board): bool { option::is_some(&board.minter) }
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) { init(ctx) }

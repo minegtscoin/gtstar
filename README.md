@@ -30,6 +30,7 @@ The protocol is split so that the economics are locked while the product can sti
 | `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements |
 
 The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can change this. The game's round-based schedule always stays under that ceiling.
+nOnly the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 
 Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 

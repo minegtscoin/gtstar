@@ -604,3 +604,62 @@ fun test_house_returns_motherlode_share() {
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
     ts::end(sc);
 }
+
+// ===== Version guard =====
+
+/// A board installed the pre-v5 way: the first v5 call moves the MinterCap off `board.minter`
+/// (so versions 1-4 can no longer mint, deploy, settle or claim) and records version 5.
+#[test]
+fun test_v5_migrates_legacy_board() {
+    let mut sc = ts::begin(@0x0);
+    random::create_for_testing(ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, @0x0);
+    let mut rs = ts::take_shared<Random>(&sc);
+    random::update_randomness_state_for_testing(&mut rs, 0, x"0A0B0C0D0E0F101112131415161718191A1B1C1D1E1F20212223242526272829", ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, ADMIN);
+    gts::init_for_testing(ts::ctx(&mut sc));
+    staking::init_for_testing(ts::ctx(&mut sc));
+    game::init_for_testing(ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, ADMIN);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let cap = ts::take_from_sender<MinterCap>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1);
+    game::install_legacy_for_testing(&mut board, cap, &mut treasury, &clk);
+    assert!(game::legacy_minter_for_testing(&board), 0);
+    assert!(game::version_for_testing(&board) == 0, 1);
+
+    clock::set_for_testing(&mut clk, 1_000);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
+    assert!(!game::legacy_minter_for_testing(&board), 2);
+    assert!(game::version_for_testing(&board) == 5, 3);
+    assert!(game::installed(&board), 4);
+
+    // The game still mints after the move: settle and claim pay the GTS reward.
+    clock::set_for_testing(&mut clk, 61_000);
+    game::settle_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, ts::ctx(&mut sc));
+    let (g, s) = game::claim(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == 1_000_000_000, 5);
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool); ts::return_shared(rs);
+    ts::end(sc);
+}
+
+/// Once a newer version has used the Board, this version refuses to change it.
+#[test, expected_failure(abort_code = gtstar::game::EWrongVersion)]
+fun test_older_version_blocked() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, ADMIN);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_version_for_testing(&mut board, 6);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
+    abort 0
+}

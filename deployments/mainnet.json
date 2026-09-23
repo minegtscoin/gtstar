@@ -76,8 +76,12 @@
     [
       "Game upgraded: Supernova split 50/50 with the reserve, 1 in 25 odds",
       "C1p9Q9UTEB8RCC47Pv4hhmX6dmvnLpF9dz3XkGntnP5L"
+    ],
+    [
+      "Game upgraded: only the latest version can run the game",
+      "5RYC77TqWMHrLTJD31vdt2vxTVcHF5EKRhpDBbrjaxCT"
     ]
   ],
-  "latest": "0x50a91d63db298b6f2b59b6d47970480ba021eb7e01314afd764081db434d74b6",
+  "latest": "0x513ab146091ed0ac5378a33438e5538158007fdbe7ef6f654655da9cc4081689",
   "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6"
 }
