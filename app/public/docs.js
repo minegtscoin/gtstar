@@ -11,6 +11,7 @@
     ["Treasury", C.ids.treasury, "object", "Controls all GTS minting within the fixed schedule and holds the SUI reserve that backs every GTS."],
     ["Board", C.ids.board, "object", "The shared game board. Holds the current round, its deposits and the minting right the game uses to pay out GTS."],
     ["Stake pool", C.ids.pool, "object", "Holds staked GTS and streams staking rewards to stakers."],
+    ["GTS/SUI market", C.ids.market, "object", "The Cetus pool where GTS trades against SUI."],
     ["Upgrade authority", A.upgradeCap, "object", "The only key that can upgrade the game contract. Its owner is public, and every upgrade it makes is recorded on-chain."],
     ["Creator fee address", A.dev, "account", "Receives the fixed 1% creator fee. It holds no special rights over the game, the token or the reserve."],
     ["Keeper", A.keeper, "account", "Triggers the draw at the end of each round. It has no special rights: anyone can trigger a draw."]

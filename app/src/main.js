@@ -68,10 +68,12 @@ const settledRow = (j, ts) => ({
   vault: num(j.vault_fee), stakerReward: num(j.staker_reward), dev: num(j.dev_fee), players: num(j.players), ts,
 });
 async function loadGlobal() {
-  const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}
+  const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}}`);
-  const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p");
+  const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p"), m = pick(d, "m");
+  // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
+  const sq = num(m.current_sqrt_price) / 2 ** 64;
   const supply = num(t.cap?.total_supply?.value), vault = num(t.vault);
   const minted = num(t.minted), tGenesis = num(t.genesis_ms);
   const recent = (d.st?.nodes || []).map(n => settledRow(n.contents?.json || {}, n.timestamp)).reverse();
@@ -80,7 +82,7 @@ async function loadGlobal() {
     return { round: num(j.round_id), player: j.player, amounts: (j.amounts || []).map(num), total: num(j.total), ts: n.timestamp, digest: n.transaction?.digest };
   }).reverse();
   return {
-    supply, vault, minted, floor: supply > 0 ? vault / supply : 0,
+    supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
     staked: num(p.total_staked),
     pool: {
       total: BigInt(p.total_staked || 0), acc: BigInt(p.acc_reward_per_share || 0), rate: BigInt(p.reward_rate || 0),
@@ -977,9 +979,10 @@ function renderTicker() {
   if (PRICE.chg != null) { c.textContent = `${PRICE.chg >= 0 ? "+" : ""}${fmt(PRICE.chg, 2)}%`; c.classList.toggle("dn", PRICE.chg < 0); }
 }
 
-let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS (needs a market)
+let swapDir = "sell";   // sell: GTS -> SUI via the reserve; buy: SUI -> GTS on Cetus
+const CETUS = dir => `https://app.cetus.zone/swap/?${dir === "buy" ? `from=0x2::sui::SUI&to=${T_GTS}` : `from=${T_GTS}&to=0x2::sui::SUI`}`;
 function renderTrade() {
-  const sell = swapDir === "sell";
+  const sell = swapDir === "sell", market = STATE?.market || 0;
   const [tin, tout] = sell ? ["GTS", "SUI"] : ["SUI", "GTS"];
   $("swTokIn").textContent = tin; $("swTokOut").textContent = tout;
   $("swIconIn").className = `tok ${tin.toLowerCase()}`; $("swIconOut").className = `tok ${tout.toLowerCase()}`;
@@ -992,15 +995,18 @@ function renderTrade() {
   $("swOut").textContent = sell ? fmt(out, 6) : "—";
   $("swUsdIn").textContent = PRICE.sui ? usd(amt * (sell ? floor : 1) * PRICE.sui) : "";
   $("swUsdOut").textContent = PRICE.sui && sell ? usd(out * PRICE.sui) : "";
-  $("swRate").textContent = STATE ? `1 GTS = ${fmt(floor, 6)} SUI` : "—";
-  $("swRoute").textContent = sell ? "GTS reserve (burn at floor)" : "No GTS pool yet";
+  const rate = sell ? floor : market;
+  $("swRate").textContent = STATE && rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
+  $("swRoute").textContent = sell ? "GTS reserve (burn at floor)" : "Cetus GTS/SUI pool";
+  $("swFee").textContent = sell ? "None" : "1% pool fee";
   $("swHint").innerHTML = sell
     ? "Sells GTS to the on-chain reserve at the floor price. The GTS is burned and SUI is sent to your wallet."
-    : `GTS has no trading pool yet, so it cannot be bought. <a href="#mine">Mine GTS</a> on the board: every player earns it each round.`;
+      + (market > floor ? ` The market price is higher right now: <a href="${CETUS("sell")}" target="_blank" rel="noopener">sell on Cetus</a>.` : "")
+    : "Buying opens Cetus with GTS selected. The price is set by the GTS/SUI pool.";
   if (!busy) {
     const btn = $("btnSwap"), need = toMist($("swIn").value);
     let label = "Swap", dis = false;
-    if (!sell) { label = "No GTS market yet"; dis = true; }
+    if (!sell) label = "Buy GTS on Cetus";
     else if (!account) label = "Connect wallet";
     else if (need <= 0) { label = "Enter an amount"; dis = true; }
     else if (need > balIn) { label = "Insufficient GTS"; dis = true; }
@@ -1071,7 +1077,7 @@ $("btnPlay").onclick = async () => {
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
 $("hdrClaim").onclick = claimAll;
 $("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
-$("btnSwap").onclick = () => (account ? swap() : openWalletModal());
+$("btnSwap").onclick = () => (swapDir === "buy" ? window.open(CETUS("buy"), "_blank", "noopener") : account ? swap() : openWalletModal());
 $("swIn").addEventListener("input", renderTrade);
 $("swFlip").onclick = () => { swapDir = swapDir === "sell" ? "buy" : "sell"; $("swIn").value = ""; renderTrade(); };
 $("swBalIn").onclick = () => { if (USER && swapDir === "sell") { $("swIn").value = String(USER.gts / MIST); renderTrade(); } };
