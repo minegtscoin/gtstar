@@ -480,9 +480,10 @@ fun fill_motherlode(
         game::settle_with_odds_for_testing(board, treasury, pool, rs, clk, 1_000_000_000, ts::ctx(sc));
         let (g, s) = game::claim(board, &mut m, treasury, clk, ts::ctx(sc));
         if (coin::value(&s) == 0) {
-            // Lost: 95% rolled into the Motherlode, the reserve only got its 4%.
-            assert!(game::motherlode_value(board) == amt - amt * 4 / 100 - amt / 100, 100);
-            assert!(gts::vault_value(treasury) - vault_before == amt * 4 / 100, 101);
+            // Lost: half of the 95% rolled into the Motherlode, the reserve got its 4% + the other half.
+            let after_fee = amt - amt * 4 / 100 - amt / 100;
+            assert!(game::motherlode_value(board) == after_fee / 2, 100);
+            assert!(gts::vault_value(treasury) - vault_before == amt * 4 / 100 + (after_fee - after_fee / 2), 101);
         };
         coin::burn_for_testing(g); coin::burn_for_testing(s);
         transfer::public_transfer(m, BOB);

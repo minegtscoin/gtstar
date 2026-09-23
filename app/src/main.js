@@ -171,6 +171,7 @@ async function loadHistory() {
       volume: rounds.reduce((a, r) => a + r.total, 0),
       paid: rounds.reduce((a, r) => a + (r.winners > 0 ? r.winners + r.payout : 0), 0),
       reserve: rounds.reduce((a, r) => a + vaulted(r), 0),
+      snPaid: rounds.reduce((a, r) => a + (r.ml?.paid || 0), 0),
       stakerGts: rounds.reduce((a, r) => a + r.stakerReward, 0),
       fees: rounds.reduce((a, r) => a + vaulted(r) + r.dev, 0),
       emitted: rounds.reduce((a, r) => a + r.reward + r.stakerReward, 0),
@@ -714,7 +715,7 @@ function renderResult() {
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
-  let sub = L.winners === 0 ? (L.ml ? "No one was on this tile. The pot rolled into the Supernova." : "No one was on this tile. The pot went to the reserve.")
+  let sub = L.winners === 0 ? (L.ml ? (L.vault > 5 * L.dev ? "No one was on this tile. Half the pot rolled into the Supernova, half went to the reserve." : "No one was on this tile. The pot rolled into the Supernova.") : "No one was on this tile. The pot went to the reserve.")
     : L.ml?.paid > 0 ? `Supernova! ${sui(L.ml.paid, 4)} SUI exploded onto this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI`
     : L.payout > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
@@ -906,6 +907,8 @@ function renderExplorer() {
   $("gFloor").textContent = `${fmt(STATE.floor, 6)} SUI`;
   $("gReserve").textContent = `${sui(STATE.vault, 4)} SUI`;
   $("gMarket").textContent = marketText();
+  $("gSupernova").textContent = `${sui(STATE.motherlode, 4)} SUI`;
+  $("gSnPaid").textContent = t ? `${sui(t.snPaid, 4)} SUI` : "—";
   $("gDeployed").textContent = `${sui(STATE.board.cur_total, 3)} SUI`;
   $("gRounds").textContent = t ? fmt(t.rounds, 0) : "—";
   $("gVolume").textContent = t ? `${sui(t.volume, 3)} SUI` : "—";
@@ -930,20 +933,21 @@ function renderActivity() {
   if (actTab === "rounds") {
     $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
     const rows = HIST.rounds.slice(0, actShown);
-    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
+    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">Supernova</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
-      const winner = w.size === 0 ? `<span class="muted">${r.ml ? "Supernova" : "Reserve"}</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
+      const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
+      const sn = r.ml?.paid > 0 ? `<span class="gold">Hit ${sui(r.ml.paid, 4)}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
       const winnings = r.winners > 0 ? r.payout : 0;
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
         <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td><td class="r">${sui(vaulted(r), 4)}</td>
-        <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sui(r.reward, 3)}</td>
+        <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sn}</td><td class="r">${sui(r.reward, 3)}</td>
         <td class="r muted">${txLinkAgo(r)}</td></tr>`;
-      if (openRounds.has(r.round)) html += `<tr class="detail"><td colspan="9">${minersHtml(r)}</td></tr>`;
+      if (openRounds.has(r.round)) html += `<tr class="detail"><td colspan="10">${minersHtml(r)}</td></tr>`;
       return html;
     }).join("");
-    tbl.innerHTML = head + `<tbody>${body || `<tr><td colspan="9" class="muted">No rounds settled yet.</td></tr>`}</tbody>`;
+    tbl.innerHTML = head + `<tbody>${body || `<tr><td colspan="10" class="muted">No rounds settled yet.</td></tr>`}</tbody>`;
     tbl.querySelectorAll("a[data-stop]").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
     tbl.querySelectorAll("tr.round").forEach(tr => {
       const toggle = () => { const n = +tr.dataset.r; openRounds.has(n) ? openRounds.delete(n) : openRounds.add(n); renderActivity(); };
@@ -977,7 +981,8 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot", label: "Added to the GTS reserve" },
+    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + half when no one wins", label: "Added to the GTS reserve" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Half the pot when no one wins", label: "Added to the Supernova" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -986,7 +991,7 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : r.winners === 0 && !r.ml ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
+    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 && (!r.ml || r.vault > 5 * r.dev) ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
 }

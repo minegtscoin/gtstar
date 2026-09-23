@@ -163,7 +163,16 @@
     <span class="code">losing_pot = total_deposits - winning_tile_total
 payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
 my_gts     = round_reward * my_deposits / round_total</span>
-    <p>If no one deployed on the winning tile, the winners' 95% rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract). Every round that has a winner also has a 1 in 100 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve and 1% creator fees are unchanged. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
+    <h3>Supernova</h3>
+    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract), and half goes to the GTS reserve. Every round that has a winner also has a 1 in 25 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve and 1% creator fees are unchanged. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
+      <tbody>
+        <tr><td>Supernova</td><td class="n">47.5%</td></tr>
+        <tr><td>Reserve</td><td class="n">51.5% (4% + 47.5%)</td></tr>
+        <tr><td>Creator</td><td class="n">1%</td></tr>
+      </tbody>
+    </table></div>
     <h3>Fairness of the draw</h3>
     <p>The winning tile comes from <code>sui::random</code>. The draw runs in a private entry function, so no other contract can wrap it and cancel the transaction when it dislikes the result. The rules are the same for every player, and every result is recorded on-chain.</p>
 
@@ -200,7 +209,7 @@ my_gts     = round_reward * my_deposits / round_total</span>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td>Winners</td><td class="n">95%</td><td>Split across the winning tile by stake</td></tr>
-        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS</td></tr>
+        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS. Plus half the winners' 95% when no one is on the winning tile</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td>Paid to a fixed address in the contract</td></tr>
       </tbody>
     </table></div>

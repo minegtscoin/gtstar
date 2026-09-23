@@ -14,8 +14,8 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Max supply | 571,897 GTS: 7 halving periods of 262,000 rounds |
 | Premine / team / presale | None |
 | Emission | 1 GTS per round to miners, +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
-| Losing pot | 95% winners · 4% reserve · 1% creator (no one on the winning tile: the 95% rolls into the Supernova) |
-| Supernova | Every round with a winner: 1 in 100 chance to pay the whole Supernova to the winning tile |
+| Losing pot | 95% winners · 4% reserve · 1% creator (no one on the winning tile: half the 95% rolls into the Supernova, half goes to the reserve) |
+| Supernova | Every round with a winner: 1 in 25 chance to pay the whole Supernova to the winning tile |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
 | Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
 | Randomness | `sui::random` (validator-generated, unbiasable) |

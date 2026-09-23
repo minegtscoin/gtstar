@@ -10,8 +10,8 @@
 /// winner). Separately, a halving GTS emission is split among ALL participants —
 /// winners and losers alike ("rewards everyone").
 ///
-/// Motherlode: when no one is on the winning square, the winners' pot (after the 5% fee)
-/// rolls into the Motherlode instead of being lost. Every round that has a winner also has a
+/// Motherlode: when no one is on the winning square, the winners' pot (after the 5% fee) is
+/// split: MOTHERLODE_SHARE_BPS rolls into the Motherlode, the rest goes to the GTS reserve. Every round that has a winner also has a
 /// 1 in MOTHERLODE_ODDS chance (drawn with `sui::random`) to pay the whole Motherlode to the
 /// winning square, split like the normal pot. The GTStar House wallet never keeps any of it.
 module gtstar::game;
@@ -44,7 +44,10 @@ const EMISSION_PERIODS: u64 = 7;
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
 /// Chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS.
-const MOTHERLODE_ODDS: u64 = 100;
+const MOTHERLODE_ODDS: u64 = 25;
+/// Share of a no-winner round's pot (after the 5% fee) that rolls into the Motherlode;
+/// the rest goes to the GTS reserve.
+const MOTHERLODE_SHARE_BPS: u64 = 5_000;
 /// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
@@ -303,15 +306,15 @@ fun settle_with_odds(
     let winners_total = *vector::borrow(&board.cur_deployed, (winning as u64));
     let losing_pot = board.cur_total - winners_total;
 
-    let vault_part = losing_pot * board.vault_bps / 10_000;
+    let mut vault_part = losing_pot * board.vault_bps / 10_000;
     let dev_part = losing_pot * board.dev_bps / 10_000;
     let mut losing_after_fee = losing_pot - vault_part - dev_part;
 
     if (vault_part > 0) { gts::vault_add(treasury, balance::split(&mut board.pot, vault_part)); };
     if (dev_part > 0) { balance::join(&mut board.dev_fees, balance::split(&mut board.pot, dev_part)); };
 
-    // Motherlode: with no one on the winning square the winners' pot rolls into it; with a
-    // winner there is a 1 in MOTHERLODE_ODDS chance it is paid out to the winning square.
+    // Motherlode: with no one on the winning square the winners' pot is split between it and
+    // the reserve; with a winner there is a 1 in MOTHERLODE_ODDS chance it is paid out.
     if (!df::exists(&board.id, MotherlodeKey {})) {
         df::add(&mut board.id, MotherlodeKey {}, balance::zero<SUI>());
     };
@@ -319,9 +322,16 @@ fun settle_with_odds(
     let mut ml_paid = 0;
     if (winners_total == 0) {
         if (losing_after_fee > 0) {
-            let part = balance::split(&mut board.pot, losing_after_fee);
-            balance::join(df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {}), part);
-            ml_added = losing_after_fee;
+            ml_added = losing_after_fee * MOTHERLODE_SHARE_BPS / 10_000;
+            let to_vault = losing_after_fee - ml_added;
+            if (ml_added > 0) {
+                let part = balance::split(&mut board.pot, ml_added);
+                balance::join(df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {}), part);
+            };
+            if (to_vault > 0) {
+                gts::vault_add(treasury, balance::split(&mut board.pot, to_vault));
+                vault_part = vault_part + to_vault;
+            };
             losing_after_fee = 0;
         };
     } else {
