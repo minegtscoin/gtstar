@@ -125,6 +125,12 @@ h1{font-family:var(--disp);font-weight:600;font-size:32px;margin:18px 0 4px;lett
 .foot-in{max-width:1200px;margin:0 auto;padding:18px 20px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--dim);font-size:13px}
 .foot-links{display:flex;gap:18px}
 .foot-links a:hover{color:var(--text)}
+.foot-in{align-items:center}
+.foot-right{display:flex;align-items:center;gap:22px}
+.foot-soc{display:flex;gap:6px;padding-left:18px;border-left:1px solid var(--line)}
+.foot-soc a{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;color:var(--muted);transition:color .15s,background .15s}
+.foot-soc a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.foot-soc svg{width:16px;height:16px;fill:currentColor}
 
 /* modal + toast */
 .modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px}
