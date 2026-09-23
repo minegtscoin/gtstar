@@ -6,8 +6,9 @@ RewriteRule ^(whitepaper\.html|whitepaper|docs)/?$ /docs.html [L,R=301]
 
 <IfModule mod_headers.c>
   Header set Cache-Control "no-cache"
-  # Scripts only from this site; data only from Sui and the two price APIs; never framed (clickjacking).
-  Header set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://graphql.mainnet.sui.io https://graphql.testnet.sui.io https://api.coingecko.com https://api.binance.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+  # Page scripts only from this site; never framed (clickjacking). Network, frames and workers stay open
+  # because wallet code running inside the page talks to its own servers and windows.
+  Header set Content-Security-Policy "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   Header set X-Frame-Options "DENY"
   Header set X-Content-Type-Options "nosniff"
   Header set Referrer-Policy "strict-origin-when-cross-origin"
