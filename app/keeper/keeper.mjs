@@ -4,6 +4,7 @@ import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
+import { makeHouse } from "./house.mjs";
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 // Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
@@ -19,6 +20,7 @@ export default async () => {
   const T = f => `${CFG.package}::${f}`;
   const start = Date.now();
   const log = [];
+  const house = makeHouse(client, CFG, log);
 
   async function board() {
     const r = await client.query({ query: `{object(address:"${CFG.board}"){asMoveObject{contents{json}}}}` });
@@ -48,6 +50,7 @@ export default async () => {
   while (Date.now() - start < WINDOW_MS) {
     try {
       if (!b) b = await board();
+      if (house && await house(b)) { b = await board(); continue; }
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;
       if (b.cur_started === true && !worth) {

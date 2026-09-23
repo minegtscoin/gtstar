@@ -27,7 +27,7 @@ fs.writeFileSync(path.join(out, "config.js"), `window.GTSTAR_VERSION = "${V}";\n
 
 // Contract IDs for the keeper.
 fs.writeFileSync(path.join(__dirname, "keeper", "keeper-config.json"),
-  JSON.stringify({ network, package: dep.latest || dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, null, 2));
+  JSON.stringify({ network, package: dep.latest || dep.package, origin: dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, null, 2));
 
 esbuild.buildSync({
   entryPoints: [path.join(__dirname, "src", "main.js")],
