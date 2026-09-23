@@ -5,6 +5,7 @@ import { signAndExecuteTransaction } from "@mysten/wallet-standard";
 import { registerSuiSnapWallet } from "@kunalabs-io/sui-snap-wallet";
 
 const CFG = window.GTSTAR_CONFIG;
+const SNAP_SEND = `./snap-send.js?v=${window.GTSTAR_VERSION}`;
 const IDS = CFG.ids;
 const CHAIN = `sui:${CFG.network}`;
 const GQL = `https://graphql.${CFG.network}.sui.io/graphql`;
@@ -268,7 +269,7 @@ async function exec(label, btnId, build, needMist = 0) {
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
-    const r = await signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN });
+    const r = await sendTx(tx);
     toast(`${label} confirmed. <a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">View transaction</a>`, false, true);
     setTimeout(refresh, 1200); setTimeout(refresh, 3500);
     return r;
@@ -278,6 +279,14 @@ async function exec(label, btnId, build, needMist = 0) {
   } finally {
     busy = false; b.disabled = false; b.textContent = old; render();
   }
+}
+// MetaMask's Sui Snap fails to execute some transactions through its own backend, so for it the site
+// builds and submits the transaction and the wallet only signs (see snap-send.js, loaded on demand).
+async function sendTx(tx) {
+  if (!/metamask/i.test(wallet.name)) return signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN });
+  const mod = SNAP_SEND;
+  const { send } = await import(mod);
+  return send({ wallet, account, chain: CHAIN, txJson: await tx.toJSON(), url: GQL, network: CFG.network });
 }
 function claimInto(tx, minerArg) {
   const [g, s] = tx.moveCall({ target: T("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
