@@ -118,13 +118,13 @@
     <a href="#mining">Mining</a>
     <a href="#staking">Staking</a>
     <a href="#tokenomics">Tokenomics</a>
-    <a href="#links">Links</a>
+    <a href="#verify">Verify</a>
   </nav>
 
   <article>
     <div class="eyebrow">Docs</div>
     <h1>Fair by code. Fixed forever.</h1>
-    <p class="lede">GTStar is a mining game on Sui. You play, you mine GTS. No premine, no team tokens, no one who can print more. The rules live on-chain and every token is backed by real SUI.</p>
+    <p class="lede">GTStar is a mining game on Sui. You play, you mine GTS. No premine, no team tokens, and every token is backed by SUI in an on-chain reserve.</p>
     <div class="facts">
       <div><b>571,897</b><span>Max supply</span></div>
       <div><b>0</b><span>Premine</span></div>
@@ -134,14 +134,14 @@
 
     <h2 id="intro">Intro</h2>
     <p class="sub">Why GTStar is the fairest game you can play.</p>
-    <p>Most tokens start with an insider advantage: a premine, a team allocation, a presale, or an admin key that can mint more. GTStar has none of these. Like Bitcoin, every GTS that will ever exist has to be mined, and the rules that govern supply are locked in code that no one can change, including us.</p>
+    <p>Most tokens start with an insider advantage: a premine, a team allocation or a presale. GTStar has none. Like Bitcoin, every GTS has to be mined.</p>
     <ul>
-      <li><strong>Fair launch.</strong> Zero GTS existed before the first round. There is no premine, no presale and no team allocation, and no function that could ever create one. Every token in circulation was earned by a player.</li>
-      <li><strong>Fixed supply.</strong> The emission ceiling and the reserve live in an immutable token contract. The game's schedule mints at most 571,897 GTS, and the token contract itself refuses anything above its own ceiling of 572,003 GTS, whatever the game does. No upgrade, key or vote can raise that limit, and burned GTS is never minted again.</li>
-      <li><strong>Provably random.</strong> Winners are drawn by Sui's native randomness beacon, produced jointly by the network's validators. No server, no operator and no player can see or steer the result in advance.</li>
+      <li><strong>Fair launch.</strong> Zero GTS existed before the first round. Every token in circulation was earned by a player.</li>
+      <li><strong>Capped supply.</strong> At most 571,897 GTS will ever exist. The emission limit is enforced by an immutable token contract, and burned GTS is never minted again.</li>
+      <li><strong>Provably random.</strong> Winners are drawn with Sui's on-chain randomness. No server, operator or player can see or steer the result.</li>
       <li><strong>Everyone mines.</strong> Unlike single-winner games, every participant earns GTS every round, win or lose.</li>
-      <li><strong>Backed by SUI.</strong> Any holder can burn GTS at any time for a share of the SUI reserve. Value that exists on-chain, not only on an exchange.</li>
-      <li><strong>Non-custodial.</strong> The app holds no keys and no funds, and has no accounts. Your funds sit in public contracts and every action is signed in your own wallet. The only server feature is optional usernames: you sign a message in your wallet, the server checks that signature on Sui, and it stores nothing but the name for your address.</li>
+      <li><strong>Backed by SUI.</strong> Any holder can burn GTS at any time for a share of the SUI reserve.</li>
+      <li><strong>Non-custodial.</strong> The app holds no keys and no funds. Every action is signed in your own wallet.</li>
     </ul>
 
     <h2 id="mining">Mining</h2>
@@ -157,7 +157,7 @@
       <li>A round starts with its first deposit and lasts 60 seconds. No deposits means no round and no emission.</li>
       <li>Deploy SUI on one or more of the 25 tiles, minimum 0.01 SUI per tile.</li>
       <li>Deposits close 5 seconds before the end, so no one can react to other players at the last second.</li>
-      <li>When time is up, one winning tile is drawn. Anyone can trigger the draw: a keeper does it automatically within seconds, and the app shows a Draw winner button in case it is ever down.</li>
+      <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>Rewards</h3>
     <p><strong>Winners</strong> get their stake back plus 95% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. <strong>Everyone</strong> in the round, winners and losers alike, mines GTS in proportion to their deposits.</p>
@@ -166,7 +166,7 @@ payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
 round_reward = full_reward * min(round_total, 1 SUI) / 1 SUI
 my_gts       = round_reward * my_deposits / round_total</span>
     <h3>Supernova</h3>
-    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract), and half goes to the GTS reserve. Every round that has a winner also has a 1 in 25 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve fee and 1% creator fee are taken as usual. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
+    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing, and half goes to the GTS reserve. Every round with a winner has a 1 in 25 chance to pay the whole Supernova to the winning tile, split by stake. The GTStar House wallet never keeps Supernova SUI.</p>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
@@ -175,23 +175,19 @@ my_gts       = round_reward * my_deposits / round_total</span>
         <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
     </table></div>
-    <h3>Fairness of the draw</h3>
-    <p>The winning tile comes from <code>sui::random</code>. The draw runs in a private entry function, so no other contract can wrap it and cancel the transaction when it dislikes the result. The rules are the same for every player, and every result is recorded on-chain.</p>
 
     <h2 id="staking">Staking</h2>
     <p class="sub">Hold GTS, earn more GTS.</p>
     <ul>
       <li><strong>Source of yield.</strong> Every round mints an extra 10% of its GTS reward for stakers.</li>
-      <li><strong>Streamed.</strong> Each round's staker reward streams over 7 days, split by stake size, so yield accrues every second.</li>
-      <li><strong>No lock-up.</strong> Stake, withdraw and claim at any time, or claim and restake in one step.</li>
-      <li><strong>No sniping.</strong> Staking right before a round and leaving right after earns only for the seconds actually staked. Long-term holders get the rewards.</li>
-      <li><strong>Nothing is lost.</strong> If no one is staked, the stream pauses and resumes when the next staker arrives.</li>
+      <li><strong>Streamed.</strong> Rewards stream over 7 days, split by stake size.</li>
+      <li><strong>No lock-up.</strong> Stake, withdraw and claim at any time.</li>
     </ul>
 
     <h2 id="tokenomics">Tokenomics</h2>
     <p class="sub">A fixed schedule, a halving, and a SUI floor.</p>
     <h3>Supply</h3>
-    <p>Each round mints up to 1 GTS to miners and 0.1 GTS to stakers. The full reward needs 1 SUI deployed in the round. A smaller round mints a matching part (0.25 SUI gives 0.25 GTS) and the rest is never minted, so cheap rounds cannot water down the reserve. Both halve every 262,000 rounds, like Bitcoin halves by blocks, not by date. After 7 periods (1,834,000 rounds) emission stops for good. At most 571,897 GTS can ever exist.</p>
+    <p>Each round mints up to 1 GTS to miners and 0.1 GTS to stakers. The full reward needs 1 SUI deployed in the round. A smaller round mints a matching part (0.25 SUI gives 0.25 GTS). Both halve every 262,000 rounds. After 7 periods (1,834,000 rounds) emission stops for good.</p>
     <div class="tbl"><table>
       <thead><tr><th>Rounds</th><th>Miners / round (max)</th><th>Stakers / round (max)</th><th>Max cumulative</th></tr></thead>
       <tbody>
@@ -204,15 +200,15 @@ my_gts       = round_reward * my_deposits / round_total</span>
         <tr><td>1,572,001 – 1,834,000</td><td class="n">0.015625</td><td class="n">0.0015625</td><td class="n">571,897</td></tr>
       </tbody>
     </table></div>
-    <p>Rounds only happen when people play, so quiet periods stretch the schedule: a round every minute gives about 6 months per period, fewer players means longer. The immutable token contract also checks every mint against a time ceiling (1.1 GTS per minute, halving every 6 months), which the round schedule always stays under. The contract code also carries a 1,000,000 GTS safety limit, which the schedule never reaches.</p>
+    <p>Rounds only happen when people play: at one round a minute a period lasts about 6 months, fewer players make it longer.</p>
     <h3>Fees</h3>
     <p>Fees come only from the losing pot, never from a winner's stake.</p>
     <div class="tbl"><table>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td>Winners</td><td class="n">95%</td><td>Split across the winning tile by stake</td></tr>
-        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS. Plus half the winners' 95% when no one is on the winning tile</td></tr>
-        <tr><td>Creator</td><td class="n">1%</td><td>Paid to a fixed address in the contract</td></tr>
+        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS</td></tr>
+        <tr><td>Creator</td><td class="n">1%</td><td>Fixed address in the contract</td></tr>
       </tbody>
     </table></div>
     <h3>Reserve</h3>
@@ -220,20 +216,18 @@ my_gts       = round_reward * my_deposits / round_total</span>
     <span class="code">redeem(x GTS) = reserve * x / total_supply     // x GTS is burned
 floor_price   = reserve / total_supply</span>
     <ul>
-      <li><strong>Every round adds SUI and new GTS.</strong> The floor rises when a round adds more SUI per new GTS than the current floor, and falls when it adds less. Small rounds lower it, larger rounds raise it.</li>
-      <li><strong>Redemptions never lower it.</strong> Reserve and supply shrink together, and rounding favours remaining holders.</li>
-      <li><strong>Halvings help.</strong> Each halving cuts the new GTS per round, so the same SUI inflow lifts the floor more.</li>
+      <li><strong>Redemptions never lower the floor.</strong> Reserve and supply shrink together.</li>
+      <li><strong>Halvings raise it faster.</strong> Fewer new GTS per round means the same SUI inflow lifts the floor more.</li>
     </ul>
-    <p class="callout">The floor is backed by assets actually held in the reserve. It is not a price guarantee and it moves with the balance between fees and emission.</p>
+    <p class="callout">The floor is backed by SUI actually held in the reserve. It is not a price guarantee.</p>
 
-    <h2 id="links">Links</h2>
+    <h2 id="verify">Verify</h2>
     <p class="sub">Don't trust, verify.</p>
-    <p>GTStar is split into two contracts. The <strong>token contract</strong> holds GTS, the emission ceiling and the reserve, and is immutable: no one can ever change it. The <strong>game contract</strong> holds the board, fees and staking, and can receive fixes and improvements. Because it holds the right to mint and the SUI of open rounds, an upgrade could in principle mint up to the token's ceiling or move that SUI. So the upgrade key is locked in a <strong>timelock</strong> contract: every upgrade must be announced on-chain, with the exact fingerprint of the new code, 48 hours before it can run, and the key can never be taken out again. Once a new version is live the older versions can no longer run the game.</p>
-    <p>Contracts on <strong id="netName">Sui</strong>:</p>
+    <p>The <strong>token contract</strong> holds GTS, its emission limit and the reserve, and is immutable. The <strong>game contract</strong> runs rounds and staking and can receive fixes. Every game upgrade must be announced on-chain 48 hours before it can run, so players always have time to review it.</p>
+    <p>Addresses on <strong id="netName">Sui</strong>:</p>
     <div class="addr" id="addrList"></div>
-    <p>The full source code of both contracts, the app and the keeper is public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Project updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>.</p>
-    <h3>Transaction proofs</h3>
-    <p>The transactions behind the guarantees above. Each opens in the Suiscan explorer.</p>
+    <p>All source code is public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Project updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>.</p>
+    <h3>On-chain proofs</h3>
     <div class="proofs" id="proofList"></div>
 
     <p class="endnote">Playing involves risk: tiles that do not win lose their deposit, and smart contracts can contain bugs. Only play with what you can afford to lose. The on-chain code is the source of truth.</p>
@@ -244,7 +238,7 @@ floor_price   = reserve / total_supply</span>
 <footer class="foot">
   <div class="foot-in">
     <span>GTStar on Sui</span>
-    <div class="foot-right"><span class="foot-links"><a href="index.html#mine">App</a><a href="#links">Contracts</a></span><span class="foot-soc"><a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener" aria-label="GTStar on GitHub" title="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg></a><a href="https://x.com/MineGTS1" target="_blank" rel="noopener" aria-label="GTStar on X" title="X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.21-6.82-5.97 6.82H1.67l7.73-8.84L1.25 2.25h6.83l4.71 6.23 5.45-6.23zm-1.16 17.52h1.83L7.08 4.13H5.12l11.96 15.64z"/></svg></a></span></div>
+    <div class="foot-right"><span class="foot-links"><a href="index.html#mine">App</a><a href="#verify">Contracts</a></span><span class="foot-soc"><a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener" aria-label="GTStar on GitHub" title="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg></a><a href="https://x.com/MineGTS1" target="_blank" rel="noopener" aria-label="GTStar on X" title="X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.21-6.82-5.97 6.82H1.67l7.73-8.84L1.25 2.25h6.83l4.71 6.23 5.45-6.23zm-1.16 17.52h1.83L7.08 4.13H5.12l11.96 15.64z"/></svg></a></span></div>
   </div>
 </footer>
 <script src="config.js"></script>

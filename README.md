@@ -36,7 +36,7 @@ The game holds the `MinterCap` and the SUI of open rounds, so a game upgrade cou
 
 Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 
-Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#links) page.
+Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 
 ## Repository
 
