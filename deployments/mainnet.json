@@ -80,8 +80,26 @@
     [
       "Game upgraded: only the latest version can run the game",
       "5RYC77TqWMHrLTJD31vdt2vxTVcHF5EKRhpDBbrjaxCT"
+    ],
+    [
+      "Game upgraded: GTS reward scales with SUI deployed (full at 1 SUI)",
+      "4CqSJsvN8t57xc7osrqCeF3QYxXB5TpH31TajpQ4DPeo"
+    ],
+    [
+      "Timelock contract published",
+      "7sx9De7NVHLBhNe23zgJHWkzfW7arFe73fSWNFg3NwVu"
+    ],
+    [
+      "Timelock contract made immutable",
+      "4865Yn3nhMcho18ssu5EDa8mfXUzPf5g9xADiXHh5qSf"
+    ],
+    [
+      "Game upgrade key locked in the 48h timelock",
+      "8dA3nFNhhy7TKaPdym1A9sDSvteX7GuLARGxD7SM3BXn"
     ]
   ],
-  "latest": "0x513ab146091ed0ac5378a33438e5538158007fdbe7ef6f654655da9cc4081689",
-  "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6"
+  "latest": "0x4c1e8af305b166e95631882f33293f960675c5e47a29affde8f863553b47f541",
+  "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6",
+  "timelockPkg": "0x6c90bed3ffa9c429ab2381ad3cfeb45ceadb0e10c22df9b90f995d0892158bd5",
+  "timelock": "0x8390bf694f67a332d0916f0adde76bf64c351a6560401c3a53401442c220a68c"
 }

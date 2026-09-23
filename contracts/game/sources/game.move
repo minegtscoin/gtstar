@@ -1,8 +1,9 @@
 /// GTStar core game: a 5x5 grid, 60s rounds, on Sui.
 ///
-/// This package is upgradeable (bug fixes, improvements). The token, its supply
-/// schedule and the SUI reserve live in the separate, immutable `gts_token`
-/// package, so no upgrade can mint beyond the published schedule or touch the reserve.
+/// This package is upgradeable (bug fixes, improvements). The token, its emission ceiling
+/// and the SUI reserve live in the separate, immutable `gts_token` package. The game holds
+/// the MinterCap and the Board's SUI (pot, Motherlode, creator fees), so an upgrade could
+/// mint up to that ceiling and move the Board's SUI: the UpgradeCap is the trust point.
 ///
 /// Each round players deploy SUI onto squares. At settlement one winning square
 /// is drawn with `sui::random`. SUI from losing squares (minus a 5% fee) is split
@@ -31,13 +32,18 @@ use gtstar::staking::{Self, StakePool};
 const GRID: u64 = 25;
 /// Round-based emission (like Bitcoin blocks): 1 GTS per round to miners, halving every
 /// 262,000 rounds (~6 months at one round a minute), 7 periods, then zero. Quiet weeks only
-/// stretch the schedule; the total never changes. Stakers receive an extra 10% on top, streamed.
+/// stretch the schedule. Stakers receive an extra 10% on top, streamed.
 /// Rounds last at least a minute, so this stays inside the token's time-based ceiling, and the
 /// 7-period total (571,896.875 GTS) is below that ceiling's final value (572,003.2 GTS).
+/// Since v6 the full reward needs FULL_REWARD_DEPLOY SUI in the round; smaller rounds get a
+/// proportional part and the rest is never minted, so cheap rounds cannot dilute the reserve.
 const INITIAL_ROUND_REWARD: u64 = 1_000_000_000;   // 1 GTS / round
 const STAKER_SHARE_BPS: u64 = 1_000;               // +10% of the round reward, to stakers
 const HALVING_ROUNDS: u64 = 262_000;
 const EMISSION_PERIODS: u64 = 7;
+/// SUI a round needs for the full GTS reward (1 SUI). About 4% of a round reaches the reserve,
+/// so at 1 GTS per SUI every new GTS brings roughly its floor price with it.
+const FULL_REWARD_DEPLOY: u64 = 1_000_000_000;
 
 /// Creator/dev reward: 1% of the losing pot each round, accrued on the Board and
 /// paid out (permissionlessly) only to this address via `withdraw_dev_fees`.
@@ -53,7 +59,7 @@ const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a
 
 /// Package version. Every call that changes the Board runs `check_version`, which blocks all
 /// older versions of this package (see there). Bump it on every upgrade.
-const VERSION: u64 = 5;
+const VERSION: u64 = 6;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -205,6 +211,12 @@ fun reward_for_round(round_id: u64): u64 {
     if (round_id == 0) { return 0 };
     let epoch = (round_id - 1) / HALVING_ROUNDS;
     if (epoch >= EMISSION_PERIODS) { 0 } else { INITIAL_ROUND_REWARD >> (epoch as u8) }
+}
+
+/// The round reward scaled by the SUI deployed: full at FULL_REWARD_DEPLOY or more.
+fun scaled_reward(base: u64, total: u64): u64 {
+    if (total >= FULL_REWARD_DEPLOY) { base }
+    else { (((base as u128) * (total as u128)) / (FULL_REWARD_DEPLOY as u128)) as u64 }
 }
 
 /// Only the latest package version may change the Board. Versions 1-4 read the MinterCap from
@@ -386,7 +398,7 @@ fun settle_with_odds(
         balance: balance::value(df::borrow<MotherlodeKey, Balance<SUI>>(&board.id, MotherlodeKey {})),
     });
 
-    let reward = reward_for_round(board.cur_id);
+    let reward = scaled_reward(reward_for_round(board.cur_id), board.cur_total);
     // Stakers earn +10% of the round reward in GTS, streamed over 7 days.
     let staker_reward = reward * STAKER_SHARE_BPS / 10_000;
     if (staker_reward > 0) {
@@ -517,12 +529,17 @@ public fun motherlode_paid(board: &Board, round_id: u64): u64 {
     if (df::exists(&board.id, k)) { *df::borrow<JackpotKey, u64>(&board.id, k) } else { 0 }
 }
 public fun installed(board: &Board): bool { has_minter(board) }
+/// Full reward of the current round (paid in full at FULL_REWARD_DEPLOY SUI deployed).
 public fun current_reward(board: &Board, _clock: &Clock): u64 {
     if (!has_minter(board)) { 0 } else { reward_for_round(board.cur_id) }
 }
+public fun full_reward_deploy(): u64 { FULL_REWARD_DEPLOY }
 
 #[test_only]
 public fun reward_for_round_for_testing(round_id: u64): u64 { reward_for_round(round_id) }
+
+#[test_only]
+public fun scaled_reward_for_testing(base: u64, total: u64): u64 { scaled_reward(base, total) }
 
 #[test_only]
 public fun version_for_testing(board: &Board): u64 {

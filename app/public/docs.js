@@ -12,7 +12,9 @@
     ["Board", C.ids.board, "object", "The shared game board. Holds the current round, its deposits and the minting right the game uses to pay out GTS."],
     ["Stake pool", C.ids.pool, "object", "Holds staked GTS and streams staking rewards to stakers."],
     ["GTS/SUI market", C.ids.market, "object", "The Cetus pool where GTS trades against SUI."],
-    ["Upgrade authority", A.upgradeCap, "object", "The only key that can upgrade the game contract. Its owner is public, and every upgrade it makes is recorded on-chain."],
+    ["Upgrade authority", A.upgradeCap, "object", "The only key that can upgrade the game contract. It is locked inside the timelock below and can never be taken out."],
+    ["Upgrade timelock", A.timelock, "object", "Holds the upgrade key. Every game upgrade must be announced here, with the exact fingerprint of the new code, 48 hours before it can run."],
+    ["Timelock package", A.timelockPkg, "object", "The timelock contract. Immutable: the 48-hour delay can never be shortened."],
     ["Creator fee address", A.dev, "account", "Receives the fixed 1% creator fee. It holds no special rights over the game, the token or the reserve."],
     ["Keeper", A.keeper, "account", "Triggers the draw at the end of each round. It has no special rights: anyone can trigger a draw."]
   ].filter(function (r) { return r[1]; });

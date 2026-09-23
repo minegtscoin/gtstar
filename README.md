@@ -13,7 +13,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 |---|---|
 | Max supply | 571,897 GTS: 7 halving periods of 262,000 rounds |
 | Premine / team / presale | None |
-| Emission | 1 GTS per round to miners, +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
+| Emission | Up to 1 GTS per round to miners (full reward from 1 SUI deployed in the round, less for smaller rounds), +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
 | Losing pot | 95% winners · 4% reserve · 1% creator (no one on the winning tile: half the 95% rolls into the Supernova, half goes to the reserve) |
 | Supernova | Every round with a winner: 1 in 25 chance to pay the whole Supernova to the winning tile |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
@@ -29,7 +29,9 @@ The protocol is split so that the economics are locked while the product can sti
 | `gts_token` | [`contracts/token`](contracts/token) | GTS coin, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
 | `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements |
 
-The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can change this. The game's round-based schedule always stays under that ceiling.
+The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can raise that ceiling. The game's round-based schedule always stays under it.
+
+The game holds the `MinterCap` and the SUI of open rounds, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
 
 Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 

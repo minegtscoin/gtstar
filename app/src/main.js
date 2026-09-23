@@ -1038,7 +1038,7 @@ function renderTokenomics() {
   const next = (epoch + 1) * HALVING_ROUNDS + 1;
   $("kEpoch").textContent = done ? "Ended" : `${epoch + 1} of ${PERIODS}`;
   $("kEpochLbl").textContent = genesis ? `Genesis ${fmtDate(genesis)}` : "Starts with the first round";
-  $("kReward").textContent = `${fmt(rewardFor(round), 6)} GTS + ${fmt(rewardFor(round) * STAKER_SHARE, 6)} to stakers`;
+  $("kReward").textContent = `Up to ${fmt(rewardFor(round), 6)} GTS + ${fmt(rewardFor(round) * STAKER_SHARE, 6)} to stakers`;
   $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? `Emission ends after round ${fmt(LAST_ROUND, 0)}` : `Round ${fmt(next, 0)} · ${fmt(next - round, 0)} rounds left`;
   $("kNextReward").textContent = done || next > LAST_ROUND ? "0 GTS" : `${fmt(rewardFor(next), 6)} GTS`;
   $("kEnds").textContent = `After round ${fmt(LAST_ROUND, 0)}`;

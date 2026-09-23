@@ -308,6 +308,7 @@
           <div><dt>Emitted to date</dt><dd id="kEmitted">—</dd></div>
           <div><dt>Unclaimed by miners</dt><dd id="kUnclaimed">—</dd></div>
         </dl>
+        <p class="note-sm">The full reward needs 1 SUI deployed in the round. A smaller round mints a matching part (0.25 SUI gives 0.25 GTS) and the rest is never minted.</p>
       </div>
       <div class="t-stack">
       <div class="panel">
@@ -338,9 +339,10 @@
           <div><dt>Distributed by</dt><dd>Mining and staking only</dd></div>
           <div><dt>Token contract</dt><dd>Immutable</dd></div>
           <div><dt>Emission ceiling</dt><dd>Enforced on-chain</dd></div>
+          <div><dt>Game upgrades</dt><dd>Announced 48h ahead</dd></div>
           <div><dt>Max supply</dt><dd>571,897 GTS</dd></div>
         </dl>
-        <p class="note-sm">Supply, emission and the reserve live in an immutable token contract. Nobody can mint extra GTS, create a team allocation or touch the reserve. The game contract can be upgraded, but it can never mint beyond the schedule or touch the reserve.</p>
+        <p class="note-sm">The supply ceiling and the reserve live in an immutable token contract: there is no team allocation, and SUI leaves the reserve only when GTS is burned. The game contract can be upgraded. It holds the right to mint and the SUI of open rounds, so an upgrade could mint up to the token's ceiling or move that SUI. That is why every game upgrade has to be announced on-chain 48 hours before it can run.</p>
         <div class="panel-h sub-h"><h2>Each losing pot</h2></div>
         <div class="split" aria-hidden="true"><div style="flex:95"></div><div style="flex:4"></div><div style="flex:1"></div></div>
         <dl class="dl">

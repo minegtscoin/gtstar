@@ -635,14 +635,14 @@ fun test_v5_migrates_legacy_board() {
     let mut m = game::new_miner(ts::ctx(&mut sc));
     game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
     assert!(!game::legacy_minter_for_testing(&board), 2);
-    assert!(game::version_for_testing(&board) == 5, 3);
+    assert!(game::version_for_testing(&board) == 6, 3);
     assert!(game::installed(&board), 4);
 
-    // The game still mints after the move: settle and claim pay the GTS reward.
+    // The game still mints after the move: settle and claim pay the GTS reward (0.01 SUI -> 0.01 GTS).
     clock::set_for_testing(&mut clk, 61_000);
     game::settle_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, ts::ctx(&mut sc));
     let (g, s) = game::claim(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
-    assert!(coin::value(&g) == 1_000_000_000, 5);
+    assert!(coin::value(&g) == 10_000_000, 5);
     coin::burn_for_testing(g); coin::burn_for_testing(s);
     transfer::public_transfer(m, BOB);
     clock::destroy_for_testing(clk);
@@ -657,9 +657,54 @@ fun test_older_version_blocked() {
     setup_round(&mut sc);
     ts::next_tx(&mut sc, ADMIN);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_version_for_testing(&mut board, 6);
+    game::set_version_for_testing(&mut board, 7);
     let clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
     abort 0
+}
+
+// ===== Volume-scaled reward (v6) =====
+
+#[test]
+fun test_scaled_reward_math() {
+    let full = 1_000_000_000;
+    assert!(game::scaled_reward_for_testing(full, 0) == 0, 0);
+    assert!(game::scaled_reward_for_testing(full, 10_000_000) == 10_000_000, 1);     // 0.01 SUI -> 0.01 GTS
+    assert!(game::scaled_reward_for_testing(full, 250_000_000) == 250_000_000, 2);   // 0.25 SUI -> 0.25 GTS
+    assert!(game::scaled_reward_for_testing(full, 1_000_000_000) == full, 3);
+    assert!(game::scaled_reward_for_testing(full, 50_000_000_000) == full, 4);       // capped
+    assert!(game::scaled_reward_for_testing(full >> 1, 500_000_000) == 250_000_000, 5); // halving still applies
+}
+
+/// A bot covering all 25 tiles with the minimum gets 0.25 GTS, not 1, and every new GTS
+/// arrives with at least the reserve's floor price behind it.
+#[test]
+fun test_cheap_round_cannot_dilute_reserve() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000 * 25, ts::ctx(&mut sc)), all_tiles(10_000_000), &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 61_000);
+    game::settle_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, ts::ctx(&mut sc));
+    let (g, s) = game::claim(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == 250_000_000, 0);
+    assert!(staking::total_rewards_for_testing(&pool) == 25_000_000, 1);
+    // Reserve got 4% of the 0.24 losing SUI = 0.0096 SUI for 0.275 GTS -> ~0.035 SUI per GTS.
+    let floor = gts::floor_price_scaled(&treasury);
+    assert!(floor >= 33_000_000, 2);
+
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
 }

@@ -1,0 +1,10 @@
+[package]
+name = "gtstar_timelock"
+edition = "2024.beta"
+version = "1.0.0"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+
+[addresses]
+gtstar_timelock = "0x0"
