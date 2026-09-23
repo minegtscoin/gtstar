@@ -1,5 +1,6 @@
 /* v2: home, explorer, tokenomics, account */
 @media(max-width:1020px){.bar-in{flex-wrap:wrap;gap:12px 18px}.tabs{order:3;width:100%;overflow-x:auto}}
+@media(max-width:520px){.tabs{justify-content:space-between;gap:0;margin:0 -4px;width:calc(100% + 8px)}.tabs a{padding:6px 4px;font-size:13px;white-space:nowrap}}
 .mono{font-family:ui-monospace,"JetBrains Mono",monospace}
 .muted{color:var(--dim)}
 .eyebrow{font-size:12px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}

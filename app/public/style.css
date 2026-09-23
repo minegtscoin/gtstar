@@ -19,7 +19,7 @@ input{font:inherit;color:inherit}
 .tnum,b{font-variant-numeric:tabular-nums}
 
 /* header */
-.bar{position:sticky;top:0;z-index:5;background:rgba(9,9,13,.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.bar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
 .bar-in{max-width:1200px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:28px}
 .logo{display:flex;align-items:center;gap:9px;font-family:var(--disp);font-weight:700;letter-spacing:.18em;font-size:15px}
 .logo svg{width:18px;height:18px;fill:var(--text)}

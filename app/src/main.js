@@ -756,11 +756,13 @@ function winnersOf(r) {
   list.forEach(d => { const w = d.amounts[r.tile] || 0; if (w > 0) agg.set(d.player, (agg.get(d.player) || 0) + w); });
   return agg;
 }
+const marketText = () => (STATE.market ? `${fmt(STATE.market, 6)} SUI` : "—");
 function renderExplorer() {
   if (!STATE) return;
   const t = HIST?.totals;
   $("gFloor").textContent = `${fmt(STATE.floor, 6)} SUI`;
   $("gReserve").textContent = `${sui(STATE.vault, 4)} SUI`;
+  $("gMarket").textContent = marketText();
   $("gDeployed").textContent = `${sui(STATE.board.cur_total, 3)} SUI`;
   $("gRounds").textContent = t ? fmt(t.rounds, 0) : "—";
   $("gVolume").textContent = t ? `${sui(t.volume, 3)} SUI` : "—";
@@ -902,6 +904,7 @@ function renderTokenomics() {
   $("kUnclaimed").textContent = emitted == null ? "—" : `${fmt(Math.max(0, emitted - supply - burned), 3)} GTS`;
   $("kFloor2").textContent = `${fmt(STATE.floor, 6)} SUI`;
   $("kBacked").textContent = `${sui(STATE.vault, 4)} SUI`;
+  $("kMarket").textContent = marketText();
   $("kStaked").textContent = `${sui(STATE.staked, 3)} GTS`;
   $("kStakedPct").textContent = STATE.supply ? `${fmt(STATE.staked / STATE.supply * 100, 2)}%` : "0%";
   drawChart(genesis || now, now);
@@ -1003,18 +1006,21 @@ function renderStake() {
 }
 // ---------- prices + trade ----------
 let PRICE = { sui: null, chg: null };
+// A failed or rate-limited source never overwrites the last good price.
+const okPrice = (sui, chg) => (sui > 0 && isFinite(sui) ? { sui, chg: isFinite(chg) ? chg : null } : null);
 async function loadPrice() {
+  let p = null;
   try {
     const j = await (await fetch("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd&include_24hr_change=true")).json();
-    if (!j.sui?.usd) throw new Error("no price");
-    PRICE = { sui: j.sui.usd, chg: j.sui.usd_24h_change };
-  } catch {
-    try {
-      const j = await (await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT")).json();
-      PRICE = { sui: +j.lastPrice, chg: +j.priceChangePercent };
-    } catch {}
-  }
+    p = okPrice(+j.sui?.usd, +j.sui?.usd_24h_change);
+  } catch {}
+  if (!p) try {
+    const j = await (await fetch("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT")).json();
+    p = okPrice(+j.lastPrice, +j.priceChangePercent);
+  } catch {}
+  if (p) PRICE = p;
   render();
+  return !!p;
 }
 // $1.23, $0.0456, $0.000123: two decimals above $1, three significant digits below.
 const usd = x => x == null || !isFinite(x) ? "—" : x >= 1 ? `$${fmt(x, 2)}` : x === 0 ? "$0" : `$${Number(x.toPrecision(3))}`;
@@ -1169,8 +1175,9 @@ $("caAddr").textContent = T_GTS;
 $("caScan").href = `${SCAN}/coin/${T_GTS}`;
 $("caCopy").onclick = async () => { try { await navigator.clipboard.writeText(T_GTS); toast("Contract address copied."); } catch { toast(T_GTS); } };
 $("amt").value = "0.01";
-buildBoard(); buildArt(); route(); autoReconnect(); loadPrice();
-setInterval(loadPrice, 60_000);
+buildBoard(); buildArt(); route(); autoReconnect();
+// Price every minute, retried after 10 seconds while there is none yet.
+(function price() { loadPrice().then(ok => setTimeout(price, ok || PRICE.sui ? 60_000 : 10_000)); })();
 // Poll faster on the board, fastest while a finished round is waiting to be drawn.
 (function poll() { refresh().finally(() => setTimeout(poll, view !== "mine" ? 4000 : phase() === "ended" ? 1000 : 2000)); })();
 setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 15000);
