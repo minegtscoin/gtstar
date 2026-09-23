@@ -18,7 +18,7 @@ try {
   if (Date.now() - fs.statSync(lock).mtimeMs < 110_000) process.exit(0);
 }
 try {
-  const { default: keeper } = await import("../netlify/functions/keeper.mjs");
+  const { default: keeper } = await import("./keeper.mjs");
   await keeper();
 } finally {
   fs.rmSync(lock, { recursive: true, force: true });

@@ -25,8 +25,8 @@ fs.writeFileSync(path.join(out, "version.json"), JSON.stringify({ v: V }));
 const config = { network, ids: { package: dep.package, token: dep.token || dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, accounts: { dev: dep.dev, keeper: dep.keeper, upgradeCap: dep.upgradeCap }, proof: dep.proof || [] };
 fs.writeFileSync(path.join(out, "config.js"), `window.GTSTAR_VERSION = "${V}";\nwindow.GTSTAR_CONFIG = ${JSON.stringify(config, null, 2)};\n`);
 
-// Contract IDs for the keeper function.
-fs.writeFileSync(path.join(__dirname, "netlify", "functions", "keeper-config.json"),
+// Contract IDs for the keeper.
+fs.writeFileSync(path.join(__dirname, "keeper", "keeper-config.json"),
   JSON.stringify({ network, package: dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, null, 2));
 
 esbuild.buildSync({

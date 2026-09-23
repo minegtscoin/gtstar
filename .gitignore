@@ -2,7 +2,6 @@
 node_modules/
 app/dist/
 contracts/*/build/
-.netlify/
 
 # local / internal
 backup_testnet/

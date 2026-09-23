@@ -1,5 +1,4 @@
-// GTStar keeper — Netlify scheduled function (every minute, ~25s working window).
-// Settles each round as soon as it ends and sweeps creator fees to DEV_ADDR hourly.
+// GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR hourly.
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
@@ -64,4 +63,3 @@ export default async () => {
   return new Response(log.join("\n") || "idle");
 };
 
-export const config = { schedule: "* * * * *" };

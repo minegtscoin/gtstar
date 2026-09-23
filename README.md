@@ -4,8 +4,8 @@
 
 GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and **every** participant mines GTS by their share of the round. A slice of every pot flows into an on-chain SUI reserve that backs every GTS.
 
-- App: https://gtstar-sui.netlify.app
-- Docs and whitepaper: https://gtstar-sui.netlify.app/docs.html
+- App: https://minegts.fun
+- Docs and whitepaper: https://minegts.fun/docs.html
 
 ## Overview
 
@@ -30,14 +30,14 @@ The protocol is split so that the economics are locked while the product can sti
 
 The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, zero from 2030). Burned GTS is never re-minted. No game upgrade can change this.
 
-Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://gtstar-sui.netlify.app/docs.html#verify) page.
+Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 
 ## Repository
 
 ```
 contracts/token   Immutable token package (Move)
 contracts/game    Game and staking package (Move)
-app/              Web app (static, non-custodial) and the Netlify keeper function
+app/              Web app (static, non-custodial) and the keeper
 bot/              Standalone keeper that settles rounds
 scripts/          Publish and launch script
 deployments/      Object IDs per network
@@ -69,7 +69,7 @@ The script publishes both packages, installs the game's minting right, starts th
 
 ## Keeper
 
-Rounds are settled by a permissionless `settle` call. The keeper runs as a scheduled function in `app/netlify/functions/keeper.mjs` (or locally with `node bot/crank.js mainnet`). Anyone can settle a round if the keeper is down.
+Rounds are settled by a permissionless `settle` call. The keeper runs every minute as a cron job on the host (`app/keeper/`) (or locally with `node bot/crank.js mainnet`). Anyone can settle a round if the keeper is down.
 
 ## Security
 
