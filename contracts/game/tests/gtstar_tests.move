@@ -371,27 +371,55 @@ fun test_overdraw_rejected() {
     abort 0
 }
 
-/// Emission halves every 6 months from genesis and stops on 2030-01-01.
+/// Emission halves every 262,000 rounds, for 7 periods, whatever the calendar says.
 #[test]
 fun test_emission_schedule() {
-    let g = 1_790_000_000_000;
-    let half = 15_778_800_000;
-    assert!(game::reward_at_for_testing(0, g) == 0, 0);
-    assert!(game::reward_at_for_testing(g, g) == 1_000_000_000, 1);
-    assert!(game::reward_at_for_testing(g, g + half - 1) == 1_000_000_000, 2);
-    assert!(game::reward_at_for_testing(g, g + half) == 500_000_000, 3);
-    assert!(game::reward_at_for_testing(g, g + 6 * half) == 1_000_000_000 >> 6, 4);
-    assert!(game::reward_at_for_testing(g, 1_893_456_000_000) == 0, 5);
-    // Worst case, a round every minute from genesis: total stays under the 1M cap.
+    let h = 262_000;
+    assert!(game::reward_for_round_for_testing(0) == 0, 0);
+    assert!(game::reward_for_round_for_testing(1) == 1_000_000_000, 1);
+    assert!(game::reward_for_round_for_testing(h) == 1_000_000_000, 2);
+    assert!(game::reward_for_round_for_testing(h + 1) == 500_000_000, 3);
+    assert!(game::reward_for_round_for_testing(6 * h + 1) == 1_000_000_000 >> 6, 4);
+    assert!(game::reward_for_round_for_testing(7 * h) == 1_000_000_000 >> 6, 5);
+    assert!(game::reward_for_round_for_testing(7 * h + 1) == 0, 6);
+    // Every round played: miners + 10% stakers stays below the token's final ceiling (572,003.2 GTS).
     let mut total: u128 = 0;
-    let mut t = g;
-    while (t < 1_893_456_000_000) {
-        let next = if (t + half < 1_893_456_000_000) { t + half } else { 1_893_456_000_000 };
-        // miners + 10% stakers
-        total = total + ((game::reward_at_for_testing(g, t) as u128) * 11 / 10 * (((next - t) / 60_000) as u128));
-        t = next;
+    let mut e = 0;
+    while (e < 7) {
+        let r = (game::reward_for_round_for_testing(e * h + 1) as u128);
+        total = total + (r + r / 10) * (h as u128);
+        e = e + 1;
     };
-    assert!(total <= 600_000_000_000_000, 6); // ~574K GTS max, well under the 1M cap
+    assert!(total == 571_896_875_000_000, 7);
+    assert!(total <= 572_003_236_678_098, 8);
+}
+
+/// Rounds last at least a minute, so round-based emission never outruns the token's time ceiling.
+#[test]
+fun test_emission_within_token_ceiling() {
+    let mut sc = ts::begin(ADMIN);
+    gts::init_for_testing(ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, ADMIN);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_790_000_000_000);
+    let cap = gts::minter_for_testing(ts::ctx(&mut sc));
+    gts::start(&mut treasury, &cap, &clk);
+    let g = 1_790_000_000_000;
+    // At every point, n rounds need >= n minutes: compare cumulative round emission with allowance.
+    let mut n = 0;
+    let mut cum: u128 = 0;
+    while (n < 7 * 262_000) {
+        let step = 1_000;
+        let r = (game::reward_for_round_for_testing(n + 1) as u128);
+        cum = cum + (r + r / 10) * (step as u128);
+        n = n + step;
+        assert!(cum <= (gts::allowance(&treasury, g + n * 60_000) as u128), n);
+    };
+    transfer::public_transfer(cap, ADMIN);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(treasury);
+    ts::end(sc);
 }
 
 /// The game cannot run before it is installed with the minting right.

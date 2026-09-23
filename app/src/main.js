@@ -10,14 +10,15 @@ const CHAIN = `sui:${CFG.network}`;
 const GQL = `https://graphql.${CFG.network}.sui.io/graphql`;
 const SCAN = `https://suiscan.xyz/${CFG.network}`;
 const MIST = 1e9;
-const MAX_SUPPLY = 572_003.236678098;          // emission ceiling at 2030-01-01 for the mainnet genesis
-const HALVING_MS = 15_778_800_000;          // 6 months
-const EMISSION_END = 1_893_456_000_000;       // 2030-01-01T00:00:00Z
+const HALVING_ROUNDS = 262_000;               // miner reward halves every 262,000 rounds
+const PERIODS = 7;                            // then emission stops
+const LAST_ROUND = HALVING_ROUNDS * PERIODS;
 const BASE_REWARD = 1;                        // GTS per round to miners at genesis
 const STAKER_SHARE = 0.1;                     // +10% of the round reward to stakers
 const YEAR_MS = 31_557_600_000;
 const SCALE = 1_000_000_000_000n;
-const T = name => `${IDS.package}::${name}`;          // game package (upgradeable)
+const T = name => `${IDS.package}::${name}`;          // game package (upgradeable): types and events
+const C = name => `${IDS.latest || IDS.package}::${name}`; // latest game version: calls
 const TK = name => `${IDS.token}::${name}`;           // token package (immutable)
 const T_MINER = T("game::Miner"), T_GTS = TK("gts::GTS"), T_POS = T("staking::StakePosition");
 const EV = { settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
@@ -297,7 +298,7 @@ async function exec(label, btnId, build, needMist = 0) {
   }
 }
 function claimInto(tx, minerArg) {
-  const [g, s] = tx.moveCall({ target: T("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
+  const [g, s] = tx.moveCall({ target: C("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
   tx.transferObjects([g, s], account.address);
 }
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
@@ -324,11 +325,11 @@ async function play() {
       minerArg = tx.object(m.id);
       if (m.round_id !== 0 && m.round_id < STATE.board.cur_id) claimInto(tx, minerArg);
     } else {
-      [minerArg] = tx.moveCall({ target: T("game::new_miner") });
+      [minerArg] = tx.moveCall({ target: C("game::new_miner") });
       fresh = true;
     }
     const [pay] = tx.splitCoins(tx.gas, [total]);
-    tx.moveCall({ target: T("game::deploy"), arguments: [tx.object(IDS.board), minerArg, pay, tx.pure.vector("u64", amounts), tx.object.clock()] });
+    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(IDS.board), minerArg, pay, tx.pure.vector("u64", amounts), tx.object.clock()] });
     if (fresh) tx.transferObjects([minerArg], account.address);
   }, total);
   if (r) {
@@ -342,13 +343,13 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
   if (rewards().ready) { claimInto(tx, tx.object(USER.miner.id)); n++; }
   (USER.positions || []).forEach(p => {
     if (posPending(p, Date.now()) <= 0n) return;
-    const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(p.id), tx.object.clock()] });
+    const [c] = tx.moveCall({ target: C("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(p.id), tx.object.clock()] });
     tx.transferObjects([c], account.address); n++;
   });
   if (!n) throw new Error("Nothing to claim.");
 });
 const settle = () => exec("Draw", "btnPlay", tx => {
-  tx.moveCall({ target: T("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object(IDS.pool), tx.object.random(), tx.object.clock()] });
+  tx.moveCall({ target: C("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object(IDS.pool), tx.object.random(), tx.object.clock()] });
 });
 const myPos = () => (USER?.positions || []).slice().sort((a, b) => b.amount - a.amount)[0] || null;
 const stake = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
@@ -356,12 +357,12 @@ const stake = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnSta
   if (amt <= 0) throw new Error("Enter an amount.");
   const pos = myPos();
   if (stakeMode === "deposit") {
-    const posArg = pos ? tx.object(pos.id) : tx.moveCall({ target: T("staking::new_position") })[0];
-    tx.moveCall({ target: T("staking::stake"), arguments: [tx.object(IDS.pool), posArg, gtsCoin(tx, amt), tx.object.clock()] });
+    const posArg = pos ? tx.object(pos.id) : tx.moveCall({ target: C("staking::new_position") })[0];
+    tx.moveCall({ target: C("staking::stake"), arguments: [tx.object(IDS.pool), posArg, gtsCoin(tx, amt), tx.object.clock()] });
     if (!pos) tx.transferObjects([posArg], account.address);
   } else {
     if (!pos || pos.amount < amt) throw new Error("Amount exceeds your stake.");
-    const [g] = tx.moveCall({ target: T("staking::unstake"), arguments: [tx.object(IDS.pool), tx.object(pos.id), tx.pure.u64(amt), tx.object.clock()] });
+    const [g] = tx.moveCall({ target: C("staking::unstake"), arguments: [tx.object(IDS.pool), tx.object(pos.id), tx.pure.u64(amt), tx.object.clock()] });
     tx.transferObjects([g], account.address);
   }
 }).then(r => { if (r) $("stakeAmt").value = ""; });
@@ -440,27 +441,25 @@ const swap = () => exec("Swap", "btnSwap", async tx => {
   tx.transferObjects([guardedCoin(tx, sui, POOL_T[1], minOut)], account.address);
 }).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
 const claimStake = () => exec("Yield claim", "btnStakeClaim", tx => {
-  const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(myPos().id), tx.object.clock()] });
+  const [c] = tx.moveCall({ target: C("staking::claim_rewards"), arguments: [tx.object(IDS.pool), tx.object(myPos().id), tx.object.clock()] });
   tx.transferObjects([c], account.address);
 });
 const compound = () => exec("Claim and deposit", "btnCompound", tx => {
   const pos = tx.object(myPos().id);
-  const [c] = tx.moveCall({ target: T("staking::claim_rewards"), arguments: [tx.object(IDS.pool), pos, tx.object.clock()] });
-  tx.moveCall({ target: T("staking::stake"), arguments: [tx.object(IDS.pool), pos, c, tx.object.clock()] });
+  const [c] = tx.moveCall({ target: C("staking::claim_rewards"), arguments: [tx.object(IDS.pool), pos, tx.object.clock()] });
+  tx.moveCall({ target: C("staking::stake"), arguments: [tx.object(IDS.pool), pos, c, tx.object.clock()] });
 });
 
-// ---------- emission math (time-based, mirrors game::reward_at) ----------
-const rewardAt = (genesis, t) => (!genesis || t < genesis || t >= EMISSION_END) ? 0 : BASE_REWARD / 2 ** Math.floor((t - genesis) / HALVING_MS);
-// Maximum cumulative emission by time t, assuming a round every minute.
-function cumAt(genesis, t) {
-  let total = 0, s = genesis;
-  while (s < Math.min(t, EMISSION_END)) {
-    const e = Math.min(s + HALVING_MS, t, EMISSION_END);
-    total += rewardAt(genesis, s) * (1 + STAKER_SHARE) * ((e - s) / 60_000);
-    s = Math.min(s + HALVING_MS, EMISSION_END);
-  }
-  return Math.min(total, MAX_SUPPLY);
+// ---------- emission math (round-based, mirrors game::reward_for_round) ----------
+const rewardFor = round => { const e = Math.floor((round - 1) / HALVING_ROUNDS); return round < 1 || e >= PERIODS ? 0 : BASE_REWARD / 2 ** e; };
+// Maximum cumulative emission (miners + stakers) after `n` rounds.
+function cumRounds(n) {
+  let total = 0;
+  for (let e = 0; e < PERIODS && e * HALVING_ROUNDS < n; e++)
+    total += BASE_REWARD / 2 ** e * (1 + STAKER_SHARE) * (Math.min(n, (e + 1) * HALVING_ROUNDS) - e * HALVING_ROUNDS);
+  return total;
 }
+const MAX_SUPPLY = cumRounds(LAST_ROUND);     // 571,896.875 GTS
 const fmtDate = t => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 // ---------- render: common ----------
@@ -964,26 +963,20 @@ function renderTokenomics() {
   const burned = HIST ? HIST.totals.burned / MIST : null;
   $("kSupply").textContent = fmt(supply, 2);
   $("kMinedPct").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
-  $("kSchedMax").textContent = fmt(Math.floor(cumAt(genesis || now, EMISSION_END)), 0);
+  $("kSchedMax").textContent = fmt(Math.round(MAX_SUPPLY), 0);
   $("kBurned").textContent = burned == null ? "—" : fmt(burned, 3);
   $("kReserve").textContent = `${sui(STATE.vault, 3)} SUI`;
   $("kFloor").textContent = `${fmt(STATE.floor, 5)} SUI`;
-  if (genesis) {
-    const epoch = Math.floor((now - genesis) / HALVING_MS);
-    const next = Math.min(genesis + (epoch + 1) * HALVING_MS, EMISSION_END);
-    const done = now >= EMISSION_END;
-    $("kEpoch").textContent = done ? "Ended" : `${epoch + 1} of 7`;
-    $("kEpochLbl").textContent = `Genesis ${fmtDate(genesis)}`;
-    $("kReward").textContent = `${fmt(rewardAt(genesis, now), 6)} GTS + ${fmt(rewardAt(genesis, now) * STAKER_SHARE, 6)} to stakers`;
-    $("kToHalving").textContent = done ? "—" : next >= EMISSION_END ? `Emission ends ${fmtDate(EMISSION_END)}` : `${fmtDate(next)} · ${Math.ceil((next - now) / 86_400_000)}d`;
-    $("kNextReward").textContent = done || next >= EMISSION_END ? "0 GTS" : `${fmt(rewardAt(genesis, next), 6)} GTS`;
-  } else {
-    $("kEpoch").textContent = "Not started";
-    $("kEpochLbl").textContent = "Starts with the first round";
-    $("kReward").textContent = `${BASE_REWARD} GTS + ${BASE_REWARD * STAKER_SHARE} to stakers`;
-    $("kToHalving").textContent = "6 months after first round";
-    $("kNextReward").textContent = `${BASE_REWARD / 2} GTS`;
-  }
+  const round = STATE.board.cur_id;
+  const epoch = Math.floor((round - 1) / HALVING_ROUNDS);
+  const done = epoch >= PERIODS;
+  const next = (epoch + 1) * HALVING_ROUNDS + 1;
+  $("kEpoch").textContent = done ? "Ended" : `${epoch + 1} of ${PERIODS}`;
+  $("kEpochLbl").textContent = genesis ? `Genesis ${fmtDate(genesis)}` : "Starts with the first round";
+  $("kReward").textContent = `${fmt(rewardFor(round), 6)} GTS + ${fmt(rewardFor(round) * STAKER_SHARE, 6)} to stakers`;
+  $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? `Emission ends after round ${fmt(LAST_ROUND, 0)}` : `Round ${fmt(next, 0)} · ${fmt(next - round, 0)} rounds left`;
+  $("kNextReward").textContent = done || next > LAST_ROUND ? "0 GTS" : `${fmt(rewardFor(next), 6)} GTS`;
+  $("kEnds").textContent = `After round ${fmt(LAST_ROUND, 0)}`;
   $("kEmitted").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
   $("kUnclaimed").textContent = emitted == null ? "—" : `${fmt(Math.max(0, emitted - supply - burned), 3)} GTS`;
   $("kFloor2").textContent = `${fmt(STATE.floor, 6)} SUI`;
@@ -991,33 +984,33 @@ function renderTokenomics() {
   $("kMarket").textContent = marketText();
   $("kStaked").textContent = `${sui(STATE.staked, 3)} GTS`;
   $("kStakedPct").textContent = STATE.supply ? `${fmt(STATE.staked / STATE.supply * 100, 2)}%` : "0%";
-  drawChart(genesis || now, now);
+  drawChart(STATE.board.cur_id - 1);
 }
 let chartSize = 0;
-function drawChart(genesis, now) {
+function drawChart(played) {
   const box = $("chart");
   const W = box.clientWidth, H = box.clientHeight;
   if (!W) return;
   const pad = { l: 48, r: 14, t: 12, b: 26 };
-  const X0 = genesis, X1 = EMISSION_END;
-  const Y = Math.ceil(cumAt(genesis, X1) / 100_000) * 100_000 || MAX_SUPPLY;
+  const X0 = 0, X1 = LAST_ROUND;
+  const Y = Math.ceil(MAX_SUPPLY / 100_000) * 100_000;
   const x = t => pad.l + ((t - X0) / (X1 - X0)) * (W - pad.l - pad.r);
   const y = v => H - pad.b - (v / Y) * (H - pad.t - pad.b);
   const pts = [];
-  for (let i = 0; i <= 200; i++) { const t = X0 + (X1 - X0) * i / 200; pts.push(`${x(t).toFixed(1)},${y(cumAt(genesis, t)).toFixed(1)}`); }
+  for (let i = 0; i <= 200; i++) { const t = X0 + (X1 - X0) * i / 200; pts.push(`${x(t).toFixed(1)},${y(cumRounds(t)).toFixed(1)}`); }
   const line = "M" + pts.join("L");
   const area = `${line}L${x(X1).toFixed(1)},${y(0)}L${x(X0)},${y(0)}Z`;
-  const years = [];
-  for (let yr = new Date(X0).getUTCFullYear() + 1; yr <= 2030; yr++) years.push(Date.UTC(yr, 0, 1));
-  const yt = [0, Y / 4, Y / 2, Y * 3 / 4, Y];
   const k = v => (v === 0 ? "0" : v >= 1e6 ? `${fmt(v / 1e6, 2)}M` : `${fmt(v / 1e3, 0)}K`);
+  const yt = [0, Y / 4, Y / 2, Y * 3 / 4, Y];
+  const xt = [0, 2, 4, 6].map(e => e * HALVING_ROUNDS);
   const halvings = [];
-  for (let t = genesis + HALVING_MS; t < X1; t += HALVING_MS) halvings.push(t);
-  const nx = x(Math.min(Math.max(now, X0), X1)), ny = y(cumAt(genesis, now));
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Maximum cumulative GTS emission over time, halving every 6 months until January 2030.">
+  for (let e = 1; e < PERIODS; e++) halvings.push(e * HALVING_ROUNDS);
+  const now = Math.min(Math.max(played, X0), X1);
+  const nx = x(now), ny = y(cumRounds(now));
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Maximum cumulative GTS by rounds played, halving every 262,000 rounds.">
     ${yt.map(v => `<line class="ax" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" opacity="${v ? 0.5 : 1}"/><text class="tick" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join("")}
     ${halvings.map(t => `<line class="ax" x1="${x(t)}" x2="${x(t)}" y1="${pad.t}" y2="${y(0)}" opacity="0.35"/>`).join("")}
-    ${years.map(t => `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="middle">${new Date(t).getUTCFullYear()}</text>`).join("")}
+    ${xt.map(t => `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${t ? "middle" : "start"}">${k(t)}</text>`).join("")}
     <path class="ar" d="${area}"/><path class="ln" d="${line}"/>
     <line class="nowline" x1="${nx}" x2="${nx}" y1="${pad.t}" y2="${y(0)}"/>
     <circle class="now" cx="${nx}" cy="${ny}" r="5"/>
@@ -1028,12 +1021,12 @@ function drawChart(genesis, now) {
   const move = clientX => {
     const rect = box.getBoundingClientRect();
     const f = Math.max(0, Math.min(1, (clientX - rect.left - pad.l) / (W - pad.l - pad.r)));
-    const t = X0 + f * (X1 - X0), v = cumAt(genesis, t);
+    const t = Math.round(X0 + f * (X1 - X0)), v = cumRounds(t);
     hov.setAttribute("visibility", "visible");
     box.querySelector("#hx").setAttribute("x1", x(t)); box.querySelector("#hx").setAttribute("x2", x(t));
     box.querySelector("#hd").setAttribute("cx", x(t)); box.querySelector("#hd").setAttribute("cy", y(v));
     tip.hidden = false; tip.style.left = `${Math.min(Math.max(x(t), 100), W - 100)}px`; tip.style.top = `${y(v)}px`;
-    tip.innerHTML = `<b>${fmtDate(t)}</b><br>Up to <b>${fmt(v, 0)}</b> GTS · ${fmt(rewardAt(genesis, t), 4)} per round`;
+    tip.innerHTML = `<b>Round ${fmt(t, 0)}</b><br>Up to <b>${fmt(v, 0)}</b> GTS · ${fmt(rewardFor(t + 1), 4)} per round`;
   };
   hit.onmousemove = e => move(e.clientX);
   hit.ontouchmove = e => move(e.touches[0].clientX);

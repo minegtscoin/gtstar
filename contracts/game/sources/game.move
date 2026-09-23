@@ -23,12 +23,15 @@ use gtstar::staking::{Self, StakePool};
 
 // ===== Constants =====
 const GRID: u64 = 25;
-/// Time-based emission: 1 GTS per round to miners at genesis, halving every 6 months,
-/// ending at 2030-01-01 00:00 UTC. Stakers receive an extra 10% on top, streamed.
+/// Round-based emission (like Bitcoin blocks): 1 GTS per round to miners, halving every
+/// 262,000 rounds (~6 months at one round a minute), 7 periods, then zero. Quiet weeks only
+/// stretch the schedule; the total never changes. Stakers receive an extra 10% on top, streamed.
+/// Rounds last at least a minute, so this stays inside the token's time-based ceiling, and the
+/// 7-period total (571,896.875 GTS) is below that ceiling's final value (572,003.2 GTS).
 const INITIAL_ROUND_REWARD: u64 = 1_000_000_000;   // 1 GTS / round
 const STAKER_SHARE_BPS: u64 = 1_000;               // +10% of the round reward, to stakers
-const HALVING_MS: u64 = 15_778_800_000;            // 182.625 days
-const EMISSION_END_MS: u64 = 1_893_456_000_000;    // 2030-01-01T00:00:00Z
+const HALVING_ROUNDS: u64 = 262_000;
+const EMISSION_PERIODS: u64 = 7;
 
 /// Creator/dev reward: 1% of the losing pot each round, accrued on the Board and
 /// paid out (permissionlessly) only to this address via `withdraw_dev_fees`.
@@ -71,7 +74,7 @@ public struct Board has key {
     cur_total: u64,
     cur_deployed: vector<u64>,
     cur_players: u64,
-    genesis_ms: u64,  // set at install; emission epochs count from here
+    genesis_ms: u64,  // set at install (emission itself counts rounds)
     minter: Option<MinterCap>,
     rounds: Table<u64, RoundInfo>,
     pot: Balance<SUI>,
@@ -154,10 +157,11 @@ fun zeros(): vector<u64> {
     v
 }
 
-fun reward_at(genesis_ms: u64, now: u64): u64 {
-    if (genesis_ms == 0 || now >= EMISSION_END_MS || now < genesis_ms) { return 0 };
-    let epoch = (now - genesis_ms) / HALVING_MS;
-    if (epoch >= 64) { 0 } else { INITIAL_ROUND_REWARD >> (epoch as u8) }
+/// Miner reward for round `round_id` (ids start at 1).
+fun reward_for_round(round_id: u64): u64 {
+    if (round_id == 0) { return 0 };
+    let epoch = (round_id - 1) / HALVING_ROUNDS;
+    if (epoch >= EMISSION_PERIODS) { 0 } else { INITIAL_ROUND_REWARD >> (epoch as u8) }
 }
 
 /// One-time launch step: hand the game its minting right and start the emission clock.
@@ -269,7 +273,7 @@ entry fun settle(
         losing_after_fee = 0;
     };
 
-    let reward = reward_at(board.genesis_ms, board.cur_end_ms);
+    let reward = reward_for_round(board.cur_id);
     // Stakers earn +10% of the round reward in GTS, streamed over 7 days.
     let staker_reward = reward * STAKER_SHARE_BPS / 10_000;
     if (staker_reward > 0) {
@@ -375,10 +379,12 @@ public fun pot_value(board: &Board): u64 { balance::value(&board.pot) }
 public fun dev_fees_value(board: &Board): u64 { balance::value(&board.dev_fees) }
 public fun genesis_ms(board: &Board): u64 { board.genesis_ms }
 public fun installed(board: &Board): bool { option::is_some(&board.minter) }
-public fun current_reward(board: &Board, clock: &Clock): u64 { reward_at(board.genesis_ms, clock::timestamp_ms(clock)) }
+public fun current_reward(board: &Board, _clock: &Clock): u64 {
+    if (option::is_none(&board.minter)) { 0 } else { reward_for_round(board.cur_id) }
+}
 
 #[test_only]
-public fun reward_at_for_testing(genesis_ms: u64, now: u64): u64 { reward_at(genesis_ms, now) }
+public fun reward_for_round_for_testing(round_id: u64): u64 { reward_for_round(round_id) }
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) { init(ctx) }

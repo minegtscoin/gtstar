@@ -11,9 +11,9 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 
 | | |
 |---|---|
-| Max supply | 572,003 GTS, the most the immutable emission schedule can ever mint (enforced on every mint) |
+| Max supply | 571,897 GTS: 7 halving periods of 262,000 rounds |
 | Premine / team / presale | None |
-| Emission | 1 GTS per round to miners, +10% to stakers, halving every 6 months, ending January 1, 2030 |
+| Emission | 1 GTS per round to miners, +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
 | Losing pot | 95% winners · 4% reserve · 1% creator (no one on the winning tile: 99% reserve · 1% creator) |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
 | Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
@@ -28,7 +28,7 @@ The protocol is split so that the economics are locked while the product can sti
 | `gts_token` | [`contracts/token`](contracts/token) | GTS coin, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
 | `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements |
 
-The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, zero from 2030). Burned GTS is never re-minted. No game upgrade can change this.
+The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can change this. The game's round-based schedule always stays under that ceiling.
 
 Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 

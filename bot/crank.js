@@ -41,14 +41,14 @@ async function board() {
 const status = d => d?.effects?.status?.status === "success";
 
 async function settle() {
-  const d = await sui(["client", "call", "--package", dep.package, "--module", "game", "--function", "settle",
+  const d = await sui(["client", "call", "--package", dep.latest || dep.package, "--module", "game", "--function", "settle",
     "--args", dep.board, dep.treasury, dep.pool, "0x8", "0x6", "--gas-budget", GAS, "--json"]);
   const ev = (d.events || []).find(e => (e.type || "").includes("RoundSettled"));
   if (status(d)) log(`settled round ${ev?.parsedJson?.round_id} -> square ${ev?.parsedJson?.winning_square}  ${d.digest}`);
   else log("settle failed", d?.effects?.status?.error);
 }
 async function sweep() {
-  const d = await sui(["client", "call", "--package", dep.package, "--module", "game", "--function", "withdraw_dev_fees",
+  const d = await sui(["client", "call", "--package", dep.latest || dep.package, "--module", "game", "--function", "withdraw_dev_fees",
     "--args", dep.board, "--gas-budget", GAS, "--json"]);
   log(status(d) ? `swept creator fees ${d.digest}` : `sweep failed ${d?.effects?.status?.error}`);
 }

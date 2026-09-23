@@ -6,7 +6,7 @@
   var A = C.accounts || {};
   var rows = [
     ["GTS token", C.ids.token + "::gts::GTS", "coin", "The official GTS coin type. Check this address before you buy or trade GTS anywhere."],
-    ["Token package", C.ids.token, "object", "The GTS token contract. Holds the emission schedule (572,003 GTS maximum) and the reserve. Immutable: no one can change it."],
+    ["Token package", C.ids.token, "object", "The GTS token contract. Holds the emission ceiling and the reserve. Immutable: no one can change it."],
     ["Game package", C.ids.package, "object", "The game contract: rounds, deposits, the draw, fees and staking. It can only mint GTS through the token contract."],
     ["Treasury", C.ids.treasury, "object", "Controls all GTS minting within the fixed schedule and holds the SUI reserve that backs every GTS."],
     ["Board", C.ids.board, "object", "The shared game board. Holds the current round, its deposits and the minting right the game uses to pay out GTS."],

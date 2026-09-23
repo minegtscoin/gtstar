@@ -28,8 +28,8 @@ const IDS = {
   pool: "0xb09a8451b452b779c7fd6fba094e12693f379af5924ea54c2a5ad5fd586787de",
   market: "0x7492d608ea92b2274bd83be39ac17ebb0f3fed42e4b7a638c17ebf8743e6ebcf",
 };
-const MAX_SUPPLY = 572_003.236678098;
-const HALVING_MS = 182.5 * 86_400_000;
+const MAX_SUPPLY = 571_896.875;
+const HALVING_ROUNDS = 262_000;
 const D = 1e9;
 
 // ---------- data ----------
@@ -111,10 +111,9 @@ function milestone(prev, s) {
   return null;
 }
 
-function daysToHalving(genesis) {
-  if (!genesis) return null;
-  const t = genesis + Math.ceil((Date.now() - genesis) / HALVING_MS) * HALVING_MS;
-  return Math.max(1, Math.round((t - Date.now()) / 86_400_000));
+function roundsToHalving(played) {
+  if (played >= 7 * HALVING_ROUNDS) return null;
+  return (Math.floor(played / HALVING_ROUNDS) + 1) * HALVING_ROUNDS - played;
 }
 
 function compose(s, prev, a, price, variant) {
@@ -122,7 +121,7 @@ function compose(s, prev, a, price, variant) {
   const unmined = 100 - pct(s.supply, MAX_SUPPLY);
   const floorUsd = price ? ` (${usd(s.floor * price)})` : "";
   const dv = a.vaultIn;
-  const h = daysToHalving(s.genesis);
+  const h = roundsToHalving(s.rounds);
   const active = a.rounds > 0;
   let v = variant;
   if (!active && (v === 0 || v === 2)) v = 3;
@@ -133,7 +132,7 @@ function compose(s, prev, a, price, variant) {
     `${small(a.sui)} SUI deployed`,
     `${small(a.mined)} GTS mined by players`,
     `Reserve now ${small(s.vault)} SUI`, "",
-    `${fmt(unmined, 2)}% of all GTS is still unmined, and emission halves every 6 months. The earlier you mine, the more you get.`,
+    `${fmt(unmined, 2)}% of all GTS is still unmined, and emission halves every 262,000 rounds. The earlier you mine, the more you get.`,
   ];
   else if (v === 1) body = [
     "Every GTS is backed by real SUI.", "",
@@ -147,7 +146,7 @@ function compose(s, prev, a, price, variant) {
     `This week: ${int(a.rounds)} rounds, ${small(a.sui)} SUI deployed, ${small(a.mined)} GTS mined.`,
   ];
   else body = [
-    h ? `Next GTS halving in ${int(h)} days.` : "GTS emission halves every 6 months.", "",
+    h ? `Next GTS halving in ${int(h)} rounds.` : "GTS emission halves every 262,000 rounds.", "",
     "After it, every round mints half as much GTS. Mine now, stake what you mine, and earn more GTS with no lock-up.", "",
     `Staked: ${small(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`,
   ];

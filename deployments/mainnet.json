@@ -64,6 +64,11 @@
     [
       "Stake withdrawn at any time",
       "EPA3zyiCuX6eXkB5YYL2znVFedwNdcVWKwaEz5W9BNPg"
+    ],
+    [
+      "Game upgraded: GTS halves by rounds played, not by date",
+      "F7wAuBV8NqSccxmvyP5pFGwVfTDbARuN1pHT4zRnZbAs"
     ]
-  ]
+  ],
+  "latest": "0xa186477cd3f3a71a0a5a8bf9069d17fe0eb382f6604ff000b086e218f29f9484"
 }
