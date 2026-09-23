@@ -656,20 +656,6 @@ function renderMine() {
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
   $("totalCost").textContent = fmt(per * selected.size, 4);
-  // What a win would pay: stake back plus a pro-rata share of 95% of the losing pot (best selected tile).
-  const minTile = b ? b.min_deploy / MIST : 0.01;
-  const canEst = b && selected.size && per >= minTile && (p === "live" || p === "open");
-  $("winRow").hidden = !canEst;
-  if (canEst) {
-    const P = per * MIST, n = selected.size, total = (b.cur_started ? b.cur_total : 0) + P * n;
-    let best = 0;
-    selected.forEach(i => {
-      const tile = (b.cur_started ? b.cur_deployed[i] : 0) + P;
-      best = Math.max(best, P + 0.95 * (total - tile) * P / tile);
-    });
-    $("winEst").textContent = sui(best, 4);
-    $("winOdds").textContent = `· ${n} in 25 chance`;
-  }
 
   const claimable = rewards().ready;
   const min = b ? b.min_deploy / MIST : 0.01;
