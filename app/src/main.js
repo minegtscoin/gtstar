@@ -2,10 +2,8 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
-import { registerSuiSnapWallet } from "@kunalabs-io/sui-snap-wallet";
 
 const CFG = window.GTSTAR_CONFIG;
-const SNAP_SEND = `./snap-send.js?v=${window.GTSTAR_VERSION}`;
 const IDS = CFG.ids;
 const CHAIN = `sui:${CFG.network}`;
 const GQL = `https://graphql.${CFG.network}.sui.io/graphql`;
@@ -47,11 +45,19 @@ let busy = false, view = "home";
 let userAt = 0, txAt = 0;   // when the wallet view was last loaded, and when we last sent a transaction
 
 // ---------- chain reads ----------
+// Every read has a time limit and one retry: a stalled request must never freeze the app.
 async function gql(query) {
-  const r = await fetch(GQL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) });
-  const j = await r.json();
-  if (j.errors) throw new Error(j.errors[0].message);
-  return j.data;
+  for (let attempt = 0; ; attempt++) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const r = await fetch(GQL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }), signal: ctl.signal });
+      const j = await r.json();
+      if (j.errors) throw new Error(j.errors[0].message);
+      return j.data;
+    } catch (e) {
+      if (attempt >= 1 || !(e.name === "AbortError" || e instanceof TypeError)) throw e;
+    } finally { clearTimeout(timer); }
+  }
 }
 const objQ = (alias, id) => `${alias}:object(address:"${id}"){asMoveObject{contents{json}}}`;
 const pick = (d, k) => d[k]?.asMoveObject?.contents?.json || {};
@@ -154,8 +160,6 @@ async function loadHistory() {
 }
 
 // ---------- wallet ----------
-// MetaMask exposes Sui through a Snap, which has to be registered as a wallet by the app.
-try { registerSuiSnapWallet(); } catch (e) { console.warn("Sui Snap unavailable", e); }
 const walletsApi = getWallets();
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
@@ -168,7 +172,6 @@ async function connect(w, silent = false) {
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
   wallet = w; account = accs[0];
-  if (/metamask/i.test(w.name)) import(SNAP_SEND).catch(() => {});   // warm up the MetaMask path
   try { localStorage.setItem("gtstar.wallet", w.name); } catch {}
   w.features["standard:events"]?.on("change", ({ accounts }) => {
     if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); }
@@ -268,10 +271,10 @@ async function exec(label, btnId, build, needMist = 0) {
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
-    const r = await sendTx(tx);
+    const r = await signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN });
     txAt = Date.now();
     toast(`${label} confirmed. <a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">View transaction</a>`, false, true);
-    setTimeout(refresh, 1200); setTimeout(refresh, 3500);
+    refresh(); setTimeout(refresh, 1500); setTimeout(refresh, 4000);
     return r;
   } catch (e) {
     txAt = Date.now();
@@ -280,14 +283,6 @@ async function exec(label, btnId, build, needMist = 0) {
   } finally {
     busy = false; b.disabled = false; b.textContent = old; render();
   }
-}
-// MetaMask's Sui Snap fails to execute some transactions through its own backend, so for it the site
-// builds and submits the transaction and the wallet only signs (see snap-send.js, loaded on demand).
-async function sendTx(tx) {
-  if (!/metamask/i.test(wallet.name)) return signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN });
-  const mod = SNAP_SEND;
-  const { send } = await import(mod);
-  return send({ wallet, account, chain: CHAIN, txJson: await tx.toJSON(), url: GQL, network: CFG.network });
 }
 function claimInto(tx, minerArg) {
   const [g, s] = tx.moveCall({ target: T("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
@@ -543,20 +538,13 @@ function renderResult() {
   if (winners[0]) sub += ` · Top <span class="mono">${esc(winners[0].p.player === account?.address ? "You" : short(winners[0].p.player))}</span> +${sui(winners[0].won, 4)} SUI`;
   let me = "";
   const m = USER?.miner;
-  if (m && m.round_id === L.round) {
-    const R = rewards();
-    me = R.sui > 0
-      ? `<div class="res-me won">You won <b>+${sui(R.sui, 4)} SUI</b> and mined <b>${sui(R.gts, 4)} GTS</b></div>`
-      : `<div class="res-me">You mined <b>${sui(R.gts, 4)} GTS</b></div>`;
-    me += `<button type="button" class="chip strong" data-claim>Claim</button>`;
-  }
+  if (m && m.round_id === L.round && rewards().sui > 0) me = `<div class="res-me won">You won <b>+${sui(rewards().sui, 4)} SUI</b></div>`;
   const youWon = !!(m && m.round_id === L.round && rewards().sui > 0);
   if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(rewards().sui, 4)} SUI on tile ${L.tile + 1}.`); }
   box.hidden = false;
   box.classList.toggle("fresh", !!fresh);
   box.classList.toggle("won", youWon);
   box.innerHTML = `<div class="res-main"><span class="res-tile">${L.tile + 1}</span><div><b>Round #${fmt(L.round, 0)} · Tile ${L.tile + 1} wins</b><small>${sub}</small></div></div>${me ? `<div class="res-side">${me}</div>` : ""}`;
-  box.querySelector("[data-claim]")?.addEventListener("click", claimAll);
 }
 
 let cheered = null;
@@ -683,12 +671,15 @@ function renderMine() {
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   }
   let hint = `Minimum ${min} SUI per tile. Every participant mines GTS.`;
-  if (p === "ended") hint = b.cur_total >= KEEPER_MIN_POT
+  if (claimable && (p === "open" || p === "live")) {
+    const R = rewards();
+    hint = `You pay ${fmt(per * selected.size, 4)} SUI. Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
+    if (!selected.size) hint = "Your rewards from the last round are collected with your next deploy, or use Claim all.";
+  } else if (p === "ended") hint = b.cur_total >= KEEPER_MIN_POT
     ? "The round has ended. The winner is drawn within seconds."
     : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
-  else if (claimable) hint = "Your last round is claimed automatically with your next deploy.";
   $("playHint").textContent = hint;
   $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";

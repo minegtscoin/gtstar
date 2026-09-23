@@ -34,10 +34,4 @@ esbuild.buildSync({
   bundle: true, minify: true, format: "iife", target: "es2020",
   outfile: path.join(out, "app.js"),
 });
-// MetaMask-only transaction path, loaded on demand so the main bundle stays small.
-esbuild.buildSync({
-  entryPoints: [path.join(__dirname, "src", "snap-send.js")],
-  bundle: true, minify: true, format: "esm", target: "es2020",
-  outfile: path.join(out, "snap-send.js"),
-});
 console.log(`built dist/ for ${network}: package ${dep.package}`);
