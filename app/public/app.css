@@ -93,7 +93,8 @@ body.on-home .hero{padding:8px 0 32px}
 .tbl-wrap{overflow-x:auto;margin:0 -18px;padding:0 18px}
 .tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}
 .tbl th{font-weight:500;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
-.tbl td{padding:11px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.tbl td{padding:11px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:560px){#revTbl{min-width:0}#revTbl th:nth-child(2),#revTbl td:nth-child(2){display:none}}
 .tbl .r{text-align:right}
 .tbl tr.round{cursor:pointer}
 .tbl tr.round:hover td{background:var(--tile)}
@@ -102,7 +103,7 @@ body.on-home .hero{padding:8px 0 32px}
 .tbl a:hover{color:var(--text);text-decoration:underline}
 .tile-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;padding:0 6px;border:1px solid var(--win);color:var(--win);border-radius:6px;font-size:12px;font-weight:600}
 .tile-badge.none{border-color:var(--line-3);color:var(--muted)}
-.tbl tr.detail td{background:var(--tile);padding:12px 14px}
+.tbl tr.detail td{background:var(--tile);padding:12px 14px;white-space:normal}
 .miners{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .miners .m{display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center}
 .miners .won{color:var(--win)}

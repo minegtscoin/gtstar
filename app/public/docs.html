@@ -30,11 +30,12 @@
   html{scroll-behavior:smooth}
   @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
   .doc{display:grid;grid-template-columns:200px minmax(0,1fr);gap:56px;align-items:start}
-  @media(max-width:900px){.doc{grid-template-columns:1fr}.toc{display:none}}
   .toc{position:sticky;top:84px;font-size:13px;display:flex;flex-direction:column;gap:2px}
   .toc a{color:var(--dim);padding:4px 0;transition:color .15s}
   .toc a:hover{color:var(--text)}
   .toc .h{color:var(--muted);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+  @media(max-width:900px){.doc{grid-template-columns:minmax(0,1fr)}.toc{display:none}}
+  @media(max-width:520px){.tabs{justify-content:space-between;gap:0;margin:0 -4px;width:calc(100% + 8px)}.tabs a{padding:6px 4px;font-size:13px;white-space:nowrap}}
   article{max-width:720px;font-size:15px;line-height:1.75;color:#d4d4d8}
   article h1{font-size:44px;line-height:1.08;margin:12px 0 14px;color:var(--text);text-wrap:balance}
   .eyebrow{font-size:12px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase}
@@ -164,12 +165,12 @@
 payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
 my_gts     = round_reward * my_deposits / round_total</span>
     <h3>Supernova</h3>
-    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract), and half goes to the GTS reserve. Every round that has a winner also has a 1 in 25 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve and 1% creator fees are unchanged. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
+    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing (named Motherlode in the contract), and half goes to the GTS reserve. Every round that has a winner also has a 1 in 25 chance, drawn on-chain with sui::random, to pay the whole Supernova to the winning tile, split by stake like the normal pot. The 4% reserve fee and 1% creator fee are taken as usual. The GTStar House wallet never keeps Supernova SUI: the contract sends its share straight back.</p>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
         <tr><td>Supernova</td><td class="n">47.5%</td></tr>
-        <tr><td>Reserve</td><td class="n">51.5% (4% + 47.5%)</td></tr>
+        <tr><td>Reserve (4% fee + 47.5%)</td><td class="n">51.5%</td></tr>
         <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
     </table></div>
@@ -231,7 +232,7 @@ floor_price   = reserve / total_supply</span>
     <div class="addr" id="addrList"></div>
     <p>The full source code of both contracts, the app and the keeper is public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Project updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>.</p>
     <h3>Transaction proofs</h3>
-    <p>Real transactions from the end-to-end test of this release. Each opens in the Suiscan explorer.</p>
+    <p>Real transactions from the launch, its end-to-end test and every upgrade since. Each opens in the Suiscan explorer.</p>
     <div class="proofs" id="proofList"></div>
 
     <p class="endnote">Playing involves risk: tiles that do not win lose their deposit, and smart contracts can contain bugs. Only play with what you can afford to lose. The on-chain code is the source of truth.</p>
