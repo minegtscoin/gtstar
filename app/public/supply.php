@@ -2,14 +2,15 @@
 // Plain-number GTS supply for listing sites (CoinMarketCap, CoinGecko).
 //   /api/supply/total        total GTS in existence (minted minus burned)
 //   /api/supply/circulating  same as total: no premine, no team or locked tokens
-//   /api/supply/max          hard cap
+//   /api/supply/max          most GTS that can ever exist: the emission ceiling at 2030-01-01
+//                            for this genesis (below the 1,000,000 hard cap, which is never reached)
 // Read live from the Treasury object on Sui, cached for 60 seconds.
 header("Content-Type: text/plain; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
 header("Cache-Control: public, max-age=60");
 
 $q = $_GET["q"] ?? "total";
-if ($q === "max") { echo "1000000"; exit; }
+if ($q === "max") { echo "572003.236678098"; exit; }
 if ($q !== "total" && $q !== "circulating") { http_response_code(404); echo "unknown"; exit; }
 
 $treasury = "0x1dfef30cd82739d4b70f71fdbe15dd9ad218324054401a3751ac7b91dcd1b786";
