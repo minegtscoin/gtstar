@@ -20,6 +20,13 @@
 .art-grid i.on{border-color:var(--line-3);background:#15151c}
 .art-grid i.win{border-color:var(--gold);box-shadow:0 0 24px rgba(230,196,134,.25),inset 0 0 0 1px var(--gold)}
 
+/* home fits one screen, no page scroll */
+body.on-home{height:100vh;height:100dvh;overflow:hidden}
+body.on-home main{display:flex;flex-direction:column;justify-content:center;min-height:0;overflow-y:auto;padding-bottom:24px}
+body.on-home .strip{margin-bottom:0}
+body.on-home .hero{padding:8px 0 32px}
+@media(max-width:900px){body.on-home .hero-art{display:none}body.on-home .hero{padding:0 0 20px}body.on-home .strip>div{padding:12px 16px}body.on-home .strip b{font-size:20px}}
+@media(max-height:760px){body.on-home .hero-h{font-size:clamp(36px,5vw,56px)}body.on-home .hero-art{max-width:360px}}
 .strip{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line);border-radius:16px;margin:8px 0 40px}
 .strip>div{padding:18px 20px}
 .strip>div+div{border-left:1px solid var(--line)}

@@ -1144,6 +1144,7 @@ function route() {
   const v = (location.hash || "#home").slice(1);
   view = VIEWS.includes(v) ? v : "home";
   VIEWS.forEach(n => ($("view-" + n).hidden = n !== view));
+  document.body.classList.toggle("on-home", view === "home");
   document.querySelectorAll(".tabs a[data-view]").forEach(a => a.classList.toggle("on", a.dataset.view === view));
   window.scrollTo(0, 0);
   render();
