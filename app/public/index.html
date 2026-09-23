@@ -129,7 +129,11 @@
         </div>
         <div class="row-line">
           <span class="lbl">Tiles</span>
-          <span class="val tiles-ctl"><button type="button" class="chip" id="selAll">All</button><button type="button" class="chip" id="selRand">Random</button><button type="button" class="chip" id="selNone">None</button><b id="tileCount">0</b></span>
+          <span class="val tiles-ctl"><button type="button" class="chip" id="selAll">All</button><button type="button" class="chip" id="selRand">Random</button><button type="button" class="chip" id="selNone">None</button><button type="button" class="chip" id="selRepeat" title="Same tiles and amount as your last deploy" disabled>Repeat</button><b id="tileCount">0</b></span>
+        </div>
+        <div class="row-line" id="alertsRow" hidden>
+          <span class="lbl">Round alerts</span>
+          <span class="val"><button type="button" class="chip" id="alertsBtn" title="Browser notification when a round you played ends while this tab is in the background">Off</button></span>
         </div>
         <div class="row-line"><span class="lbl">Total</span><span class="val"><b id="totalCost">0</b> SUI</span></div>
         <button class="primary" id="btnPlay" type="button">Deploy</button>

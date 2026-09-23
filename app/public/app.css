@@ -326,3 +326,5 @@ button.sw-bal:hover{color:var(--text)}
   body.mbar-on #view-mine{padding-bottom:88px}
 }
 .hint.warn{color:var(--gold)}
+.chip:disabled{opacity:.4;cursor:default}
+.chip:disabled:hover{border-color:var(--line)}

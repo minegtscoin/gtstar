@@ -331,7 +331,10 @@ async function play() {
     tx.moveCall({ target: T("game::deploy"), arguments: [tx.object(IDS.board), minerArg, pay, tx.pure.vector("u64", amounts), tx.object.clock()] });
     if (fresh) tx.transferObjects([minerArg], account.address);
   }, total);
-  if (r) { selected.clear(); render(); }
+  if (r) {
+    store.set("gtstar.last", JSON.stringify({ tiles: [...selected], per: $("amt").value }));
+    selected.clear(); render();
+  }
 }
 // One transaction for everything claimable: the last round (SUI winnings + mined GTS) and staking yield.
 const claimAll = () => exec("Claim", "btnClaimAll", tx => {
@@ -547,12 +550,56 @@ function startScan() {
   scanT = setInterval(() => { clearScan(); tileEls[Math.floor(Math.random() * 25)].classList.add("scan"); }, 110);
 }
 function stopScan() { clearInterval(scanT); scanT = null; clearScan(); }
+// ---------- round alerts ----------
+// Storage can be blocked (private mode); every read and write is optional.
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+// Tab title: the normal title, alternating with a short alert while the tab is in the background.
+let baseTitle = "GTStar", flashTitle = null;
+const paintTitle = () => { document.title = flashTitle && document.hidden && Math.floor(Date.now() / 1000) % 2 ? flashTitle : baseTitle; };
+const setTitle = t => { baseTitle = t; paintTitle(); };
+setInterval(() => { if (flashTitle) paintTitle(); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { flashTitle = null; paintTitle(); } });
+const canNotify = "Notification" in window;
+const alertsOn = () => canNotify && Notification.permission === "granted" && store.get("gtstar.alerts") === "on";
+// A round you played has ended while you were in another tab: flash the title, and notify if you turned alerts on.
+function roundAlert(L) {
+  const m = USER?.miner;
+  if (!document.hidden || !m || m.round_id !== L.round) return;
+  const r = rewards(), net = r.sui - m.total;
+  const head = net > 0 ? "You won!" : r.sui > 0 ? "Your tile won" : `Tile ${L.tile + 1} won`;
+  const body = net > 0 ? `Round #${L.round}: +${sui(net, 4)} SUI and ${sui(r.gts, 4)} GTS mined.`
+    : r.sui > 0 ? `Round #${L.round}: ${sui(r.sui, 4)} SUI back and ${sui(r.gts, 4)} GTS mined.`
+    : `Round #${L.round}: your tiles did not win. ${sui(r.gts, 4)} GTS mined.`;
+  flashTitle = `${head} · GTStar`;
+  if (alertsOn()) try {
+    const n = new Notification(head, { body, icon: "/icon-192.png", tag: "gtstar-round" });
+    n.onclick = () => { window.focus(); location.hash = "#mine"; n.close(); };
+  } catch {}
+}
+function renderAlerts() {
+  $("alertsRow").hidden = !canNotify;
+  if (!canNotify) return;
+  const on = alertsOn();
+  $("alertsBtn").textContent = Notification.permission === "denied" ? "Blocked" : on ? "On" : "Off";
+  $("alertsBtn").classList.toggle("strong", on);
+  $("alertsBtn").title = Notification.permission === "denied"
+    ? "Notifications are blocked for this site in your browser settings"
+    : "Browser notification when a round you played ends while this tab is in the background";
+}
+function lastDeploy() {
+  try { const j = JSON.parse(store.get("gtstar.last")); return j && Array.isArray(j.tiles) && j.tiles.length ? j : null; } catch { return null; }
+}
+
 function trackRounds() {
   const L = STATE?.last;
   if (!L) return;
   if (lastSeen === null) { lastSeen = L.round; return; }
   if (L.round <= lastSeen) return;
   lastSeen = L.round;
+  roundAlert(L);
   stopScan();
   reveal = { round: L.round, landing: !reduceMotion && view === "mine", at: 0 };
   if (!reveal.landing) { reveal.at = Date.now(); return; }
@@ -742,10 +789,12 @@ function renderMine() {
   bar.dataset.phase = p;
   bar.toggleAttribute("data-urgent", p === "live" && b.cur_end_ms - Date.now() <= 10_000);
   // Countdown in the tab title brings players back from other tabs.
-  document.title = p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? `${t === "Ready" ? "Ready to draw" : "Drawing"} · GTStar` : "GTStar";
+  setTitle(p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? `${t === "Ready" ? "Ready to draw" : "Drawing"} · GTStar` : "GTStar");
 
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
+  $("selRepeat").disabled = !lastDeploy();
+  renderAlerts();
   $("totalCost").textContent = fmt(per * selected.size, 4);
   $("mbTiles").textContent = `${selected.size} ${selected.size === 1 ? "tile" : "tiles"} · ${fmt(per, 4)} SUI each`;
   $("mbTotal").textContent = `Total ${fmt(per * selected.size, 4)} SUI`;
@@ -1116,7 +1165,7 @@ function renderTrade() {
 const swapMax = () => (swapDir === "sell" ? USER.gts : Math.max(0, USER.sui - 2 * GAS_RESERVE));
 
 function render() {
-  if (view !== "mine") document.title = "GTStar";
+  if (view !== "mine") setTitle("GTStar");
   renderTicker(); renderWallet(); renderRewards();
   if (view === "home") renderHome();
   if (view === "mine") { renderBoard(); renderMine(); }
@@ -1202,6 +1251,18 @@ $("amt").addEventListener("focus", e => { if (e.target.value === "0") e.target.v
 $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "0"; });
 $("selAll").onclick = () => { selected = new Set([...Array(25).keys()]); render(); };
 $("selNone").onclick = () => { selected.clear(); render(); };
+$("selRepeat").onclick = () => {
+  const l = lastDeploy();
+  if (!l) return;
+  selected = new Set(l.tiles.filter(i => Number.isInteger(i) && i >= 0 && i < 25));
+  $("amt").value = l.per; render();
+};
+$("alertsBtn").onclick = async () => {
+  if (alertsOn()) store.set("gtstar.alerts", "off");
+  else if ((await Notification.requestPermission()) === "granted") store.set("gtstar.alerts", "on");
+  else if (Notification.permission === "denied") toast("Notifications are blocked for this site. Allow them in your browser settings.");
+  renderAlerts();
+};
 // Phones: while the real Deploy button is off screen, a fixed bar mirrors it (same label, same state, same action).
 const syncBar = () => { $("mbPlay").textContent = $("btnPlay").textContent; $("mbPlay").disabled = $("btnPlay").disabled; };
 new MutationObserver(syncBar).observe($("btnPlay"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
