@@ -253,9 +253,7 @@ const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
   if (!USER || USER.sui >= needMist + GAS_RESERVE) return false;
   const need = sui(needMist + GAS_RESERVE);
-  toast(CFG.network === "mainnet"
-    ? `Not enough SUI. You need about ${need} SUI including gas.`
-    : `Not enough test SUI. You need about ${need} SUI including gas. Get free test SUI at <a href="https://faucet.sui.io/?address=${account.address}" target="_blank" rel="noopener">faucet.sui.io</a>.`, true, true);
+  toast(`Not enough SUI. You need about ${need} SUI including gas.`, true, true);
   return true;
 }
 async function exec(label, btnId, build, needMist = 0) {
@@ -1112,8 +1110,10 @@ async function checkVersion() {
 setInterval(checkVersion, 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion(); });
 
-$("netNotice").hidden = CFG.network === "mainnet";
 $("pkgLink").href = `${SCAN}/object/${IDS.package}`;
+$("caAddr").textContent = T_GTS;
+$("caScan").href = `${SCAN}/coin/${T_GTS}`;
+$("caCopy").onclick = async () => { try { await navigator.clipboard.writeText(T_GTS); toast("Contract address copied."); } catch { toast(T_GTS); } };
 $("amt").value = "0.01";
 buildBoard(); buildArt(); route(); autoReconnect(); loadPrice();
 setInterval(loadPrice, 60_000);

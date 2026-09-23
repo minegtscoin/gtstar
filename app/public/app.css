@@ -58,6 +58,10 @@
 
 .page-head{margin-bottom:20px}
 .page-head h1{margin-top:12px}
+.ca{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-radius:16px;padding:12px 16px;margin-bottom:12px;font-size:13px}
+.ca-l{color:var(--muted)}
+.ca code{flex:1 1 280px;min-width:0;overflow-wrap:anywhere;color:var(--text)}
+.ca a{color:var(--muted)}.ca a:hover{color:var(--text)}
 .kpis{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid var(--line);border-radius:16px}
 .kpis>div{padding:16px 18px;min-width:0}
 .kpis>div+div{border-left:1px solid var(--line)}
