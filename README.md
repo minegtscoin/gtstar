@@ -14,7 +14,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Max supply | 572,003 GTS, the most the immutable emission schedule can ever mint (enforced on every mint) |
 | Premine / team / presale | None |
 | Emission | 1 GTS per round to miners, +10% to stakers, halving every 6 months, ending January 1, 2030 |
-| Losing pot | 95% winners · 4% reserve · 1% creator |
+| Losing pot | 95% winners · 4% reserve · 1% creator (no one on the winning tile: 99% reserve · 1% creator) |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
 | Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
 | Randomness | `sui::random` (validator-generated, unbiasable) |

@@ -84,9 +84,10 @@
     </a>
     <nav class="tabs" aria-label="Main">
       <a href="index.html#mine">Mine</a>
+      <a href="index.html#trade">Trade</a>
+      <a href="index.html#stake">Stake</a>
       <a href="index.html#explorer">Explorer</a>
       <a href="index.html#tokenomics">Tokenomics</a>
-      <a href="index.html#stake">Stake</a>
       <a href="docs.html" class="on">Docs</a>
     </nav>
     <div class="bar-right"><a class="pill" href="index.html#mine">Start mining</a></div>
@@ -147,7 +148,7 @@
     <span class="code">losing_pot = total_deposits - winning_tile_total
 payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
 my_gts     = round_reward * my_deposits / round_total</span>
-    <p>If no one deployed on the winning tile, the entire pot goes to the reserve and benefits every GTS holder.</p>
+    <p>If no one deployed on the winning tile, the winners' 95% goes to the reserve as well: 99% of the pot goes to the reserve and benefits every GTS holder, and the 1% creator fee is unchanged.</p>
     <h3>Fairness of the draw</h3>
     <p>The winning tile comes from <code>sui::random</code>. The draw runs in a private entry function, so no other contract can wrap it and cancel the transaction when it dislikes the result. The rules are the same for every player, and every result is recorded on-chain.</p>
 
@@ -184,7 +185,7 @@ my_gts     = round_reward * my_deposits / round_total</span>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td>Winners</td><td class="n">95%</td><td>Split across the winning tile by stake</td></tr>
-        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS and raises the floor</td></tr>
+        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS. 99% when no one is on the winning tile</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td>Paid to a fixed address in the contract</td></tr>
       </tbody>
     </table></div>
@@ -193,9 +194,9 @@ my_gts     = round_reward * my_deposits / round_total</span>
     <span class="code">redeem(x GTS) = reserve * x / total_supply     // x GTS is burned
 floor_price   = reserve / total_supply</span>
     <ul>
-      <li><strong>Fees raise the floor.</strong> Every round adds SUI to the reserve.</li>
+      <li><strong>Every round adds SUI and new GTS.</strong> The floor rises when a round adds more SUI per new GTS than the current floor, and falls when it adds less. Small rounds lower it, larger rounds raise it.</li>
       <li><strong>Redemptions never lower it.</strong> Reserve and supply shrink together, and rounding favours remaining holders.</li>
-      <li><strong>Halvings help.</strong> New GTS enters without matching SUI, so the floor rises whenever fee inflow outpaces emission, which gets easier with every halving.</li>
+      <li><strong>Halvings help.</strong> Each halving cuts the new GTS per round, so the same SUI inflow lifts the floor more.</li>
     </ul>
     <p class="callout">The floor is backed by assets actually held in the reserve. It is not a price guarantee and it moves with the balance between fees and emission.</p>
 
