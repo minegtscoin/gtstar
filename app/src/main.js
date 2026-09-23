@@ -44,6 +44,7 @@ let wallet = null, account = null;
 let STATE = null, USER = null, HIST = null;
 let selected = new Set();
 let busy = false, view = "home";
+let userAt = 0, txAt = 0;   // when the wallet view was last loaded, and when we last sent a transaction
 
 // ---------- chain reads ----------
 async function gql(query) {
@@ -89,17 +90,14 @@ async function loadGlobal() {
     },
   };
 }
-async function objectsOf(owner, type, first = 50) {
-  const d = await gql(`{address(address:"${owner}"){objects(filter:{type:"${type}"},first:${first}){nodes{address contents{json}}}}}`);
-  return (d.address?.objects?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
-}
+// One request for everything the wallet view needs (balances, miner, GTS coins, stake positions).
 async function loadUser(addr) {
-  const [bal, miners, coins, positions] = await Promise.all([
-    gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance}}}`),
-    objectsOf(addr, T_MINER, 10),
-    objectsOf(addr, `0x2::coin::Coin<${T_GTS}>`, 50),
-    objectsOf(addr, T_POS, 50),
-  ]);
+  const objs = (alias, type, first) => `${alias}:objects(filter:{type:"${type}"},first:${first}){nodes{address contents{json}}}`;
+  const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance}
+    ${objs("m", T_MINER, 10)} ${objs("c", `0x2::coin::Coin<${T_GTS}>`, 50)} ${objs("p", T_POS, 50)}}}`);
+  const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
+  const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c"), positions = nodes("p");
+  userAt = Date.now();
   const miner = miners.find(m => num(m.f.round_id) !== 0) || miners[0] || null;
   return {
     sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance),
@@ -170,6 +168,7 @@ async function connect(w, silent = false) {
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
   wallet = w; account = accs[0];
+  if (/metamask/i.test(w.name)) import(SNAP_SEND).catch(() => {});   // warm up the MetaMask path
   try { localStorage.setItem("gtstar.wallet", w.name); } catch {}
   w.features["standard:events"]?.on("change", ({ accounts }) => {
     if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); }
@@ -263,17 +262,19 @@ async function exec(label, btnId, build, needMist = 0) {
   const b = $(btnId), old = b.textContent;
   b.disabled = true; b.textContent = "Confirm in wallet";
   try {
-    // Re-read the wallet's objects first: coin and miner IDs from a cached view
-    // may already have been consumed by an earlier transaction.
-    USER = await loadUser(account.address);
+    // Coin and miner IDs from a cached view may have been consumed by an earlier transaction,
+    // so re-read the wallet unless the cached view is fresh and nothing was sent since.
+    if (!USER || userAt <= txAt || Date.now() - userAt > 6000) USER = await loadUser(account.address);
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
     const r = await sendTx(tx);
+    txAt = Date.now();
     toast(`${label} confirmed. <a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">View transaction</a>`, false, true);
     setTimeout(refresh, 1200); setTimeout(refresh, 3500);
     return r;
   } catch (e) {
+    txAt = Date.now();
     toast(esc(friendlyError(e)), true, true);
     refresh();
   } finally {
