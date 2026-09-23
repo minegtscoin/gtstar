@@ -1,0 +1,193 @@
+// GTStar X poster — Hostinger cron entry (runs once a day, posts at most every POST_EVERY_H hours).
+// Reads live protocol data from Sui, compares it with the last posted snapshot, and posts one
+// update to X through the v2 API (OAuth 1.0a user context). No dependencies: Node 22 only.
+//   node poster.mjs            post if due
+//   node poster.mjs --dry      print the post, do not send or save
+//   node poster.mjs --force    post now even if not due
+// Needs ~/gtstar-poster/.env with X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET.
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { fileURLToPath } from "url";
+
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const envFile = path.join(dir, ".env");
+if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").split("\n")) {
+  const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);
+  if (m) process.env[m[1]] ??= m[2];
+}
+const DRY = process.argv.includes("--dry");
+const FORCE = process.argv.includes("--force");
+const POST_EVERY_H = Number(process.env.POST_EVERY_H) || 84; // 3.5 days
+const stateFile = path.join(dir, "state.json");
+
+const IDS = {
+  pkg: "0x2cef85db37c28fccda8b409e2a321ee5932e1b292b596877184245972250004e",
+  board: "0x324f7da04e5a328c8ec674f1ad5615fad1bc34ffa6cee48beb86731c718c1664",
+  treasury: "0x1dfef30cd82739d4b70f71fdbe15dd9ad218324054401a3751ac7b91dcd1b786",
+  pool: "0xb09a8451b452b779c7fd6fba094e12693f379af5924ea54c2a5ad5fd586787de",
+  market: "0x7492d608ea92b2274bd83be39ac17ebb0f3fed42e4b7a638c17ebf8743e6ebcf",
+};
+const MAX_SUPPLY = 572_003.236678098;
+const HALVING_MS = 182.5 * 86_400_000;
+const D = 1e9;
+
+// ---------- data ----------
+async function gql(query) {
+  const r = await fetch("https://graphql.mainnet.sui.io/graphql", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }),
+  });
+  const j = await r.json();
+  if (j.errors) throw new Error(j.errors[0].message);
+  return j.data;
+}
+const objQ = (a, id) => `${a}:object(address:"${id}"){asMoveObject{contents{json}}}`;
+const pick = (d, k) => d[k]?.asMoveObject?.contents?.json || {};
+const n = v => Number(v || 0);
+
+async function snapshot() {
+  const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)} ${objQ("m", IDS.market)}}`);
+  const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p"), m = pick(d, "m");
+  const supply = n(t.cap?.total_supply?.value) / D, vault = n(t.vault) / D, minted = n(t.minted) / D;
+  const sq = n(m.current_sqrt_price) / 2 ** 64;
+  return {
+    ts: Date.now(), rounds: n(b.rounds?.size), supply, minted, burned: Math.max(0, minted - supply),
+    vault, floor: supply > 0 ? vault / supply : 0, market: sq * sq, staked: n(p.total_staked) / D,
+    genesis: n(b.genesis_ms),
+  };
+}
+
+// Settled rounds after a given time: SUI deployed, players, biggest pot.
+async function activitySince(sinceMs) {
+  const out = { rounds: 0, sui: 0, players: 0, biggest: 0 };
+  let before = null;
+  for (let page = 0; page < 40; page++) {
+    const d = await gql(`{events(filter:{type:"${IDS.pkg}::game::RoundSettled"},last:50${before ? `,before:"${before}"` : ""}){
+      pageInfo{hasPreviousPage startCursor} nodes{timestamp contents{json}}}}`);
+    const ev = d.events;
+    let older = false;
+    for (const e of ev.nodes) {
+      if (Date.parse(e.timestamp) <= sinceMs) { older = true; continue; }
+      const j = e.contents?.json || {};
+      const sui = n(j.total_deployed) / D;
+      out.rounds++; out.sui += sui; out.players += n(j.players);
+      out.biggest = Math.max(out.biggest, sui);
+    }
+    if (older || !ev.pageInfo.hasPreviousPage) break;
+    before = ev.pageInfo.startCursor;
+  }
+  return out;
+}
+
+async function suiUsd() {
+  try {
+    const j = await (await fetch("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd")).json();
+    return j.sui?.usd || null;
+  } catch { return null; }
+}
+
+// ---------- text ----------
+const fmt = (x, dp = 2) => x.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const int = x => Math.round(x).toLocaleString("en-US");
+const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
+const usd = x => (x >= 0.01 ? "$" + fmt(x, 2) : "$" + x.toPrecision(2));
+
+const MILESTONES = {
+  rounds: [100, 500, 1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000],
+  vault: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 5_000, 10_000],
+  supply: [100, 1_000, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000, 500_000],
+};
+function milestone(prev, s) {
+  if (!prev) return null;
+  const crossed = k => MILESTONES[k].filter(v => prev[k] < v && s[k] >= v).pop();
+  const r = crossed("rounds");
+  if (r) return `Milestone: ${int(r)} rounds mined on GTStar.`;
+  const v = crossed("vault");
+  if (v) return `Milestone: the GTS reserve now holds over ${int(v)} SUI.`;
+  const g = crossed("supply");
+  if (g) return `Milestone: ${int(g)} GTS mined by players.`;
+  return null;
+}
+
+function nextHalving(genesis) {
+  if (!genesis) return null;
+  const t = genesis + Math.ceil((Date.now() - genesis) / HALVING_MS) * HALVING_MS;
+  return Math.round((t - Date.now()) / 86_400_000);
+}
+
+function compose(s, prev, a, price, variant) {
+  const lines = [];
+  const floorUsd = price ? ` (${usd(s.floor * price)})` : "";
+  const head = milestone(prev, s);
+  const days = prev ? Math.max(1, Math.round((s.ts - prev.ts) / 86_400_000)) : null;
+
+  if (variant === 0 || head) {
+    lines.push(head || "GTStar update.", "");
+    if (a && a.rounds) lines.push(`Last ${days} days: ${int(a.rounds)} rounds, ${fmt(a.sui)} SUI deployed.`);
+    lines.push(`Total mined: ${fmt(s.supply)} GTS of ${int(MAX_SUPPLY)} max.`);
+    lines.push(`Reserve: ${fmt(s.vault)} SUI backing all GTS.`);
+    lines.push(`Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}.`);
+  } else if (variant === 1) {
+    lines.push(prev && s.vault > prev.vault ? "The GTS reserve keeps growing." : "The GTS reserve.", "");
+    lines.push("4% of every losing pot goes into an on-chain SUI reserve. Any holder can burn GTS for a pro-rata share of it.", "");
+    if (prev && s.vault > prev.vault) lines.push(`Reserve: ${fmt(s.vault)} SUI (+${fmt(s.vault - prev.vault)} in ${days} days).`);
+    else lines.push(`Reserve: ${fmt(s.vault)} SUI.`);
+    lines.push(`Floor: ${fmt(s.floor, 5)} SUI per GTS${floorUsd}.`);
+    if (s.burned > 0) lines.push(`Burned so far: ${fmt(s.burned)} GTS.`);
+  } else if (variant === 2) {
+    lines.push("Staking update.", "");
+    lines.push("Stake GTS, earn GTS. No lock-up. Stakers receive an extra 10% on top of every round's emission.", "");
+    lines.push(`Staked: ${fmt(s.staked)} GTS (${fmt(pct(s.staked, s.supply), 1)}% of supply).`);
+    lines.push(`Total mined: ${fmt(s.supply)} GTS.`);
+  } else {
+    const h = nextHalving(s.genesis);
+    lines.push("How GTS is mined.", "");
+    lines.push("A round every 60 seconds. Deploy SUI on any of 25 tiles. One tile wins the pot, and every player mines GTS by their share of the round.", "");
+    if (a && a.rounds) lines.push(`Last ${days} days: ${int(a.rounds)} rounds, biggest pot ${fmt(a.biggest)} SUI.`);
+    if (h != null) lines.push(`Next emission halving in ${int(h)} days.`);
+  }
+  lines.push("", "https://minegts.fun");
+  return lines.join("\n");
+}
+
+// X counts every URL as 23 characters.
+const xLength = t => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
+
+// ---------- X API (OAuth 1.0a) ----------
+const enc = s => encodeURIComponent(s).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+async function tweet(text) {
+  const { X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET } = process.env;
+  if (!X_API_KEY || !X_API_SECRET || !X_ACCESS_TOKEN || !X_ACCESS_SECRET) throw new Error("X API keys missing in .env");
+  const url = "https://api.x.com/2/tweets";
+  const o = {
+    oauth_consumer_key: X_API_KEY, oauth_nonce: crypto.randomBytes(16).toString("hex"),
+    oauth_signature_method: "HMAC-SHA1", oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_token: X_ACCESS_TOKEN, oauth_version: "1.0",
+  };
+  const params = Object.keys(o).sort().map(k => `${enc(k)}=${enc(o[k])}`).join("&");
+  const base = `POST&${enc(url)}&${enc(params)}`;
+  o.oauth_signature = crypto.createHmac("sha1", `${enc(X_API_SECRET)}&${enc(X_ACCESS_SECRET)}`).update(base).digest("base64");
+  const auth = "OAuth " + Object.keys(o).sort().map(k => `${enc(k)}="${enc(o[k])}"`).join(", ");
+  const r = await fetch(url, { method: "POST", headers: { Authorization: auth, "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`X API ${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
+  return j.data?.id;
+}
+
+// ---------- main ----------
+const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : { last: null, variant: 0 };
+if (!FORCE && !DRY && state.last && Date.now() - state.last.ts < POST_EVERY_H * 3_600_000) process.exit(0);
+
+const s = await snapshot();
+const a = state.last ? await activitySince(state.last.ts) : null;
+const price = await suiUsd();
+const text = compose(s, state.last, a, price, state.variant % 4);
+if (xLength(text) > 280) throw new Error(`post too long (${xLength(text)}):\n${text}`);
+
+if (DRY) {
+  console.log(text + `\n\n[${xLength(text)} chars]`);
+} else {
+  const id = await tweet(text);
+  fs.writeFileSync(stateFile, JSON.stringify({ last: s, variant: state.variant + 1, lastId: id }, null, 2));
+  console.log(new Date().toISOString(), "posted", id);
+}
