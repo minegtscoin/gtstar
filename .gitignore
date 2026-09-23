@@ -17,3 +17,10 @@ DEPLOYMENT.md
 MAINNET.md
 docs/
 app/keeper/dist/
+
+# secrets: never publish
+.env
+.env.*
+*.key
+*.keystore
+*.pem
