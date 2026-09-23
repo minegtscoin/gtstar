@@ -81,7 +81,8 @@ const mlRows = nodes => new Map(nodes.map(j => [num(j.round_id), { added: num(j.
 const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // SUI a settled round added to the reserve. Before the Motherlode, a round with no miner on the
 // winning tile sent the whole pot except the 1% creator fee there (the event's vault_fee only
-// carries the 4% part); since then that pot rolls into the Motherlode instead.
+// carries the 4% part). v3 rolled that pot into the Motherlode; since v4 half of it goes to the
+// reserve and is included in vault_fee.
 const vaulted = r => (r.winners === 0 && !r.ml ? r.total - r.dev : r.vault);
 async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
@@ -982,7 +983,7 @@ function minersHtml(r) {
 function renderRevenue() {
   const cfg = {
     reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + half when no one wins", label: "Added to the GTS reserve" },
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Half the pot when no one wins", label: "Added to the Supernova" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Pot when no one wins", label: "Added to the Supernova" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -1067,7 +1068,8 @@ function drawChart(played) {
   const area = `${line}L${x(X1).toFixed(1)},${y(0)}L${x(X0)},${y(0)}Z`;
   const k = v => (v === 0 ? "0" : v >= 1e6 ? `${fmt(v / 1e6, 2)}M` : `${fmt(v / 1e3, 0)}K`);
   const yt = [0, Y / 4, Y / 2, Y * 3 / 4, Y];
-  const xt = [0, 2, 4, 6].map(e => e * HALVING_ROUNDS);
+  const narrow = W < 560;
+  const xt = (narrow ? [0, 4] : [0, 2, 4, 6]).map(e => e * HALVING_ROUNDS);
   const halvings = [];
   for (let e = 1; e < PERIODS; e++) halvings.push(e * HALVING_ROUNDS);
   const now = Math.min(Math.max(played, X0), X1);
@@ -1075,7 +1077,7 @@ function drawChart(played) {
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Maximum cumulative GTS by rounds played, halving every 262,000 rounds.">
     ${yt.map(v => `<line class="ax" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" opacity="${v ? 0.5 : 1}"/><text class="tick" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join("")}
     ${halvings.map(t => `<line class="ax" x1="${x(t)}" x2="${x(t)}" y1="${pad.t}" y2="${y(0)}" opacity="0.35"/>`).join("")}
-    ${xt.map(t => `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${t ? "middle" : "start"}">${k(t)}</text>`).join("")}
+    ${xt.map(t => `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${t ? "middle" : "start"}">Round ${narrow ? k(t) : fmt(t, 0)}</text>`).join("")}
     <path class="ar" d="${area}"/><path class="ln" d="${line}"/>
     <line class="nowline" x1="${nx}" x2="${nx}" y1="${pad.t}" y2="${y(0)}"/>
     <circle class="now" cx="${nx}" cy="${ny}" r="5"/>
