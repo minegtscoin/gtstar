@@ -296,3 +296,7 @@ button.sw-bal:hover{color:var(--text)}
 .result.won .res-tile{border-color:var(--win);color:var(--win)}
 @media(max-width:520px){.tile .add{font-size:12px}}
 @media (prefers-reduced-motion:reduce){.tile.bump,.round-bar[data-urgent] .rb-time b,.tile.win,.result.fresh,.fr.new{animation:none}}
+
+/* v5: simpler board */
+.board-hint{margin:0;color:var(--muted);font-size:13.5px;text-align:center}
+.tile .add{font-size:16px}

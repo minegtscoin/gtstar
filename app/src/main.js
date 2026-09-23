@@ -479,9 +479,10 @@ function renderBoard() {
   const b = STATE?.board, p = phase();
   const L = STATE?.last;
   const landing = reveal?.landing;
-  const showWin = L && b && !b.cur_started && !landing ? L.tile : -1;
-  // Between rounds the board keeps showing the round that just finished, so everyone can see who played where.
-  const shown = b?.cur_started || !L ? b?.cur_id : L.round;
+  // The winner lights up only for a few seconds after the draw; otherwise the board shows the current round only.
+  const revealing = !!(reveal && reveal.at && Date.now() - reveal.at < 8_000);
+  const showWin = L && b && !b.cur_started && !landing && revealing ? L.tile : -1;
+  const shown = b?.cur_started || showWin < 0 ? b?.cur_id : L.round;
   const players = shown ? roundPlayers(shown) : [];
   let dep = b?.cur_started && b.cur_deployed?.length ? b.cur_deployed : Array(25).fill(0);
   if (b && !b.cur_started && players.length) { dep = Array(25).fill(0); players.forEach(pl => pl.amounts.forEach((v, i) => (dep[i] += v))); }
@@ -509,10 +510,11 @@ function renderBoard() {
     c.querySelector(".a").textContent = fmt(v, 3);
     const pc = c.querySelector(".pc");
     pc.hidden = !counts[i]; pc.querySelector("b").textContent = counts[i];
-    c.querySelector(".me").hidden = !(mine && mine[i] > 0);
-    const add = c.querySelector(".add");
-    add.hidden = !(sel && per >= minPer);
-    if (!add.hidden) add.textContent = `+${fmt(per, 3)}`;
+    c.querySelector(".me").hidden = true;
+    // Center of the tile: what you put on it (gold), or what you are about to add.
+    const add = c.querySelector(".add"), my = mine ? mine[i] : 0;
+    add.hidden = !(my > 0 || (sel && per >= minPer));
+    if (!add.hidden) add.textContent = sel && per >= minPer ? `${my > 0 ? sui(my, 3) + " " : ""}+${fmt(per, 3)}` : sui(my, 3);
     if (bump[i] && !reduceMotion) c.classList.add("bump");
   });
 }
@@ -678,6 +680,7 @@ function renderMine() {
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   else if (claimable) hint = "Your last round is claimed automatically with your next deploy.";
   $("playHint").textContent = hint;
+  $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
   $("mySui").textContent = USER ? sui(USER.sui, 3) : "—";
   document.querySelector(".rw-bal").hidden = !USER;
