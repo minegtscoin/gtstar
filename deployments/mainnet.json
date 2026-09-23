@@ -96,10 +96,15 @@
     [
       "Game upgrade key locked in the 48h timelock",
       "8dA3nFNhhy7TKaPdym1A9sDSvteX7GuLARGxD7SM3BXn"
+    ],
+    [
+      "GTS/SUI liquidity burned on Cetus (can never be withdrawn)",
+      "2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y"
     ]
   ],
   "latest": "0x4c1e8af305b166e95631882f33293f960675c5e47a29affde8f863553b47f541",
   "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6",
   "timelockPkg": "0x6c90bed3ffa9c429ab2381ad3cfeb45ceadb0e10c22df9b90f995d0892158bd5",
-  "timelock": "0x8390bf694f67a332d0916f0adde76bf64c351a6560401c3a53401442c220a68c"
+  "timelock": "0x8390bf694f67a332d0916f0adde76bf64c351a6560401c3a53401442c220a68c",
+  "lpBurnProof": "0x46f49864c203020bf9d2687d6e8d62b684a2ff37823d2772e0bff5920509e84a"
 }

@@ -18,6 +18,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Supernova | Every round with a winner: 1 in 25 chance to pay the whole Supernova to the winning tile |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
 | Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
+| Liquidity | GTS/SUI liquidity on Cetus is burned ([tx](https://suiscan.xyz/mainnet/tx/2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y)): no one can withdraw it |
 | Randomness | `sui::random` (validator-generated, unbiasable) |
 
 ## Contracts
