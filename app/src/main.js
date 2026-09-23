@@ -387,7 +387,8 @@ let quoteTimer = 0;
 const requestQuote = () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(() => quotePool(toMist($("swIn").value), swapDir === "sell"), 250); };
 // Pool output for this amount and direction, or 0 when there is no usable quote.
 const poolOut = (amt, a2b) => (QUOTE.amt === amt && QUOTE.a2b === a2b && !QUOTE.exceed ? QUOTE.out : 0);
-const reserveOut = amt => (STATE?.supply ? Math.floor(STATE.vault * amt / STATE.supply) : 0);
+// The reserve can only take up to the whole supply; beyond that there is no quote.
+const reserveOut = amt => (STATE?.supply && amt <= STATE.supply ? Math.floor(STATE.vault * amt / STATE.supply) : 0);
 const sellViaPool = amt => poolOut(amt, true) > reserveOut(amt);
 const buy = () => exec("Swap", "btnSwap", async tx => {
   const amt = toMist($("swIn").value);
@@ -1069,9 +1070,11 @@ function renderTrade() {
   const outMist = sell ? (viaPool ? poolOut(need, true) : reserveOut(need)) : poolOut(need, false);
   const known = need > 0 && outMist > 0;
   $("swOut").textContent = known ? fmt(outMist / MIST, 6) : "—";
-  const inSui = sell ? outMist / MIST : need / MIST;   // both sides valued at what this trade actually pays
-  $("swUsdIn").textContent = PRICE.sui && known ? usd(inSui * PRICE.sui) : "";
-  $("swUsdOut").textContent = PRICE.sui && known ? usd(inSui * PRICE.sui) : "";
+  // Each side at its own market value (GTS at the pool price), so fee and price impact show as the gap.
+  const gtsSuiPx = STATE?.market || STATE?.floor || 0;
+  const val = (mist, isGts) => (PRICE.sui ? usd(mist / MIST * (isGts ? gtsSuiPx : 1) * PRICE.sui) : "");
+  $("swUsdIn").textContent = need > 0 ? val(need, sell) : "";
+  $("swUsdOut").textContent = known ? val(outMist, !sell) : "";
   const rate = known ? (sell ? outMist / need : need / outMist) : sell ? STATE?.floor : STATE?.market;
   $("swRate").textContent = rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
   $("swRoute").textContent = viaPool ? "Cetus GTS/SUI pool" : "GTS reserve (burn at floor)";
@@ -1085,6 +1088,7 @@ function renderTrade() {
     if (!account) label = "Connect wallet";
     else if (need <= 0) { label = "Enter an amount"; dis = true; }
     else if (need > balIn) { label = `Insufficient ${tok}`; dis = true; }
+    else if (sell && !known) { label = STATE?.supply && need > STATE.supply ? "Exceeds GTS supply" : "No quote for this amount"; dis = true; }
     else if (!sell && QUOTE.amt === need && !QUOTE.a2b && QUOTE.exceed) { label = "Not enough liquidity"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
   }
