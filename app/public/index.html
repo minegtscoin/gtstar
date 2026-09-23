@@ -50,7 +50,6 @@
     </div>
   </div>
 </header>
-<div class="notice" id="netNotice" hidden>Sui Testnet preview. Switch your wallet to Testnet and get free test SUI at <a href="https://faucet.sui.io" target="_blank" rel="noopener">faucet.sui.io</a>.</div>
 
 <main>
   <!-- HOME -->
@@ -251,6 +250,14 @@
       <h1>Tokenomics</h1>
       <p class="sub">Live supply, emission and backing for GTS. Updates automatically from the chain.</p>
     </div>
+    <div class="ca">
+      <span class="ca-l">Contract address</span>
+      <code class="mono" id="caAddr">0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e::gts::GTS</code>
+      <button type="button" class="icon-btn" id="caCopy" aria-label="Copy contract address">
+        <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+      </button>
+      <a id="caScan" href="https://suiscan.xyz/mainnet/coin/0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e::gts::GTS" target="_blank" rel="noopener">Suiscan</a>
+    </div>
     <div class="kpis">
       <div><span>Circulating supply</span><b id="kSupply">—</b></div>
       <div><span>Scheduled max</span><b id="kSchedMax">—</b></div>
@@ -357,7 +364,7 @@
 <footer class="foot">
   <div class="foot-in">
     <span>GTStar on Sui</span>
-    <span class="foot-links"><a href="docs.html">Docs</a><a href="#explorer">Explorer</a><a href="docs.html#verify">Contracts</a><a id="pkgLink" href="#" target="_blank" rel="noopener">Suiscan</a></span>
+    <span class="foot-links"><a href="docs.html">Docs</a><a href="#explorer">Explorer</a><a href="docs.html#links">Contracts</a><a id="pkgLink" href="#" target="_blank" rel="noopener">Suiscan</a></span>
   </div>
 </footer>
 
