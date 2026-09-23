@@ -785,7 +785,6 @@ function renderRevenue() {
   const cfg = {
     reserve: { v: r => r.vault + (r.winners === 0 ? r.payout : 0), unit: "SUI", share: "4% of losing pot", label: "Added to the GTS reserve" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
-    creator: { v: r => r.dev, unit: "SUI", share: "1% of losing pot", label: "Creator fee" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);
@@ -793,7 +792,7 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "reserve" && r.winners === 0 ? "Fee plus pot (no miner on winning tile)" : revTab === "stakers" ? "Streamed over 7 days" : "Fee from losing pot"}</td>
+    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : r.winners === 0 ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
 }
