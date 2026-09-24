@@ -1,4 +1,4 @@
-// GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR hourly.
+// GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
@@ -41,7 +41,8 @@ export default async () => {
   let b;
   try {
     b = await board();
-    if (new Date().getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {
+    const now = new Date();
+    if (now.getUTCHours() === 0 && now.getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {
       await run("sweep", tx => tx.moveCall({ target: T("game::withdraw_dev_fees"), arguments: [tx.object(CFG.board)] }));
     }
   } catch (e) {
