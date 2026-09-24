@@ -891,7 +891,8 @@ function renderMine() {
 }
 
 // ---------- render: explorer ----------
-let actShown = 25, actTab = "rounds", revTab = "reserve", lbTab = "miners";
+const ROWS = 10;
+let actShown = ROWS, revShown = ROWS, lbShown = ROWS, actTab = "rounds", revTab = "reserve", lbTab = "miners";
 const openRounds = new Set();
 const txLink = d => `<a href="${SCAN}/tx/${d}" target="_blank" rel="noopener" data-stop>${d.slice(0, 6)}…</a>`;
 const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener"${nameOf(a) ? "" : ' class="mono"'} data-stop>${esc(label(a))}</a>`;
@@ -992,9 +993,10 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, 25).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 && (!r.ml || r.vault > 5 * r.dev) ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
+    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 && (!r.ml || r.vault > 5 * r.dev) ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
+  $("moreRev").hidden = rows.length <= revShown;
 }
 function renderLeaderboard() {
   let rows = [], sub = "", unit = "SUI";
@@ -1014,8 +1016,9 @@ function renderLeaderboard() {
   $("lbSub").textContent = sub;
   rows.sort((a, b) => b[1] - a[1]);
   $("lbTbl").innerHTML = `<thead><tr><th>Rank</th><th>Address</th><th class="r">Total</th></tr></thead><tbody>` +
-    (rows.slice(0, 20).map(([p, v], i) => `<tr><td>#${i + 1}</td><td>${acctLink(p)}</td><td class="r">${sui(v, 4)} ${unit}</td></tr>`).join("")
+    (rows.slice(0, lbShown).map(([p, v], i) => `<tr><td>#${i + 1}</td><td>${acctLink(p)}</td><td class="r">${sui(v, 4)} ${unit}</td></tr>`).join("")
       || `<tr><td colspan="3" class="muted">Nothing here yet.</td></tr>`) + `</tbody>`;
+  $("moreLb").hidden = rows.length <= lbShown;
 }
 
 // ---------- render: tokenomics ----------
@@ -1418,7 +1421,7 @@ document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = ()
 }));
 document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button").forEach(b => (b.onclick = () => {
   const set = ts.dataset.set, t = b.dataset.t;
-  if (set === "act") { actTab = t; actShown = 25; } else if (set === "rev") revTab = t; else lbTab = t;
+  if (set === "act") { actTab = t; actShown = ROWS; } else if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }
   renderExplorer();
 })));
 $("btnReserve").onclick = () => (account ? addReserve() : openWalletModal());
@@ -1426,7 +1429,9 @@ $("resAmt").oninput = renderReserveAdd;
 $("btnStakeClaim").onclick =() => (account ? claimStake() : openWalletModal());
 $("btnCompound").onclick = () => (account ? compound() : openWalletModal());
 $("stakeAmt").addEventListener("input", renderStake);
-$("moreAct").onclick = () => { actShown += 25; renderExplorer(); };
+$("moreAct").onclick = () => { actShown += ROWS; renderExplorer(); };
+$("moreRev").onclick = () => { revShown += ROWS; renderExplorer(); };
+$("moreLb").onclick = () => { lbShown += ROWS; renderExplorer(); };
 window.addEventListener("hashchange", route);
 window.addEventListener("resize", () => { if (view === "tokenomics" && $("chart").clientWidth !== chartSize) renderTokenomics(); });
 
