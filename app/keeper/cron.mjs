@@ -18,7 +18,7 @@ try {
   if (Date.now() - fs.statSync(lock).mtimeMs < 110_000) process.exit(0);
 }
 // X poster, each run in its own process. 6:00-6:04 PM US Eastern: the post (it posts at most once a day,
-// Tuesday and Friday only). Minute 30 of every third hour: engagement with new mentions.
+// Sunday, Tuesday and Friday only). Minute 30 of every third hour: engagement with new mentions.
 const poster = path.join(dir, "..", "gtstar-poster", "poster.mjs");
 const now = new Date(), et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
 const runPoster = args => import("child_process").then(({ spawn }) => {

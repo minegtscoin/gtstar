@@ -1,10 +1,11 @@
-// GTStar X poster — Hostinger cron entry (started once a day, posts twice a week).
+// GTStar X poster — Hostinger cron entry (started once a day, posts three times a week).
+// Sunday: tile of the week, hot and cold tiles from the live round history.
 // Tuesday: a data post built from live Sui numbers, compared with the last data snapshot.
 // Friday: a short, light post from a rotating pool (how it works, a question, a tip).
 // Posts through the X v2 API (OAuth 1.0a user context). No dependencies: Node 22 only.
 //   node poster.mjs                  post if today is a posting day and nothing went out yet
-//   node poster.mjs --dry            print both posts, do not send or save
-//   node poster.mjs --force data     post the data post now (or: --force fun)
+//   node poster.mjs --dry            print all three posts, do not send or save
+//   node poster.mjs --force data     post the data post now (or: --force fun, --force tiles)
 //   node poster.mjs --engage         like new mentions of @MineGTS1, repost players' win shares
 // Needs ~/gtstar-poster/.env with X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET.
 import fs from "fs";
@@ -20,7 +21,7 @@ if (fs.existsSync(envFile)) for (const line of fs.readFileSync(envFile, "utf8").
 }
 const DRY = process.argv.includes("--dry");
 const FORCE = process.argv.includes("--force") ? process.argv[process.argv.indexOf("--force") + 1] || "data" : null;
-const DATA_DAY = 2, FUN_DAY = 5; // US Eastern weekdays: Tuesday and Friday
+const TILE_DAY = 0, DATA_DAY = 2, FUN_DAY = 5; // US Eastern weekdays: Sunday, Tuesday, Friday
 const stateFile = path.join(dir, "state.json");
 
 const IDS = {
@@ -79,6 +80,28 @@ async function activitySince(sinceMs) {
     before = ev.pageInfo.startCursor;
   }
   return out;
+}
+
+// Tile history, newest round first: wins this week per tile, and how many rounds since each tile last
+// won. Stops once every tile has a last win and the week is covered (or after 10,000 rounds).
+async function tileStats(weekStartMs) {
+  const week = Array(25).fill(0), drought = Array(25).fill(null), all = Array(25).fill(0);
+  let seen = 0, weekRounds = 0, before = null;
+  for (let page = 0; page < 200; page++) {
+    const d = await gql(`{events(filter:{type:"${IDS.pkg}::game::RoundSettled"},last:50${before ? `,before:"${before}"` : ""}){
+      pageInfo{hasPreviousPage startCursor} nodes{timestamp contents{json}}}}`);
+    const ev = d.events;
+    let inWeek = false;
+    for (const e of [...ev.nodes].reverse()) {
+      const t = n(e.contents?.json?.winning_square);
+      if (Date.parse(e.timestamp) > weekStartMs) { week[t]++; weekRounds++; inWeek = true; }
+      if (drought[t] === null) drought[t] = seen;
+      all[t]++; seen++;
+    }
+    if (!ev.pageInfo.hasPreviousPage || (!inWeek && !drought.includes(null))) break;
+    before = ev.pageInfo.startCursor;
+  }
+  return { week, all, weekRounds, seen, drought: drought.map(v => v ?? seen), never: drought.map(v => v === null) };
 }
 
 async function suiUsd() {
@@ -159,7 +182,48 @@ function compose(s, prev, a, price, variant) {
   return withHead && xLength(withHead) <= 280 ? withHead : plain;
 }
 
-// Friday posts: short and human, no numbers that could go stale. Rotates in order.
+// Sunday posts: tile of the week. Rotates between four angles; every number comes from the round history.
+const names = ts => {
+  const l = ts.map(t => t + 1);
+  return l.length === 1 ? `Tile ${l[0]}` : `Tiles ${l.slice(0, -1).join(", ")} and ${l[l.length - 1]}`;
+};
+const topOf = arr => { const m = Math.max(...arr); return { max: m, tiles: arr.flatMap((v, i) => (v === m ? [i] : [])).slice(0, 3) }; };
+function composeTiles(st, variant) {
+  const hot = topOf(st.week);
+  const cold = topOf(st.drought);
+  const coldNever = st.never[cold.tiles[0]];
+  const coldLine = coldNever
+    ? `${names(cold.tiles)} ${cold.tiles.length > 1 ? "haven't" : "hasn't"} won a single round yet. ${int(st.seen)} rounds and counting.`
+    : `${names(cold.tiles)} hasn't won in ${int(cold.max)} rounds.`;
+  let v = variant;
+  if ((v === 1 || v === 2) && (st.weekRounds < 10 || hot.max < 2)) v = v === 1 ? 3 : 0; // quiet week: no hot tile
+  let body;
+  if (v === 0) body = [
+    coldLine, "",
+    "Every tile has the same 1 in 25 shot, every round. Due, or cursed?",
+  ];
+  else if (v === 1) body = [
+    `Tile of the week: ${names(hot.tiles)}, with ${hot.max} wins${hot.tiles.length > 1 ? " each" : ""}.`, "",
+    "Ride the hot streak, or fade it?",
+  ];
+  else if (v === 2) body = [
+    "Hot tile vs cold tile:", "",
+    `${names(hot.tiles)}: ${hot.max} wins this week`,
+    `${names(cold.tiles)}: ${coldNever ? "no wins yet" : `no win in ${int(cold.max)} rounds`}`, "",
+    "Which one gets your SUI next?",
+  ];
+  else {
+    const top = topOf(st.all), low = st.all.indexOf(Math.min(...st.all));
+    body = [
+      `${int(st.seen)} rounds in, the luckiest spot on the board is ${names(top.tiles)} with ${top.max} wins.`, "",
+      `The unluckiest: Tile ${low + 1}, with ${st.all[low]}.`, "",
+      "Same odds for every tile. Which one are you backing?",
+    ];
+  }
+  return [...body, "", "Link in bio."].join("\n");
+}
+
+// Friday posts: short and human, no numbers that could go stale. Rotates in order (26 posts, about half a year).
 const FUN = [
   `Pick a number from 1 to 25.
 
@@ -200,6 +264,91 @@ Link in bio.`,
 Play one round, claim your GTS, stake it. That's it. Your GTS keeps working while you sleep.
 
 Link in bio.`,
+  `How a round works:
+
+1. Put SUI on any of the 25 tiles
+2. 60 seconds later, one tile wins
+3. That tile splits the pot
+4. Everyone mines GTS
+
+Link in bio.`,
+  `Nobody picks the winning tile. Not the players, not the team.
+
+Sui's on-chain randomness does, and every result is public for anyone to check.
+
+Link in bio.`,
+  `Hot take: the best tile is the one nobody else is on.
+
+Fewer players on your tile means a bigger share of the pot when it hits.
+
+Link in bio.`,
+  `How do you pick your tile?
+
+Lucky number, birthday, or pure chaos?`,
+  `Your GTS isn't just points.
+
+Every one is backed by SUI in the reserve, and you can burn it for that SUI any time.
+
+Link in bio.`,
+  `When nobody is on the winning tile, part of the pot rolls into the Supernova.
+
+It keeps growing until a winning tile hits it and takes the whole thing.
+
+Link in bio.`,
+  `Things that take 60 seconds:
+
+Reading this post
+Heating up leftovers
+A full round of GTStar
+
+Only one of them pays. Link in bio.`,
+  `What's your GTStar style?
+
+A) One tile, all in
+B) Spread it out
+C) Follow whoever's winning
+
+Reply below.`,
+  `The earlier you mine, the more GTS you get.
+
+Emission halves as the game grows, so today's rounds pay the most they ever will.
+
+Link in bio.`,
+  `Tag a friend who always picks the same number.`,
+  `No sign-up form. No KYC. Just a Sui wallet and one tile.
+
+Your first round takes a minute.
+
+Link in bio.`,
+  `Winning one round is fun. Mining every round is the plan.
+
+Play small, stack GTS, stake it.
+
+Link in bio.`,
+  `Ever mined a token just by playing a game?
+
+On GTStar every round mints GTS to the players, win or lose.
+
+Link in bio.`,
+  `Built on Sui, so every round settles in seconds and every result stays on-chain for anyone to check.
+
+Come play one. Link in bio.`,
+  `Weekend check: how much GTS have you mined so far?
+
+Drop your number below.`,
+  `Small bets. Fast rounds. Real SUI.
+
+That's GTStar. Come see what a minute can do.
+
+Link in bio.`,
+  `Staking GTS is simple: stake, earn, unstake whenever you want.
+
+No lock-up. No waiting.
+
+Link in bio.`,
+  `If you could only play one tile forever, which one?
+
+Pick your number, 1 to 25.`,
 ];
 
 // X counts every URL as 23 characters.
@@ -256,13 +405,13 @@ async function engage() {
 
 // ---------- main ----------
 const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
-state.variant ??= 0; state.fun ??= 0;
+state.variant ??= 0; state.fun ??= 0; state.tiles ??= 0;
 const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 // Posting days and times follow US Eastern time (6 PM ET, the evening peak), including daylight saving.
 const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
 const today = et.toISOString().slice(0, 10), wd = et.getDay();
 if (process.argv.includes("--engage")) { await engage(); process.exit(0); }
-const kind = FORCE || (DRY ? "both" : wd === DATA_DAY ? "data" : wd === FUN_DAY ? "fun" : null);
+const kind = FORCE || (DRY ? "all" : wd === TILE_DAY ? "tiles" : wd === DATA_DAY ? "data" : wd === FUN_DAY ? "fun" : null);
 if (!kind || (!FORCE && !DRY && state.day === today)) process.exit(0);
 
 async function dataPost() {
@@ -295,8 +444,14 @@ ${text}`);
   console.log(new Date().toISOString(), "posted", id);
 }
 
-if (kind === "data" || kind === "both") {
+if (kind === "tiles" || kind === "all") {
+  const st = await tileStats(Date.now() - 7 * 86_400_000);
+  // Too few rounds for tile stats to mean anything: post a light one instead.
+  if (st.seen >= 25) await send(composeTiles(st, state.tiles % 4), () => state.tiles++);
+  else await send(FUN[state.fun % FUN.length], () => state.fun++);
+}
+if (kind === "data" || kind === "all") {
   const d = await dataPost();
   if (d) await send(d.text, () => { state.last = d.s; state.variant++; });
 }
-if (kind === "fun" || kind === "both") await send(FUN[state.fun % FUN.length], () => state.fun++);
+if (kind === "fun" || kind === "all") await send(FUN[state.fun % FUN.length], () => state.fun++);
