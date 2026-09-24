@@ -1448,7 +1448,7 @@ async function checkVersion() {
 setInterval(checkVersion, 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion().then(reloadIfStale); });
 
-$("pkgLink").href = `${SCAN}/object/${IDS.package}`;
+$("pkgLink").href = `${SCAN}/coin/${T_GTS}`;
 $("caAddr").textContent = T_GTS;
 $("caScan").href = `${SCAN}/coin/${T_GTS}`;
 $("caCopy").onclick = $("caAddr").onclick = async () => { try { await navigator.clipboard.writeText(T_GTS); toast("Contract address copied."); } catch { toast(T_GTS); } };
