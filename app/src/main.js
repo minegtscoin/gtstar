@@ -274,7 +274,7 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet." },
+  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 14: "The game was just upgraded. Refresh the page and try again." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake." },
   gts: { 1: "Amount must be greater than zero.", 2: "Reserve is empty." },
 };
@@ -986,7 +986,7 @@ function minersHtml(r) {
 function renderRevenue() {
   const cfg = {
     reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + half when no one wins", label: "Added to the GTS reserve" },
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Pot when no one wins", label: "Added to the Supernova" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Half the pot when no one wins", label: "Added to the Supernova" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -1030,7 +1030,9 @@ function renderTokenomics() {
   const now = Date.now();
   const genesis = STATE.board.genesis;
   const supply = STATE.supply / MIST;
-  const emitted = STATE.minted / MIST;
+  const minted = STATE.minted / MIST;
+  // Mined GTS is minted only when claimed, so everything earned comes from the settled rounds (full history only).
+  const emitted = HIST && !HIST.capped ? Math.max(minted, HIST.totals.emitted / MIST) : minted;
   const burned = HIST ? HIST.totals.burned / MIST : null;
   $("kSupply").textContent = fmt(supply, 2);
   $("kMinedPct").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
@@ -1049,7 +1051,7 @@ function renderTokenomics() {
   $("kNextReward").textContent = done || next > LAST_ROUND ? "0 GTS" : `${fmt(rewardFor(next), 6)} GTS`;
   $("kEnds").textContent = `After round ${fmt(LAST_ROUND, 0)}`;
   $("kEmitted").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
-  $("kUnclaimed").textContent = emitted == null ? "—" : `${fmt(Math.max(0, emitted - supply - burned), 3)} GTS`;
+  $("kUnclaimed").textContent = HIST && !HIST.capped ? `${fmt(Math.max(0, emitted - minted), 3)} GTS` : "—";
   $("kFloor2").textContent = `${fmt(STATE.floor, 6)} SUI`;
   $("kBacked").textContent = `${sui(STATE.vault, 4)} SUI`;
   $("kMarket").textContent = marketText();
@@ -1244,6 +1246,9 @@ async function refresh() {
   try {
     const [g, u] = await Promise.all([loadGlobal(), account ? loadUser(account.address) : Promise.resolve(null)]);
     STATE = g; USER = u; trackRounds(); render(); renderWelcome();
+    // A round to claim older than the last 12 is only in the full history: load it so the amounts show.
+    const m = u?.miner;
+    if (!HIST && m && m.round_id !== 0 && m.round_id < g.board.cur_id && !g.recent.some(r => r.round === m.round_id)) refreshHistory();
   } catch (e) { console.warn("refresh failed", e); }
 }
 let histBusy = false;

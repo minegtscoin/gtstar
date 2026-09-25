@@ -36,8 +36,8 @@ if (!$low && !$test) exit(0);
 
 $subject = $test ? "GTStar alerts are on" : "GTStar: top up " . implode(" and ", array_map(fn($n) => explode(" ", $n)[0], $low));
 $body = ($test
-    ? "Alerts are set up. You will get an email when a bot wallet drops below " . MIN_SUI . " SUI (at most once a day per wallet).\n\n"
-    : "A bot wallet is below " . MIN_SUI . " SUI. Send SUI to the address below to keep the game running.\n\n")
+    ? "Alerts are set up. You will get an email when the keeper or House drops below " . MIN_SUI . " SUI, or a bot below " . MIN_SUI_BOT . " SUI (at most once a day per wallet).\n\n"
+    : "A GTStar wallet is running low (keeper and House below " . MIN_SUI . " SUI, bots below " . MIN_SUI_BOT . " SUI). Send SUI to the address below to keep the game running.\n\n")
   . implode("\n\n", $lines) . "\n\nhttps://minegts.fun\n";
 $ok = mail(TO, $subject, $body, "From: " . FROM . "\r\nContent-Type: text/plain; charset=utf-8");
 if ($ok && !$test) file_put_contents($state, json_encode($sent));

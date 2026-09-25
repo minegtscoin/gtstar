@@ -30,11 +30,12 @@ The protocol is split so that the economics are locked while the product can sti
 | Package | Path | Contents | Upgradeable |
 |---|---|---|---|
 | `gts_token` | [`contracts/token`](contracts/token) | GTS coin, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
-| `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements |
+| `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements, through the 48h timelock |
+| `gtstar_timelock` | [`contracts/timelock`](contracts/timelock) | Holds the game's `UpgradeCap`, 48h upgrade delay | **No**, immutable |
 
 The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can raise that ceiling. The game's round-based schedule always stays under it.
 
-The game holds the `MinterCap` and the SUI of open rounds, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
+The game holds the `MinterCap`, the SUI of open rounds and the Supernova, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
 
 Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 
@@ -45,9 +46,10 @@ Deployed addresses are listed in [`deployments/`](deployments) and on the [Verif
 ```
 contracts/token   Immutable token package (Move)
 contracts/game    Game and staking package (Move)
-app/              Web app (static, non-custodial) and the keeper
+contracts/timelock  48h upgrade timelock for the game (Move)
+app/              Web app (static, non-custodial), the keeper and the X poster
 bot/              Standalone keeper that settles rounds
-scripts/          Publish and launch script
+scripts/          Publish (launch) and upgrade (through the timelock) scripts
 deployments/      Object IDs per network
 ```
 
@@ -58,12 +60,13 @@ Requirements: [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui
 ```sh
 cd contracts/token && sui move test
 cd contracts/game && sui move test
+cd contracts/timelock && sui move test
 ```
 
 ```sh
 cd app
 npm install
-node build.js testnet     # or mainnet
+node build.js mainnet
 node serve.js             # http://localhost:4173
 ```
 
@@ -73,7 +76,7 @@ node serve.js             # http://localhost:4173
 node scripts/publish.js mainnet
 ```
 
-The script publishes both packages, installs the game's minting right, starts the emission clock, freezes the token metadata and makes the token package immutable.
+The script publishes the token and game packages, installs the game's minting right, starts the emission clock, freezes the token metadata and makes the token package immutable. The game's `UpgradeCap` was then locked in the timelock; upgrades run with `node scripts/upgrade.mjs announce` and, 48 hours later, `node scripts/upgrade.mjs execute`.
 
 ## Keeper
 
@@ -81,8 +84,7 @@ Rounds are settled by a permissionless `settle` call. The keeper runs every minu
 
 ## Security
 
-- 21 Move unit tests across both packages: emission ceiling, hard cap, burn accounting, redemption floor, pot solvency, double claims, freeze window, payment checks, minimum deposit, early settlement, install once, streamed staking, sniping resistance.
-- End-to-end tests against a live network: `node app/e2e.mjs testnet`.
+- 34 Move unit tests across the three packages: emission ceiling, hard cap, burn accounting, redemption floor, pot solvency, double claims, freeze window, payment checks, minimum deposit, early settlement, install once, streamed staking, sniping resistance, Supernova rollover and payout, version guard, reward scaling, upgrade timelock.
 
 ## License
 
