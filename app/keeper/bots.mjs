@@ -1,6 +1,6 @@
-// GTStar Bots: two public, named bot wallets that keep the board moving. Each plays BOT_PER_TILE_MIST
-// on one random tile about 12 times a day at random times (at least 20 minutes apart), never in the
-// same round as the other bot. Every GTS they mine is burned through the reserve: redeem burns it and
+// GTStar Bots: two public bot wallets that keep the board moving. Each plays BOT_PER_TILE_MIST
+// on one random tile at random times (at least 20 minutes apart), never in the same round as the
+// other bot: Bot 1 about 12 times a day, Bot 2 about 6. Every GTS they mine is burned through the reserve: redeem burns it and
 // the SUI it pays out goes straight back into the reserve, so supply drops and the floor rises.
 // Signs with BOT1_KEY / BOT2_KEY; each bot is off when its key is unset.
 // Schedule: .bots-state.json next to the keeper ({address: next play time in ms}).
@@ -12,15 +12,16 @@ import { Transaction } from "@mysten/sui/transactions";
 const PER_TILE = BigInt(process.env.BOT_PER_TILE_MIST || 10_000_000);   // 0.01 SUI
 const KEEP = BigInt(process.env.BOT_KEEP_MIST || 100_000_000);          // stop below 0.1 SUI
 const MIN_GAP_MS = 20 * 60_000;
-const MEAN_EXTRA_MS = 100 * 60_000; // gap = 20 min + random (mean 100 min) = 2 h on average, ~12 rounds a day
+// Gap = 20 min + random extra: Bot 1 averages 2 h (~12 rounds a day), Bot 2 4 h (~6 a day).
+const MEAN_EXTRA_MS = { BOT1_KEY: 100 * 60_000, BOT2_KEY: 220 * 60_000 };
 const LEAD_MS = 8_000;
 const TOKEN = "0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e";
 const GTS = `${TOKEN}::gts::GTS`;
 
 export function makeBots(client, CFG, log, dir) {
-  const bots = ["BOT1_KEY", "BOT2_KEY"].map(k => process.env[k]).filter(Boolean).map(k => {
-    const signer = Ed25519Keypair.fromSecretKey(k);
-    return { signer, me: signer.toSuiAddress() };
+  const bots = Object.keys(MEAN_EXTRA_MS).filter(k => process.env[k]).map(k => {
+    const signer = Ed25519Keypair.fromSecretKey(process.env[k]);
+    return { signer, me: signer.toSuiAddress(), extra: MEAN_EXTRA_MS[k] };
   });
   if (!bots.length) return null;
   const MINER = `${CFG.origin || CFG.package}::game::Miner`;
@@ -28,7 +29,7 @@ export function makeBots(client, CFG, log, dir) {
   const file = path.join(dir, ".bots-state.json");
   let state = {};
   try { state = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  const nextGap = () => MIN_GAP_MS + Math.round(-Math.log(1 - Math.random()) * MEAN_EXTRA_MS);
+  const nextGap = bot => MIN_GAP_MS + Math.round(-Math.log(1 - Math.random()) * bot.extra);
   const save = () => fs.writeFileSync(file, JSON.stringify(state));
   let changed = false;
   for (const b of bots) if (!state[b.me]) { state[b.me] = Date.now() + Math.round(Math.random() * 2 * 3600_000); changed = true; }
@@ -72,7 +73,7 @@ export function makeBots(client, CFG, log, dir) {
     const bot = all.find(x => due.some(d => d.me === x.me));
     if (bot.balance < PER_TILE + KEEP) {
       failed.set(bot.me, cur);
-      state[bot.me] = now + nextGap(); save();
+      state[bot.me] = now + nextGap(bot); save();
       log.push(`bot ${bot.me.slice(0, 6)} low balance ${Number(bot.balance) / 1e9} SUI`);
       return false;
     }
@@ -104,7 +105,7 @@ export function makeBots(client, CFG, log, dir) {
     if (fresh) tx.transferObjects([m], bot.me);
 
     failed.set(bot.me, cur);
-    state[bot.me] = now + nextGap(); save(); // a failed attempt waits for the next slot too
+    state[bot.me] = now + nextGap(bot); save(); // a failed attempt waits for the next slot too
     const r = await client.signAndExecuteTransaction({ transaction: tx, signer: bot.signer });
     const res = r.Transaction || r.FailedTransaction;
     log.push(`bot ${bot.me.slice(0, 6)} join #${cur}${burn.length ? " +burn" : ""} ${res.status.success ? "ok" : "failed"} ${res.digest}`);

@@ -10,7 +10,7 @@ const WALLETS = [
   "Keeper (draws rounds, pays the free first round)" => "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "House (plays alongside real players)" => "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a",
   "Bot 1 (plays about 12 rounds a day)" => "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa",
-  "Bot 2 (plays about 12 rounds a day)" => "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7",
+  "Bot 2 (plays about 6 rounds a day)" => "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7",
 ];
 $state = __DIR__ . "/.alert-state.json";
 $test = in_array("--test", $argv ?? [], true);
