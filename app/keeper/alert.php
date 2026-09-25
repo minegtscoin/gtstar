@@ -2,7 +2,10 @@
 // Low-balance email alert for the bot wallets. Run by the keeper cron (cron.mjs) every 10 minutes:
 //   php ~/gtstar-keeper/alert.php          check and email if a wallet is low (at most once a day each)
 //   php ~/gtstar-keeper/alert.php --test   send a test email with the current balances
-const TO = "alerts@example.invalid";
+// Recipient comes from ALERT_TO in the keeper's .env (kept off GitHub).
+$env = is_file(__DIR__ . "/.env") ? file_get_contents(__DIR__ . "/.env") : "";
+define("TO", preg_match('/^\s*ALERT_TO\s*=\s*(\S+)\s*$/m', $env, $m) ? $m[1] : "");
+if (TO === "") exit(1);
 const FROM = "GTStar Alerts <alerts@minegts.fun>";
 const MIN_SUI = 1.5;
 const MIN_SUI_BOT = 0.5; // the bots only need SUI for their own small rounds
