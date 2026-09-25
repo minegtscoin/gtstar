@@ -1,4 +1,5 @@
 // GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
+// The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
 // and runs the House (house.mjs) and the GTStar Bots (bots.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
@@ -48,6 +49,7 @@ export default async () => {
     if (now.getUTCHours() === 0 && now.getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {
       await run("sweep", tx => tx.moveCall({ target: T("game::withdraw_dev_fees"), arguments: [tx.object(CFG.board)] }));
     }
+    if (house && now.getUTCHours() === 12 && now.getUTCMinutes() === 0) await house.addLiquidity();
   } catch (e) {
     log.push(`error ${String(e.message || e).slice(0, 200)}`);
   }
@@ -56,7 +58,7 @@ export default async () => {
   while (Date.now() - start < WINDOW_MS) {
     try {
       if (!b) b = await board();
-      if (house && await house(b)) { b = await board(); continue; }
+      if (house && await house.tick(b)) { b = await board(); continue; }
       if (bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
       const end = Number(b.cur_end_ms);
