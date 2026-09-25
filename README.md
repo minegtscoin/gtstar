@@ -6,6 +6,8 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 
 - App: https://minegts.fun
 - Docs and whitepaper: https://minegts.fun/docs.html
+- X: https://x.com/MineGTS1
+- Telegram: https://t.me/MineGTS
 
 ## Overview
 
