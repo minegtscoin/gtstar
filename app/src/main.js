@@ -33,6 +33,8 @@ const short = s => (s ? s.slice(0, 6) + "…" + s.slice(-4) : "");
 let NAMES = {};
 const nameOf = a => NAMES[a] || "";
 const label = a => nameOf(a) || short(a);
+// GTStar Bot 1 and 2 (keeper/bots.mjs) play small rounds to keep the board moving; they are left off the leaderboard.
+const BOTS = new Set(["0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa", "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7"]);
 const fmt = (n, d = 4) => Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
 const sui = (mist, d = 4) => fmt(mist / MIST, d);
 const parseAmt = v => { const x = parseFloat(String(v).replace(/,/g, "")); return isFinite(x) && x > 0 ? x : 0; };
@@ -1014,6 +1016,7 @@ function renderLeaderboard() {
     rows = [...HIST.stakes.entries()].filter(([, v]) => v > 0);
   }
   $("lbSub").textContent = sub;
+  rows = rows.filter(([p]) => !BOTS.has(p));
   rows.sort((a, b) => b[1] - a[1]);
   $("lbTbl").innerHTML = `<thead><tr><th>Rank</th><th>Address</th><th class="r">Total</th></tr></thead><tbody>` +
     (rows.slice(0, lbShown).map(([p, v], i) => `<tr><td>#${i + 1}</td><td>${acctLink(p)}</td><td class="r">${sui(v, 4)} ${unit}</td></tr>`).join("")

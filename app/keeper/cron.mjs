@@ -6,10 +6,11 @@ import path from "path";
 
 const dir = path.dirname(new URL(import.meta.url).pathname);
 for (const line of fs.readFileSync(path.join(dir, ".env"), "utf8").split("\n")) {
-  const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);
+  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
   if (m) process.env[m[1]] ??= m[2];
 }
 process.env.KEEPER_WINDOW_MS ??= "50000";
+process.env.BOTS_DIR ??= dir;
 
 const lock = path.join(dir, ".lock");
 try {

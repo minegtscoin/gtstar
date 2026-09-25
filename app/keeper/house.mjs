@@ -1,5 +1,6 @@
 // GTStar House: a public, named house wallet that joins a round only after a real player has
-// started it, so nobody plays alone and every round has a winner. It never starts a round itself.
+// started it, so nobody plays alone and every round has a winner. It never starts a round itself,
+// and stays out of rounds only the GTStar Bots have joined (bots.mjs).
 // Like a normal player it puts HOUSE_PER_TILE_MIST on one random tile. It claims its previous round
 // inside the same transaction.
 // Signs with HOUSE_KEY; does nothing when that is unset.
@@ -10,7 +11,7 @@ const PER_TILE = BigInt(process.env.HOUSE_PER_TILE_MIST || 10_000_000);        /
 const KEEP = BigInt(process.env.HOUSE_KEEP_MIST || 300_000_000);               // never spend below 0.3 SUI
 const LEAD_MS = 8_000; // join only if the round has at least this long before its deploy freeze
 
-export function makeHouse(client, CFG, log) {
+export function makeHouse(client, CFG, log, botsIn) {
   const key = process.env.HOUSE_KEY;
   if (!key) return null;
   const signer = Ed25519Keypair.fromSecretKey(key);
@@ -37,6 +38,7 @@ export function makeHouse(client, CFG, log) {
     if (Date.now() > Number(b.cur_end_ms) - Number(b.freeze_ms) - LEAD_MS) return false;
     if (failedRound === Number(b.cur_id)) return false;
     if (miner && miner.round_id === Number(b.cur_id)) return false;
+    if (botsIn && Number(b.cur_players) - await botsIn(Number(b.cur_id)) < 1) return false;
     const balance = await load();
     if (miner && miner.round_id === Number(b.cur_id)) return false;
     const total = PER_TILE;
