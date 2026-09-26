@@ -6,6 +6,7 @@ RewriteRule ^(whitepaper\.html|whitepaper|docs)/?$ /docs.html [L,R=301]
 RewriteRule ^api/supply/(total|circulating|max)/?$ /supply.php?q=$1 [L]
 RewriteRule ^api/names/?$ /names.php [L]
 RewriteRule ^api/welcome/?$ /welcome.php [QSA,L]
+RewriteRule ^api/history/?$ /history.php [L]
 
 <IfModule mod_headers.c>
   Header set Cache-Control "no-cache"

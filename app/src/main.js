@@ -153,8 +153,17 @@ async function allEvents(type) {
   }
   return { list: out, capped: more };
 }
+// The site's cache of the same events (history.php) answers in one request; paging through Sui
+// directly is the fallback when it is down or more than 2 minutes behind.
+async function cachedEvents() {
+  const h = await getJson(`/api/history?t=${Date.now()}`, 6000);
+  if (!(h.at > Date.now() / 1000 - 120)) throw new Error("history cache stale");
+  const ev = k => ({ list: (h[k] || []).slice().reverse(), capped: false });
+  return [ev("settled"), ev("deployed"), ev("redeemed"), ev("staked"), ev("unstaked"), ev("ml")];
+}
 async function loadHistory() {
-  const [settled, deployed, redeemed, staked, unstaked, mlEv] = await Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.staked), allEvents(EV.unstaked), EV.ml ? allEvents(EV.ml) : { list: [] }]);
+  const [settled, deployed, redeemed, staked, unstaked, mlEv] = await cachedEvents().catch(() =>
+    Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.staked), allEvents(EV.unstaked), EV.ml ? allEvents(EV.ml) : { list: [] }]));
   const ml = mlRows(mlEv.list.map(e => e.j));
   const stakes = new Map();
   staked.list.forEach(e => stakes.set(e.j.player, (stakes.get(e.j.player) || 0) + num(e.j.amount)));
@@ -196,22 +205,30 @@ const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.start
 
 // A wallet that never answers must not leave the app waiting forever.
 const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+let offChange = null, connecting = false;
 async function connect(w, silent = false) {
+  // A sign-in window closed without an answer never settles: give up after 2 minutes.
   const res = silent
     ? await within(w.features["standard:connect"].connect({ silent: true }), 4000)
-    : await w.features["standard:connect"].connect();
+    : await within(w.features["standard:connect"].connect(), 120_000);
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
-  wallet = w; account = accs[0];
+  wallet = w; account = accs[0]; USER = null;
   try { localStorage.setItem("gtstar.wallet", isWeb(w) ? WEB_KEY : w.name); } catch {}
-  w.features["standard:events"]?.on("change", ({ accounts }) => {
-    if (accounts) { account = accounts[0] || null; if (!account) wallet = null; USER = null; renderWallet(); refresh(); loadWelcome(); }
-  });
+  // One listener, for the wallet in use: account switches in the wallet show up here.
+  offChange?.();
+  offChange = w.features["standard:events"]?.on("change", ({ accounts }) => {
+    if (wallet !== w || !accounts) return;
+    const next = accounts[0] || null;
+    if (next?.address === account?.address) return;
+    account = next; if (!account) wallet = null; USER = null; renderWallet(); refresh(); loadWelcome();
+  }) || null;
   renderWallet(); refresh(); loadWelcome();
   return true;
 }
 async function disconnect() {
-  try { await wallet?.features["standard:disconnect"]?.disconnect(); } catch {}
+  offChange?.(); offChange = null;
+  try { await within(wallet?.features["standard:disconnect"]?.disconnect() ?? Promise.resolve(), 4000); } catch {}
   try { localStorage.removeItem("gtstar.wallet"); } catch {}
   wallet = null; account = null; USER = null;
   $("acctMenu").hidden = true; $("mNameForm").hidden = true;
@@ -256,6 +273,7 @@ async function startConnect(w) {
   catch (e) {
     const m = String(e?.message || e);
     toast(/reject|cancel|denied/i.test(m) ? "Connection cancelled."
+      : m === "timeout" ? "No answer from the wallet. Try again."
       : /open new window/i.test(m) ? "Your browser blocked the sign-in window. Allow pop-ups for this site and try again."
       : "Connection failed: " + m, true);
   }
@@ -267,7 +285,13 @@ async function autoReconnect() {
   try { name = localStorage.getItem("gtstar.wallet"); } catch {}
   if (!name) return;
   if (name === WEB_KEY) { try { await connect(SLUSH_WEB, true); } catch {} return; }
-  const tryIt = async () => { const w = suiWallets().find(x => x.name === name); if (w && !wallet) { try { await connect(w, true); } catch {} } };
+  // The extension may register late; only one silent attempt runs at a time.
+  const tryIt = async () => {
+    const w = suiWallets().find(x => x.name === name);
+    if (!w || wallet || connecting) return;
+    connecting = true;
+    try { await connect(w, true); } catch {} finally { connecting = false; }
+  };
   await tryIt();
   walletsApi.on("register", tryIt);
 }
@@ -286,7 +310,8 @@ function friendlyError(e) {
   const mod = a1 ? a1[2] : a2 && a2[1], code = a1 ? +a1[1] : a2 && +a2[2];
   if (mod && ERRORS[mod]?.[code]) return ERRORS[mod][code];
   if (/reject|cancel/i.test(m)) return "Transaction cancelled.";
-  if (/InsufficientGas|insufficient|GasBalanceTooLow|balance/i.test(m)) return "Insufficient SUI balance.";
+  if (/InsufficientGas|GasBalanceTooLow|insufficient gas/i.test(m)) return "Insufficient SUI balance.";
+  if (/insufficient/i.test(m)) return /GTS/.test(m) ? "Insufficient GTS balance." : "Insufficient balance.";
   if (/not found|deleted|version/i.test(m)) return "Your balance just changed. Try again.";
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
@@ -308,7 +333,7 @@ async function exec(label, btnId, build, needMist = 0) {
   try {
     // Coin and miner IDs from a cached view may have been consumed by an earlier transaction,
     // so re-read the wallet unless the cached view is fresh and nothing was sent since.
-    if (!USER || userAt <= txAt || Date.now() - userAt > 6000) USER = await loadUser(account.address);
+    if (!USER || userAt <= txAt || Date.now() - userAt > 6000) { const s = ++seqU; USER = await loadUser(account.address); shownU = s; }
     const tx = new Transaction();
     tx.setSender(account.address);
     await build(tx);
@@ -332,12 +357,18 @@ function claimInto(tx, minerArg) {
   tx.transferObjects([g, s], account.address);
 }
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
+// GTS may sit partly in the address balance (not as Coin objects); the shortfall is withdrawn from there.
 function gtsCoin(tx, amount, split = amount) {
   const coins = USER?.gtsCoins || [];
-  const total = coins.reduce((a, c) => a + c.balance, 0);
-  if (!coins.length || total < amount) throw new Error("Insufficient GTS balance.");
-  const primary = tx.object(coins[0].id);
-  if (coins.length > 1) tx.mergeCoins(primary, coins.slice(1).map(c => tx.object(c.id)));
+  const inCoins = coins.reduce((a, c) => a + c.balance, 0);
+  if ((USER?.gts || 0) < amount) throw new Error("Insufficient GTS balance.");
+  const parts = coins.map(c => tx.object(c.id));
+  if (inCoins < amount) {
+    const w = tx.withdrawal({ amount: amount - inCoins, type: T_GTS });
+    parts.push(tx.moveCall({ target: "0x2::coin::redeem_funds", typeArguments: [T_GTS], arguments: [w] })[0]);
+  }
+  const primary = parts[0];
+  if (parts.length > 1) tx.mergeCoins(primary, parts.slice(1));
   const [c] = tx.splitCoins(primary, [split]);
   return c;
 }
@@ -1160,7 +1191,7 @@ function renderStake() {
 let PRICE = { sui: null };
 // A failed or rate-limited source never overwrites the last good price.
 const okPrice = sui => (sui > 0 && isFinite(sui) ? { sui } : null);
-const getJson = url => within(fetch(url).then(r => r.json()), 8000);
+const getJson = (url, ms = 8000) => within(fetch(url).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }), ms);
 async function loadPrice() {
   let p = null;
   try {
@@ -1242,14 +1273,24 @@ function render() {
   if (view === "tokenomics") renderTokenomics();
   if (view === "stake") renderStake();
 }
+// Refreshes overlap (poll, wallet change, after a transaction). A reply only counts if nothing newer has
+// been shown yet and, for the wallet view, the same wallet is still signed in; the board and the wallet
+// load independently so one slow or failed read never holds back the other.
+let seqG = 0, seqU = 0, shownG = 0, shownU = 0;
 async function refresh() {
-  try {
-    const [g, u] = await Promise.all([loadGlobal(), account ? loadUser(account.address) : Promise.resolve(null)]);
-    STATE = g; USER = u; trackRounds(); render(); renderWelcome();
-    // A round to claim older than the last 12 is only in the full history: load it so the amounts show.
-    const m = u?.miner;
-    if (!HIST && m && m.round_id !== 0 && m.round_id < g.board.cur_id && !g.recent.some(r => r.round === m.round_id)) refreshHistory();
-  } catch (e) { console.warn("refresh failed", e); }
+  const sg = ++seqG, su = ++seqU, addr = account?.address;
+  const g = loadGlobal().then(g => {
+    if (sg < shownG) return;
+    shownG = sg; STATE = g; trackRounds(); render();
+  }, e => console.warn("refresh failed", e));
+  const u = (addr ? loadUser(addr) : Promise.resolve(null)).then(u => {
+    if (su < shownU || account?.address !== addr) return;
+    shownU = su; USER = u; render(); renderWelcome();
+  }, e => console.warn("wallet refresh failed", e));
+  await Promise.all([g, u]);
+  // A round to claim older than the last 12 is only in the full history: load it so the amounts show.
+  const m = USER?.miner;
+  if (STATE && !HIST && m && m.round_id !== 0 && m.round_id < STATE.board.cur_id && !STATE.recent.some(r => r.round === m.round_id)) refreshHistory();
 }
 let histBusy = false;
 async function refreshHistory() {
