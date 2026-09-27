@@ -1,3 +1,10 @@
+// Header menu (inline scripts are blocked by the site's CSP).
+(function(){
+  var b = document.getElementById("moreBtn"), m = document.getElementById("moreMenu");
+  if (!b || !m) return;
+  b.onclick = function (e) { e.stopPropagation(); m.hidden = !m.hidden; b.setAttribute("aria-expanded", !m.hidden); };
+  document.addEventListener("click", function () { m.hidden = true; b.setAttribute("aria-expanded", "false"); });
+})();
 // Docs page: contract addresses and on-chain proofs from config.js.
 (function(){
   var C = window.GTSTAR_CONFIG; if (!C) return;
