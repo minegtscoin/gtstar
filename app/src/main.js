@@ -240,6 +240,15 @@ const walletsApi = getWallets();
 const WEB_KEY = "slush-web";
 const SLUSH_WEB = new SlushWallet({ name: "GTStar", metadata: { id: "com.mystenlabs.suiwallet.web", walletName: "Slush", icon: SLUSH_WALLET_ICON, enabled: true } });
 const isWeb = w => !!w && w === SLUSH_WEB;
+// Slush opens its sign-in and approval screens with window.open("about:blank", "_blank"), which browsers show
+// as a full tab. Give that call a size so it opens as a small popup window centered over the site.
+const openWindow = window.open.bind(window);
+window.open = (url, target, features) => {
+  if (url !== "about:blank" || target !== "_blank" || features) return openWindow(url, target, features);
+  const w = 440, h = 720;
+  const left = Math.round(window.screenX + (window.outerWidth - w) / 2), top = Math.round(window.screenY + (window.outerHeight - h) / 2);
+  return openWindow(url, target, `popup=yes,width=${w},height=${h},left=${Math.max(0, left)},top=${Math.max(0, top)}`);
+};
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
 // A wallet that never answers must not leave the app waiting forever.
