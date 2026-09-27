@@ -17,14 +17,14 @@ $TYPES = [
 
 $dir = dirname(__DIR__, 3) . "/gtstar-data";
 $file = "$dir/history.json";
-$serve = function () use ($file) {
-  if (!is_file($file)) { http_response_code(503); echo json_encode(["error" => "unavailable"]); exit; }
+$body = function () use ($file) {
+  if (!is_file($file)) { http_response_code(503); return json_encode(["error" => "unavailable"]); }
   $h = json_decode(file_get_contents($file), true);
   $out = ["at" => $h["at"] ?? 0];
   foreach ($h["types"] ?? [] as $k => $t) $out[$k] = $t["list"];
-  echo json_encode($out, JSON_UNESCAPED_SLASHES);
-  exit;
+  return json_encode($out, JSON_UNESCAPED_SLASHES);
 };
+$serve = function () use ($body) { echo $body(); exit; };
 if (is_file($file) && time() - filemtime($file) < 5) $serve();
 
 // One updater at a time; everyone else gets the current file.
@@ -32,6 +32,16 @@ if (is_file($file) && time() - filemtime($file) < 5) $serve();
 $lock = fopen("$dir/history.lock", "c");
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) $serve();
 
+// With a cache on disk, answer from it now and refresh after the response is sent, so no visitor waits
+// on GraphQL (the site accepts history up to 2 minutes old).
+$late = is_file($file);
+if ($late) {
+  ignore_user_abort(true);
+  echo $body();
+  if (function_exists("litespeed_finish_request")) litespeed_finish_request();
+  elseif (function_exists("fastcgi_finish_request")) fastcgi_finish_request();
+  else flush();
+}
 $h = is_file($file) ? json_decode(file_get_contents($file), true) : null;
 if (!is_array($h)) $h = ["types" => []];
 // The next page of every type that has one, all requested at once.
@@ -69,4 +79,4 @@ $tmp = "$file.tmp";
 if (file_put_contents($tmp, json_encode($h, JSON_UNESCAPED_SLASHES)) !== false) rename($tmp, $file);
 if (!$ok) @touch($file, time() - 5);
 flock($lock, LOCK_UN);
-$serve();
+if (!$late) $serve();

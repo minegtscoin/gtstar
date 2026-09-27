@@ -208,7 +208,8 @@ async function loadUser(addr) {
     }
   }
   userAt = Date.now();
-  const miner = miners.find(m => num(m.f.round_id) !== 0) || miners[0] || null;
+  // With several Miners, use the one in the newest round: since v7 a round accepts one Miner per address.
+  const miner = miners.reduce((a, m) => (!a || num(m.f.round_id) > num(a.f.round_id) ? m : a), null);
   return {
     sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance),
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
