@@ -174,6 +174,21 @@ async function freshBoard(board, tGenesis) {
     return f.cur_id > board.cur_id || !f.cur_started ? f : board;
   } catch (e) { console.warn("fullnode board read failed", e); return board; }
 }
+// Order of board states: a later round, then a started round, then more SUI deployed. Never go backwards.
+const boardKey = b => [b.cur_id, b.cur_started ? 1 : 0, b.cur_total];
+const newerBoard = (a, b) => { const x = boardKey(a), y = boardKey(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
+// Live board straight from a fullnode, separate from the slower indexer: the clock starts the moment a
+// deploy lands and a new round shows as soon as the old one is drawn.
+let boardBusy = false;
+async function pollBoard() {
+  if (boardBusy || !STATE) return; boardBusy = true;
+  try {
+    const r = await within(NODE.getObject({ objectId: IDS.board, include: { json: true } }), 3000);
+    const f = boardOf(r.object.json, STATE.board.genesis);
+    if (newerBoard(f, STATE.board)) { STATE.board = f; render(); }
+  } catch (e) { console.warn("fullnode board read failed", e); }
+  finally { boardBusy = false; }
+}
 // One request for everything the wallet view needs (balances, miner, GTS coins, stake positions).
 async function loadUser(addr) {
   const objs = (alias, type, first) => `${alias}:objects(filter:{type:"${type}"},first:${first}){nodes{address contents{json}}}`;
@@ -412,6 +427,7 @@ async function exec(label, btnId, build, needMist = 0) {
       .catch(e => { throw e.message === "timeout" ? new Error("No answer from the wallet. Open it and try again.") : e; });
     txAt = Date.now();
     toast(`${label} confirmed. <a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">View transaction</a>`, false, true);
+    pollBoard(); setTimeout(pollBoard, 500); setTimeout(pollBoard, 1200);
     refresh(); setTimeout(refresh, 1500); setTimeout(refresh, 4000);
     return r;
   } catch (e) {
@@ -1392,6 +1408,7 @@ async function refresh() {
   const sg = ++seqG, su = ++seqU, addr = account?.address;
   const g = loadGlobal().then(g => {
     if (sg < shownG) return;
+    if (STATE?.board && newerBoard(STATE.board, g.board)) g.board = STATE.board;
     shownG = sg; STATE = g; trackRounds(); render();
   }, e => console.warn("refresh failed", e));
   const u = (addr ? loadUser(addr) : Promise.resolve(null)).then(u => {
@@ -1661,4 +1678,5 @@ buildBoard(); buildArt(); route(); autoReconnect();
 // Poll faster on the board, fastest while a finished round is waiting to be drawn.
 (function poll() { refresh().finally(() => setTimeout(poll, view !== "mine" ? 4000 : phase() === "ended" ? 1000 : 2000)); })();
 setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 15000);
+setInterval(() => { if (view === "mine" && !document.hidden) pollBoard(); }, 1000);
 setInterval(() => { if (view === "mine") { renderBoard(); renderMine(); } if (view === "stake") renderStake(); }, 1000);
