@@ -864,7 +864,8 @@ function renderBoard() {
     c.querySelector(".a").textContent = fmt(v, 3);
     const pc = c.querySelector(".pc");
     pc.hidden = !counts[i]; pc.querySelector("b").textContent = counts[i];
-    c.querySelector(".me").hidden = true;
+    const me = c.querySelector(".me");
+    me.hidden = !(mine && mine[i] > 0); me.textContent = me.hidden ? "" : "YOU";
     // Center of the tile: what you put on it (gold), or what you are about to add.
     const add = c.querySelector(".add"), my = mine ? mine[i] : 0;
     add.hidden = !(my > 0 || (sel && per >= minPer));

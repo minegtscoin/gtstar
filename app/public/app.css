@@ -450,8 +450,13 @@ button.sw-bal:hover{color:var(--text)}
 .tile.has{border-color:rgba(230,196,134,.42);background:#121009}
 .tile.has .a{color:var(--gold)}
 .tile.has .pc{color:var(--gold)}
-.tile.mine{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset,0 0 22px rgba(230,196,134,.22)}
-.tile.mine::before{background:linear-gradient(to top,rgba(230,196,134,.42),rgba(230,196,134,.12))}
+/* your tiles: their own blue color and a YOU tag, so they never blend with other players' gold */
+.tile.mine{--you:#7fb4ff;border-color:var(--you);background:#0d1320;box-shadow:0 0 0 1px var(--you) inset,0 0 22px rgba(127,180,255,.25)}
+.tile.mine::before{background:linear-gradient(to top,rgba(127,180,255,.40),rgba(127,180,255,.10));border-top-color:rgba(127,180,255,.5)}
+.tile.mine .a,.tile.mine .add,.tile.mine .pc,.tile.mine .n{color:var(--you)}
+.tile.mine:hover{border-color:var(--you)}
+.tile.mine.win{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset,0 0 36px rgba(230,196,134,.3)}
+.tile .me:not(:empty){width:auto;height:auto;padding:2px 6px;border-radius:5px;background:var(--you,#7fb4ff);box-shadow:none;color:#09090d;font-size:10px;font-weight:700;letter-spacing:.06em;line-height:1.3}
 .tile.sel:not(.mine){border-style:dashed;border-color:var(--gold)}
 .tile.has:hover{border-color:var(--gold)}
 
