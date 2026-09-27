@@ -107,7 +107,7 @@ body.on-home .hero{padding:8px 0 32px}
 .miners{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .miners .m{display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center}
 .miners .won{color:var(--win)}
-.load-more{margin:12px auto 0;display:block;font-size:13px;color:var(--muted);padding:8px 14px;border:1px solid var(--line);border-radius:999px}
+.load-more{margin:12px auto 0;display:block;font-size:13px;color:var(--muted);padding:8px 14px;border:1px solid var(--line-2);border-radius:999px}
 .load-more:hover{color:var(--text);border-color:var(--line-3)}
 .feed{display:flex;flex-direction:column;max-height:560px;overflow:auto}
 .feed .ev{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}
@@ -151,7 +151,7 @@ body.on-home .hero{padding:8px 0 32px}
 .block-h{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
 .block-h h2{font-family:var(--disp);font-weight:600;font-size:20px;margin:0}
 .block-sub{color:var(--dim);font-size:13px;margin:0 0 10px}
-.tabset{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px}
+.tabset{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:3px}
 .tabset button{font-size:13px;font-weight:600;color:var(--muted);padding:6px 14px;border-radius:999px;transition:color .15s,background .15s}
 .tabset button:hover{color:var(--text)}
 .tabset button.on{background:var(--text);color:#09090d}
@@ -433,8 +433,8 @@ button.sw-bal:hover{color:var(--text)}
 .google-btn:hover{opacity:.92}
 .google-btn svg{width:20px;height:20px}
 .google-note{color:var(--muted);font-size:12.5px;line-height:1.45;text-align:center;margin:10px 4px 0}
-.google-switch{color:var(--dim);font-size:12px;line-height:1.45;text-align:center;margin:8px 4px 0}
-.google-switch a{color:var(--gold);text-decoration:underline}
+.google-switch{display:block;width:fit-content;margin:10px auto 0;padding:6px 14px;border:1px solid var(--line-2);border-radius:999px;color:var(--muted);font-size:12px;text-decoration:none}
+.google-switch:hover{color:var(--text);border-color:var(--line-3)}
 .google-note b{color:var(--text);font-weight:600}
 .or{display:flex;align-items:center;gap:10px;margin:18px 0 12px;color:var(--dim);font-size:12px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}

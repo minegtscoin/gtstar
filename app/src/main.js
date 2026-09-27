@@ -322,7 +322,6 @@ function openWalletModal() {
   $("noWallet").hidden = list.length > 0;
   $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first 2 rounds are free.</b> " : "") +
     "New to crypto? This creates your free wallet in seconds. No app, no seed phrase. Apple sign-in works too.";
-  try { $("googleSwitch").hidden = !localStorage.getItem("gtstar.webUsed"); } catch {}
   $("btnGoogle").onclick = () => startConnect(SLUSH_WEB);
   list.forEach(w => {
     const b = document.createElement("button"); b.type = "button";
