@@ -296,7 +296,11 @@ const isWeb = w => !!w && w === SLUSH_WEB;
 // Slush opens its sign-in and approval screens with window.open("about:blank", "_blank"), which browsers show
 // as a full tab. Give that call a size so it opens as a small popup window centered over the site.
 const openWindow = window.open.bind(window);
+// Phones: a plain new tab. A sized popup opens there as a minimal popup view in which Slush fails
+// to load ("Failed to fetch api.slush.app") until it is reloaded.
+const MOBILE = navigator.userAgentData?.mobile || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 const openPopup = () => {
+  if (MOBILE) return openWindow("about:blank", "_blank");
   const w = 440, h = 720;
   const left = Math.round(window.screenX + (window.outerWidth - w) / 2), top = Math.round(window.screenY + (window.outerHeight - h) / 2);
   return openWindow("about:blank", "_blank", `popup=yes,width=${w},height=${h},left=${Math.max(0, left)},top=${Math.max(0, top)}`);
