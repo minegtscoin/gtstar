@@ -20,7 +20,7 @@
 /// MOTHERLODE_SHARE_BPS of the losing pot rolls into it, 1% goes to the creator and the rest to
 /// the GTS reserve. Every round that has a winner also has a 1 in MOTHERLODE_ODDS chance (drawn
 /// with `sui::random`) to pay the whole Motherlode to the winning square, split like the normal
-/// pot. The GTStar House wallet never keeps any of it.
+/// pot. No GTStar House bot (House, Bot 1-3, Matcher) ever keeps any of it: its share goes back.
 ///
 /// Unrefined GTS (since v8, like ORE): mined GTS is not paid out at claim. It waits on the Board in
 /// the player's unrefined balance. Withdrawing it costs REFINE_FEE_BPS (10%), and that fee is shared
@@ -30,7 +30,7 @@
 /// before: they never pay the fee and never take a share of it.
 ///
 /// Settings: the owner's AdminCap can change the game settings at once, only inside fixed bounds
-/// (odds, the Motherlode share, the reserve fee, the minimum deposit, round timing, pause). The
+/// (odds, never better than 1 in MIN_ODDS, the Motherlode share, the reserve fee, the minimum deposit, round timing, pause). The
 /// creator fee can only go down from 1%. Nothing here can mint GTS or move the pot, the
 /// Motherlode or the reserve; a pause only stops new deposits (settle and claim always work).
 module gtstar::game;
@@ -76,6 +76,9 @@ const MOTHERLODE_SHARE_BPS: u64 = 1_950;
 /// The only address that can take the AdminCap, once (the deployer).
 const OWNER_ADDR: address = @0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e;
 // Bounds for `set_params`.
+/// The Motherlode odds can never be set better than 1 in MIN_ODDS, so it can never be made to pay
+/// out at once.
+const MIN_ODDS: u64 = 500;
 const MAX_ODDS: u64 = 1_000_000;
 const MAX_VAULT_BPS: u64 = 2_000;          // reserve fee up to 20%
 const MAX_DEV_BPS: u64 = 100;              // creator fee never above 1%
@@ -91,7 +94,7 @@ const REFINE_FEE_BPS: u64 = 1_000;
 /// Precision of the per-GTS fee accumulator.
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 /// The other House bots (Bot 1, Bot 2, Bot 3, Matcher; see the site). With HOUSE_ADDR they get mined
-/// GTS at claim and stay out of the unrefined balances.
+/// GTS at claim, stay out of the unrefined balances and return any Motherlode share.
 const BOT1_ADDR: address = @0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa;
 const BOT2_ADDR: address = @0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7;
 const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4;
@@ -403,7 +406,7 @@ public fun set_params(
     paused: bool,
 ) {
     check_version(board);
-    assert!(ml_odds >= 1 && ml_odds <= MAX_ODDS, EBadParams);
+    assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
     assert!(vault_bps <= MAX_VAULT_BPS && dev_bps <= MAX_DEV_BPS, EBadParams);
     assert!(ml_share_bps + vault_bps + dev_bps <= 10_000, EBadParams);
     assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
@@ -524,6 +527,7 @@ entry fun settle(
 ) {
     check_version(board);
     let odds = params(board).ml_odds;
+    let odds = if (odds < MIN_ODDS) { MIN_ODDS } else { odds };
     settle_with_odds(board, treasury, pool, r, clock, odds, ctx)
 }
 
@@ -676,8 +680,8 @@ public fun claim(
         let fair = round_id >= fair_from(board);
         let my_total = miner.total_deployed;
         let pot_kept = if (fair) { mul_div(pot_share, my_win, my_total) } else { pot_share };
-        // The House never keeps Motherlode SUI.
-        let jackpot_kept = if (player == HOUSE_ADDR) { 0 }
+        // No House bot (House, Bot 1-3, Matcher) ever keeps Motherlode SUI.
+        let jackpot_kept = if (is_bot(player)) { 0 }
             else if (fair) { mul_div(jackpot, my_win, my_total) } else { jackpot };
         let to_reserve = pot_share - pot_kept;
         let to_fund = jackpot - jackpot_kept;

@@ -99,7 +99,7 @@ const FF_Q = FAIR_PKG ? `ff:object(address:"${IDS.board}"){dynamicField(name:{ty
 const setFairFrom = d => { if (d?.ff?.dynamicField?.value?.json != null) FAIR_FROM = num(d.ff.dynamicField.value.json); };
 // What a player gets from settled round r, exactly as game::claim computes it: `onWin` on the winning
 // tile out of `tot` deployed in the round. back = SUI paid out (stake included); reserve / fund = the
-// part of the share not kept (v7: the share scales with onWin / tot; the House keeps no Wealth Fund SUI).
+// part of the share not kept (v7: the share scales with onWin / tot; the House, and from v8 every House bot, keeps no Wealth Fund SUI).
 function payoutOf(r, onWin, tot, player) {
   const out = { back: 0, reserve: 0, fund: 0 };
   if (!(onWin > 0 && r.winners > 0)) return out;
@@ -108,7 +108,7 @@ function payoutOf(r, onWin, tot, player) {
   const jackpot = r.ml?.paid > 0 ? md(r.ml.paid, onWin, r.winners) : 0;
   const potShare = share - jackpot, fair = r.round >= FAIR_FROM && tot > 0;
   const potKept = fair ? md(potShare, onWin, tot) : potShare;
-  const jpKept = player === HOUSE ? 0 : fair ? md(jackpot, onWin, tot) : jackpot;
+  const jpKept = player === HOUSE || (REFINE_PKG && BOTS.has(player)) ? 0 : fair ? md(jackpot, onWin, tot) : jackpot;
   return { back: onWin + potKept + jpKept, reserve: potShare - potKept, fund: jackpot - jpKept };
 }
 // Per player in a round: SUI on the winning tile and in total, from Deployed events.

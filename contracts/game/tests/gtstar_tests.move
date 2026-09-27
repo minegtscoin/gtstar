@@ -620,6 +620,42 @@ fun test_house_returns_motherlode_share() {
     ts::end(sc);
 }
 
+/// The other House bots (here Bot 1) never keep Motherlode SUI either: all of it goes back.
+#[test]
+fun test_bot_returns_motherlode_share() {
+    let bot1 = @0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa;
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, &mut sc);
+    let ml = game::motherlode_value(&board);
+
+    // Only Bot 1 plays, on every tile; sure hit.
+    clock::set_for_testing(&mut clk, t);
+    ts::next_tx(&mut sc, bot1);
+    let mut b = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut b, coin::mint_for_testing<SUI>(10_000_000 * 25, ts::ctx(&mut sc)), all_tiles(10_000_000), &clk, ts::ctx(&mut sc));
+    let id = game::current_round(&board);
+    clock::set_for_testing(&mut clk, t + 60_000);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, 1, ts::ctx(&mut sc));
+    assert!(game::motherlode_paid(&board, id) == ml, 0);
+    assert!(game::motherlode_value(&board) == 0, 1);
+
+    let (g, s) = game::claim(&mut board, &mut b, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(game::motherlode_value(&board) == ml, 2);
+
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(b, bot1);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
 // ===== Version guard =====
 
 /// A board installed the pre-v5 way: the first v5 call moves the MinterCap off `board.minter`
@@ -892,9 +928,9 @@ fun test_admin_changes_settings() {
     let rs = ts::take_shared<Random>(&sc);
     let (o, sh, p) = game::current_params(&board);
     assert!(o == 500 && sh == 1_950 && !p, 0);
-    game::set_params(&cap, &mut board, 100, 3_000, 400, 100, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&cap, &mut board, 1_000, 3_000, 400, 100, 10_000_000, 60_000, 5_000, false);
     let (o2, sh2, _) = game::current_params(&board);
-    assert!(o2 == 100 && sh2 == 3_000, 1);
+    assert!(o2 == 1_000 && sh2 == 3_000, 1);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let t = fill_motherlode_share(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, 3_000, &mut sc);
     assert!(t > 0, 2);
@@ -936,6 +972,17 @@ fun test_admin_cannot_raise_creator_fee() {
     let cap = take_admin(&mut sc);
     let mut board = ts::take_shared<Board>(&sc);
     game::set_params(&cap, &mut board, 500, 1_950, 400, 200, 10_000_000, 60_000, 5_000, false);
+    abort 0
+}
+
+/// The Motherlode odds can never be set better than 1 in 500, so it cannot be forced to pay out.
+#[test, expected_failure(abort_code = gtstar::game::EBadParams)]
+fun test_admin_odds_floor() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&cap, &mut board, 499, 1_950, 400, 100, 10_000_000, 60_000, 5_000, false);
     abort 0
 }
 
