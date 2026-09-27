@@ -63,6 +63,8 @@ body.on-home .hero{padding:8px 0 32px}
 .menu-item{display:block;width:100%;text-align:left;padding:9px 8px;border-radius:8px;font-size:13.5px;color:var(--text)}
 .menu-item:hover{background:var(--tile-h)}
 .modal-sub{color:var(--muted);font-size:13px;margin:-4px 0 14px}
+.open-slush{display:block;padding:12px;margin-bottom:10px;border:1px solid var(--line-2);border-radius:12px;text-align:center;font-weight:500;font-size:14px;color:var(--text);text-decoration:none}
+.open-slush:hover{border-color:var(--line-3)}
 .nowallet{color:var(--muted);font-size:12.5px;line-height:1.45;text-align:center;margin:0}
 .link:hover{text-decoration:underline;text-underline-offset:2px}
 

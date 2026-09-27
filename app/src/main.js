@@ -347,6 +347,14 @@ function openWalletModal() {
   const list = suiWallets();
   const box = $("walletList"); box.innerHTML = "";
   $("noWallet").hidden = list.length > 0;
+  // Phone browsers never see wallet apps; Slush's universal link opens this page inside its in-app browser.
+  const phone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
+  const toSlush = !list.length && phone;
+  $("openSlush").hidden = !toSlush;
+  if (toSlush) {
+    $("openSlush").href = "https://my.slush.app/browse/" + location.href;
+    $("noWallet").textContent = "Phone browsers can't reach wallet apps. Have Slush? Open GTStar inside it. Otherwise continue with Google above.";
+  }
   $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first 2 rounds are free.</b> " : "") +
     "New to crypto? This creates your free wallet in seconds. No app, no seed phrase. Apple sign-in works too.";
   $("btnGoogle").onclick = () => startConnect(SLUSH_WEB);
