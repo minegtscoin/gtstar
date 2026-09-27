@@ -72,6 +72,7 @@ if (mode === "announce") {
   const pkg = r.effects.changedObjects.find(c => c.outputState === "PackageWrite" && c.idOperation === "Created").objectId;
   const version = Number(event("Upgraded").version);
   dep.latest = pkg;
+  dep.fairPkg ||= pkg; // first version with the v7 split: its FairFromKey type is read by the site
   dep.proof.push([`Game upgraded to v${version} through the timelock`, r.digest]);
   fs.writeFileSync(DEP_FILE, JSON.stringify(dep, null, 2) + "\n");
   const pub = path.join(ROOT, "contracts", "game", "Published.toml");

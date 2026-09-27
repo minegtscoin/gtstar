@@ -11,10 +11,16 @@
 /// winner). Separately, a halving GTS emission is split among ALL participants —
 /// winners and losers alike ("rewards everyone").
 ///
-/// Motherlode: when no one is on the winning square, the winners' pot (after the 5% fee) is
-/// split: MOTHERLODE_SHARE_BPS rolls into the Motherlode, the rest goes to the GTS reserve. Every round that has a winner also has a
-/// 1 in MOTHERLODE_ODDS chance (drawn with `sui::random`) to pay the whole Motherlode to the
-/// winning square, split like the normal pot. The GTStar House wallet never keeps any of it.
+/// Since v7 a winner's share of the pot is also scaled by the part of their own round deposit
+/// that sat on the winning square: covering many squares cannot collect the whole pot. The
+/// part they do not keep goes to the GTS reserve (and any Motherlode part back to it).
+/// One address may use only one Miner per round, so the rule cannot be dodged with extra Miners.
+///
+/// Motherlode (shown to players as the Wealth Fund): when no one is on the winning square,
+/// MOTHERLODE_SHARE_BPS of the losing pot rolls into it, 1% goes to the creator and the rest to
+/// the GTS reserve. Every round that has a winner also has a 1 in MOTHERLODE_ODDS chance (drawn
+/// with `sui::random`) to pay the whole Motherlode to the winning square, split like the normal
+/// pot. The GTStar House wallet never keeps any of it.
 module gtstar::game;
 
 use sui::balance::{Self, Balance};
@@ -49,17 +55,18 @@ const FULL_REWARD_DEPLOY: u64 = 1_000_000_000;
 /// paid out (permissionlessly) only to this address via `withdraw_dev_fees`.
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
-/// Chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS.
-const MOTHERLODE_ODDS: u64 = 25;
-/// Share of a no-winner round's pot (after the 5% fee) that rolls into the Motherlode;
-/// the rest goes to the GTS reserve.
-const MOTHERLODE_SHARE_BPS: u64 = 5_000;
+/// Chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS
+/// (about once every 500 rounds, so it grows into a real jackpot).
+const MOTHERLODE_ODDS: u64 = 500;
+/// Share of a no-winner round's losing pot that rolls into the Motherlode (19.5%). The creator
+/// keeps its 1% and the rest (79.5%, including the usual 4%) goes to the GTS reserve.
+const MOTHERLODE_SHARE_BPS: u64 = 1_950;
 /// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
 /// Package version. Every call that changes the Board runs `check_version`, which blocks all
 /// older versions of this package (see there). Bump it on every upgrade.
-const VERSION: u64 = 6;
+const VERSION: u64 = 7;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -76,6 +83,7 @@ const ENotSettled: u64 = 11;
 const ENotInstalled: u64 = 12;
 const EAlreadyInstalled: u64 = 13;
 const EWrongVersion: u64 = 14;
+const EOneMinerPerRound: u64 = 15;
 
 
 /// Archived, settled round.
@@ -121,6 +129,11 @@ public struct JackpotKey has copy, drop, store { round_id: u64 }
 public struct MinterKey has copy, drop, store {}
 /// Dynamic field on the Board: the newest package version that has used it.
 public struct VersionKey has copy, drop, store {}
+/// Dynamic field on the Board: the first round paid with the v7 split (see `claim`).
+public struct FairFromKey has copy, drop, store {}
+/// Dynamic field on the Board: the Miner `player` uses in `round_id` (one per address and round).
+/// Removed when that Miner claims the round.
+public struct SeatKey has copy, drop, store { round_id: u64, player: address }
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
@@ -158,6 +171,15 @@ public struct MotherlodeReturned has copy, drop {
     round_id: u64,
     amount: u64,
     balance: u64,
+}
+
+/// Winnings a player did not keep at claim (v7 split, or the House's Motherlode share):
+/// `to_reserve` went to the GTS reserve, `to_fund` back to the Motherlode.
+public struct Forfeited has copy, drop {
+    round_id: u64,
+    player: address,
+    to_reserve: u64,
+    to_fund: u64,
 }
 
 public struct Deployed has copy, drop {
@@ -234,7 +256,19 @@ fun check_version(board: &mut Board) {
     let v = df::borrow_mut<VersionKey, u64>(&mut board.id, VersionKey {});
     assert!(*v <= VERSION, EWrongVersion);
     *v = VERSION;
+    // v7 split: from the first round that no older version can have taken deposits for.
+    if (!df::exists(&board.id, FairFromKey {})) {
+        let from = if (board.cur_started) { board.cur_id + 1 } else { board.cur_id };
+        df::add(&mut board.id, FairFromKey {}, from);
+    };
 }
+
+fun fair_from(board: &Board): u64 {
+    if (df::exists(&board.id, FairFromKey {})) { *df::borrow<FairFromKey, u64>(&board.id, FairFromKey {}) }
+    else { 18_446_744_073_709_551_615 }
+}
+
+fun mul_div(a: u64, b: u64, c: u64): u64 { (((a as u128) * (b as u128)) / (c as u128)) as u64 }
 
 fun has_minter(board: &Board): bool {
     option::is_some(&board.minter) || df::exists(&board.id, MinterKey {})
@@ -284,6 +318,14 @@ public fun deploy(
     assert!(now < board.cur_end_ms, ERoundEnded);                 // must settle first
     assert!(now <= board.cur_end_ms - board.freeze_ms, EFrozen);  // no last-second sniping
     assert!(miner.round_id == 0 || miner.round_id == board.cur_id, EUnclaimed);
+
+    // One Miner per address per round, so a player's deposits are all counted together at claim.
+    let seat = SeatKey { round_id: board.cur_id, player: tx_context::sender(ctx) };
+    if (df::exists(&board.id, seat)) {
+        assert!(*df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner), EOneMinerPerRound);
+    } else {
+        df::add(&mut board.id, seat, object::id(miner));
+    };
 
     // Validate amounts.
     let mut sum = 0u64;
@@ -369,7 +411,7 @@ fun settle_with_odds(
     let mut ml_paid = 0;
     if (winners_total == 0) {
         if (losing_after_fee > 0) {
-            ml_added = losing_after_fee * MOTHERLODE_SHARE_BPS / 10_000;
+            ml_added = losing_pot * MOTHERLODE_SHARE_BPS / 10_000; // below losing_after_fee (95%)
             let to_vault = losing_after_fee - ml_added;
             if (ml_added > 0) {
                 let part = balance::split(&mut board.pot, ml_added);
@@ -451,40 +493,57 @@ public fun claim(
     check_version(board);
     assert!(miner.round_id != 0, ENothingToClaim);
     assert!(table::contains(&board.rounds, miner.round_id), ENotSettled);
-    let info = table::borrow(&board.rounds, miner.round_id);
+    let round_id = miner.round_id;
+    let player = tx_context::sender(ctx);
+    let info = table::borrow(&board.rounds, round_id);
+    let (round_reward, round_total, w) = (info.round_reward, info.total_deployed, (info.winning_square as u64));
+    let (pot_after_fee, winners_total) = (info.losing_pot_after_fee, info.winners_total);
 
     // GTS mining reward — proportional to this miner's share of the round (everyone earns).
-    let gts_amt = if (info.total_deployed == 0) { 0 }
-        else { (((info.round_reward as u128) * (miner.total_deployed as u128)) / (info.total_deployed as u128)) as u64 };
+    let gts_amt = if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
     let gts_coin = gts::mint(treasury, minter(board), gts_amt, clock, ctx);
 
-    // SUI winnings if the miner had stake on the winning square.
-    let w = (info.winning_square as u64);
+    // SUI winnings if the miner had stake on the winning square: own stake back plus a share of
+    // the losing pot (and any Motherlode) in proportion to the stake on the winning square.
     let my_win = *vector::borrow(&miner.deployed, w);
-    let sui_coin = if (my_win > 0 && info.winners_total > 0) {
-        let share = (((info.losing_pot_after_fee as u128) * (my_win as u128)) / (info.winners_total as u128)) as u64;
-        let mut payout = my_win + share; // own stake back + share of the losing pot (and any Motherlode)
-        let jk = JackpotKey { round_id: miner.round_id };
-        if (tx_context::sender(ctx) == HOUSE_ADDR && df::exists(&board.id, jk)) {
-            // The House never keeps Motherlode SUI: its share goes back into the Motherlode.
-            let jackpot = *df::borrow<JackpotKey, u64>(&board.id, jk);
-            let back = (((jackpot as u128) * (my_win as u128)) / (info.winners_total as u128)) as u64;
-            if (back > 0) {
-                payout = payout - back;
-                let part = balance::split(&mut board.pot, back);
-                let ml = df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {});
-                balance::join(ml, part);
-                event::emit(MotherlodeReturned { round_id: miner.round_id, amount: back, balance: balance::value(ml) });
-            };
+    let sui_coin = if (my_win > 0 && winners_total > 0) {
+        let share = mul_div(pot_after_fee, my_win, winners_total);
+        let jk = JackpotKey { round_id };
+        // The Motherlode is part of the pot, so its part of the share is never above the share.
+        let jackpot = if (df::exists(&board.id, jk)) { mul_div(*df::borrow<JackpotKey, u64>(&board.id, jk), my_win, winners_total) } else { 0 };
+        let pot_share = share - jackpot;
+        // v7: keep only the part of the round deposit that was on the winning square, e.g. 0.01 of
+        // 0.25 SUI spread over all 25 squares keeps 1/25 of the share.
+        let fair = round_id >= fair_from(board);
+        let my_total = miner.total_deployed;
+        let pot_kept = if (fair) { mul_div(pot_share, my_win, my_total) } else { pot_share };
+        // The House never keeps Motherlode SUI.
+        let jackpot_kept = if (player == HOUSE_ADDR) { 0 }
+            else if (fair) { mul_div(jackpot, my_win, my_total) } else { jackpot };
+        let to_reserve = pot_share - pot_kept;
+        let to_fund = jackpot - jackpot_kept;
+        if (to_reserve > 0) { gts::vault_add(treasury, balance::split(&mut board.pot, to_reserve)); };
+        if (to_fund > 0) {
+            let part = balance::split(&mut board.pot, to_fund);
+            let ml = df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {});
+            balance::join(ml, part);
+            event::emit(MotherlodeReturned { round_id, amount: to_fund, balance: balance::value(ml) });
         };
-        coin::from_balance(balance::split(&mut board.pot, payout), ctx)
+        if (to_reserve > 0 || to_fund > 0) { event::emit(Forfeited { round_id, player, to_reserve, to_fund }); };
+        coin::from_balance(balance::split(&mut board.pot, my_win + pot_kept + jackpot_kept), ctx)
     } else {
         coin::zero<SUI>(ctx)
     };
 
+    // The round's seat is no longer needed (storage rebate to the claimer).
+    let seat = SeatKey { round_id, player };
+    if (df::exists(&board.id, seat) && *df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner)) {
+        let _: ID = df::remove(&mut board.id, seat);
+    };
+
     event::emit(Claimed {
-        round_id: miner.round_id,
-        player: tx_context::sender(ctx),
+        round_id,
+        player,
         gts: coin::value(&gts_coin),
         sui: coin::value(&sui_coin),
     });
@@ -529,6 +588,8 @@ public fun motherlode_paid(board: &Board, round_id: u64): u64 {
     if (df::exists(&board.id, k)) { *df::borrow<JackpotKey, u64>(&board.id, k) } else { 0 }
 }
 public fun installed(board: &Board): bool { has_minter(board) }
+/// First round paid with the v7 split (u64 max until v7 has run).
+public fun fair_from_round(board: &Board): u64 { fair_from(board) }
 /// Full reward of the current round (paid in full at FULL_REWARD_DEPLOY SUI deployed).
 public fun current_reward(board: &Board, _clock: &Clock): u64 {
     if (!has_minter(board)) { 0 } else { reward_for_round(board.cur_id) }
@@ -576,3 +637,21 @@ public fun settle_with_odds_for_testing(
     board: &mut Board, treasury: &mut Treasury, pool: &mut StakePool,
     r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
 ) { settle_with_odds(board, treasury, pool, r, clock, odds, ctx) }
+
+#[test_only]
+public fun winning_square_for_testing(board: &Board, round_id: u64): u64 {
+    (table::borrow(&board.rounds, round_id).winning_square as u64)
+}
+
+#[test_only]
+public fun seat_exists_for_testing(board: &Board, round_id: u64, player: address): bool {
+    df::exists(&board.id, SeatKey { round_id, player })
+}
+
+#[test_only]
+public fun set_fair_from_for_testing(board: &mut Board, round_id: u64) {
+    *df::borrow_mut<FairFromKey, u64>(&mut board.id, FairFromKey {}) = round_id;
+}
+
+#[test_only]
+public fun motherlode_odds_for_testing(): u64 { MOTHERLODE_ODDS }
