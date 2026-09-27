@@ -258,7 +258,21 @@ async function cachedEvents() {
   const h = await getJson(`/api/history?t=${Date.now()}`, 6000);
   if (!(h.at > Date.now() / 1000 - 120)) throw new Error("history cache stale");
   const ev = k => ({ list: (h[k] || []).slice().reverse(), capped: false });
-  return [ev("settled"), ev("deployed"), ev("redeemed"), ev("staked"), ev("unstaked"), ev("ml")];
+  return topUp([ev("settled"), ev("deployed"), ev("redeemed"), ev("staked"), ev("unstaked"), ev("ml")]);
+}
+// The cache can be up to 2 minutes behind: add the newest events straight from Sui (one request), so every
+// page counts the same rounds as the live board.
+const HIST_KEYS = ["settled", "deployed", "redeemed", "staked", "unstaked", "ml"];
+async function topUp(lists) {
+  const q = HIST_KEYS.map((k, i) => EV[k] ? `e${i}:events(filter:{type:"${EV[k]}"},last:50){nodes{timestamp sender{address} transaction{digest} contents{json}}}` : "").join(" ");
+  const d = await gql(`{${q}}`).catch(() => null);
+  if (!d) return lists;
+  return lists.map((l, i) => {
+    const key = e => `${e.digest}:${JSON.stringify(e.j)}`, have = new Set(l.list.slice(0, 200).map(key));
+    const fresh = (d[`e${i}`]?.nodes || []).map(n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} }))
+      .filter(e => !have.has(key(e))).reverse();
+    return { ...l, list: fresh.concat(l.list) };
+  });
 }
 async function loadHistory() {
   if (FF_Q && FAIR_FROM === Infinity) setFairFrom(await gql(`{${FF_Q}}`).catch(() => null));
@@ -713,14 +727,20 @@ function buildArt() {
     for (let k = 0; k < 7; k++) cells[Math.floor(Math.random() * 25)].className = "on";
   }, 700);
 }
+// One format per protocol number, used by every page, so Home, Explore and Tokenomics always read the same.
+const N = {
+  fund: () => sui(STATE.motherlode, 4), reserve: () => sui(STATE.vault, 4), floor: () => fmt(STATE.floor, 6),
+  mined: () => sui(STATE.minted, 3), supply: () => sui(STATE.supply, 3), volume: () => sui(HIST.totals.volume, 3),
+  floorUsd: () => (PRICE.sui ? usd(STATE.floor * PRICE.sui) : ""),
+};
 function renderHome() {
-  $("hMotherlode").textContent = STATE ? sui(STATE.motherlode, 3) : "—";
-  $("hReserve").textContent = STATE ? sui(STATE.vault, 3) : "—";
+  $("hMotherlode").textContent = STATE ? N.fund() : "—";
+  $("hReserve").textContent = STATE ? N.reserve() : "—";
   // Floor in dollars, next to the dollar price in the header; SUI until the SUI price loads.
-  $("hFloor").textContent = STATE ? (PRICE.sui ? usd(STATE.floor * PRICE.sui) : `${fmt(STATE.floor, 5)} SUI`) : "—";
-  $("hFloor").title = STATE ? `${fmt(STATE.floor, 5)} SUI per GTS` : "";
-  $("hMined").textContent = STATE ? sui(STATE.minted, 2) : "—";
-  $("hVolume").textContent = HIST ? sui(HIST.totals.volume, 2) : "—";
+  $("hFloor").textContent = STATE ? N.floorUsd() || `${N.floor()} SUI` : "—";
+  $("hFloor").title = STATE ? `${N.floor()} SUI per GTS` : "";
+  $("hMined").textContent = STATE ? N.mined() : "—";
+  $("hVolume").textContent = HIST ? N.volume() : "—";
 }
 
 // ---------- render: mine ----------
@@ -1116,22 +1136,23 @@ const marketText = () => (STATE.market ? `${fmt(STATE.market, 6)} SUI` : "—");
 function renderExplorer() {
   if (!STATE) return;
   const t = HIST?.totals;
-  $("gFloor").textContent = `${fmt(STATE.floor, 6)} SUI`;
-  $("gReserve").textContent = `${sui(STATE.vault, 4)} SUI`;
+  $("gFloor").textContent = `${N.floor()} SUI${N.floorUsd() ? ` · ${N.floorUsd()}` : ""}`;
+  $("gReserve").textContent = `${N.reserve()} SUI`;
   $("gMarket").textContent = marketText();
-  $("gSupernova").textContent = `${sui(STATE.motherlode, 4)} SUI`;
-  $("gMlOdds").textContent = `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner`;
+  $("gSupernova").textContent = `${N.fund()} SUI`;
+  $("gMlOdds").textContent = STATE.mlOddsSet ? `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner` : `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner, 1 in 1,000 from Sep 29`;
   $("gSnPaid").textContent = t ? `${sui(t.snPaid, 4)} SUI` : "—";
   $("gDeployed").textContent = `${sui(STATE.board.cur_total, 3)} SUI`;
   $("gRounds").textContent = t ? fmt(t.rounds, 0) : "—";
-  $("gVolume").textContent = t ? `${sui(t.volume, 3)} SUI` : "—";
+  $("gVolume").textContent = t ? `${N.volume()} SUI` : "—";
   $("gMiners").textContent = t ? fmt(t.players, 0) : "—";
   $("gCost").textContent = t && t.emitted ? `${fmt(t.fees / t.emitted, 4)} SUI` : "—";
   const apr = stakingApr();
   $("gApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("gStaked").textContent = `${sui(STATE.staked, 3)} GTS`;
   $("gStakers").textContent = t ? fmt(t.stakerCount, 0) : "—";
-  $("gSupply").textContent = `${sui(STATE.supply, 3)} GTS`;
+  $("gMined").textContent = `${N.mined()} GTS`;
+  $("gSupply").textContent = `${N.supply()} GTS`;
   $("gBurned").textContent = t ? `${sui(t.burned, 3)} GTS` : "—";
   document.querySelectorAll(".tabset").forEach(ts => {
     const cur = { act: actTab, rev: revTab, lb: lbTab }[ts.dataset.set];
@@ -1236,11 +1257,10 @@ function renderLeaderboard() {
 function renderTokenomics() {
   if (!STATE) return;
   const genesis = STATE.board.genesis;
-  const supply = STATE.supply / MIST;
-  $("kSupply").textContent = fmt(supply, 2);
+  $("kSupply").textContent = N.supply();
   $("kSchedMax").textContent = fmt(Math.round(MAX_SUPPLY), 0);
-  $("kReserve").textContent = `${sui(STATE.vault, 3)} SUI`;
-  $("kFloor").textContent = `${fmt(STATE.floor, 5)} SUI`;
+  $("kReserve").textContent = `${N.reserve()} SUI`;
+  $("kFloor").textContent = `${N.floor()} SUI`;
   const round = STATE.board.cur_id;
   const epoch = Math.floor((round - 1) / HALVING_ROUNDS);
   const done = epoch >= PERIODS;
