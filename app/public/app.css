@@ -439,3 +439,14 @@ button.sw-bal:hover{color:var(--text)}
 .or{display:flex;align-items:center;gap:10px;margin:18px 0 12px;color:var(--dim);font-size:12px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
 .modal-foot{color:var(--dim);font-size:12px;text-align:center;margin:14px 0 0}
+/* v8: played tiles read clearly; the fill grows with the SUI on the tile, your tiles glow */
+.tile{overflow:hidden;background:var(--tile)}
+.tile::before{content:"";position:absolute;left:0;right:0;bottom:0;height:calc(var(--fill,0) * 100%);background:linear-gradient(to top,rgba(230,196,134,.30),rgba(230,196,134,.07));border-top:1px solid rgba(230,196,134,.35);transition:height .6s cubic-bezier(.2,.9,.3,1);pointer-events:none}
+.tile:not(.has)::before{border-top-color:transparent}
+.tile.has{border-color:rgba(230,196,134,.42);background:#121009}
+.tile.has .a{color:var(--gold)}
+.tile.has .pc{color:var(--gold)}
+.tile.mine{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset,0 0 22px rgba(230,196,134,.22)}
+.tile.mine::before{background:linear-gradient(to top,rgba(230,196,134,.42),rgba(230,196,134,.12))}
+.tile.sel:not(.mine){border-style:dashed;border-color:var(--gold)}
+.tile.has:hover{border-color:var(--gold)}

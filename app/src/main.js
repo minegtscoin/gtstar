@@ -804,7 +804,9 @@ function renderBoard() {
     c.classList.toggle("has", v > 0);
     c.classList.toggle("sel", sel);
     c.classList.toggle("win", i === showWin);
-    c.style.setProperty("--heat", (dep[i] / max).toFixed(3));
+    // Every played tile shows a visible fill; bigger stakes fill more (sqrt, so small ones are not lost).
+    c.style.setProperty("--fill", v > 0 ? (0.22 + 0.78 * Math.sqrt(dep[i] / max)).toFixed(3) : 0);
+    c.classList.toggle("mine", !!(mine && mine[i] > 0));
     c.setAttribute("aria-pressed", sel);
     c.setAttribute("aria-label", `Tile ${i + 1}, ${fmt(v, 3)} SUI, ${counts[i]} miners`);
     c.querySelector(".a").textContent = fmt(v, 3);
