@@ -23,6 +23,8 @@ const C = name => `${IDS.latest || IDS.package}::${name}`; // latest game versio
 const TK = name => `${IDS.token}::${name}`;           // token package (immutable)
 const T_MINER = T("game::Miner"), T_GTS = TK("gts::GTS"), T_POS = T("staking::StakePosition");
 const ML_PKG = IDS.motherlode;                    // version that introduced the Motherlode (its types)
+const FAIR_PKG = IDS.fair;                        // version that introduced the v7 split (its types)
+const HOUSE = "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a"; // never keeps Wealth Fund SUI
 const EV = { ml: ML_PKG ? `${ML_PKG}::game::MotherlodeUpdate` : "", settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
 const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake"];
 
@@ -85,13 +87,48 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // winning tile sent the whole pot except the 1% creator fee there (the event's vault_fee only
 // carries the 4% part). v3 rolled that pot into the Motherlode; since v4 half of it goes to the
 // reserve and is included in vault_fee.
-const vaulted = r => (r.winners === 0 && !r.ml ? r.total - r.dev : r.vault);
+// Since v7 (rounds from FAIR_FROM) the fair split adds, at claim, what winners did not keep.
+const vaulted = r => (r.winners === 0 && !r.ml ? r.total - r.dev : r.vault) + (r.split?.reserve || 0);
+// First round paid with the v7 split, read from the Board (never, until v7 has run).
+let FAIR_FROM = Infinity;
+const FF_Q = FAIR_PKG ? `ff:object(address:"${IDS.board}"){dynamicField(name:{type:"${FAIR_PKG}::game::FairFromKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : "";
+const setFairFrom = d => { if (d?.ff?.dynamicField?.value?.json != null) FAIR_FROM = num(d.ff.dynamicField.value.json); };
+// What a player gets from settled round r, exactly as game::claim computes it: `onWin` on the winning
+// tile out of `tot` deployed in the round. back = SUI paid out (stake included); reserve / fund = the
+// part of the share not kept (v7: the share scales with onWin / tot; the House keeps no Wealth Fund SUI).
+function payoutOf(r, onWin, tot, player) {
+  const out = { back: 0, reserve: 0, fund: 0 };
+  if (!(onWin > 0 && r.winners > 0)) return out;
+  const md = (a, b, c) => Number((BigInt(a) * BigInt(b)) / BigInt(c));
+  const share = md(r.payout, onWin, r.winners);
+  const jackpot = r.ml?.paid > 0 ? md(r.ml.paid, onWin, r.winners) : 0;
+  const potShare = share - jackpot, fair = r.round >= FAIR_FROM && tot > 0;
+  const potKept = fair ? md(potShare, onWin, tot) : potShare;
+  const jpKept = player === HOUSE ? 0 : fair ? md(jackpot, onWin, tot) : jackpot;
+  return { back: onWin + potKept + jpKept, reserve: potShare - potKept, fund: jackpot - jpKept };
+}
+// Per player in a round: SUI on the winning tile and in total, from Deployed events.
+function playersOf(r, list) {
+  const agg = new Map();
+  list.forEach(d => { const a = agg.get(d.player) || { onWin: 0, total: 0 }; a.onWin += d.amounts[r.tile] || 0; a.total += d.total; agg.set(d.player, a); });
+  return agg;
+}
+// v7 rounds: SUI winners kept from the other tiles, and what went back to the reserve and the fund.
+function splitOf(r, list) {
+  if (!(r.round >= FAIR_FROM) || !r.winners) return null;
+  const s = { kept: 0, reserve: 0, fund: 0 };
+  playersOf(r, list).forEach((a, p) => { const x = payoutOf(r, a.onWin, a.total, p); if (x.back) { s.kept += x.back - a.onWin; s.reserve += x.reserve; s.fund += x.fund; } });
+  return s;
+}
+const wonFromOthers = r => (r.winners > 0 ? (r.split ? r.split.kept : r.payout) : 0);
 async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)} ${objQ("p", IDS.pool)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
     ${ML_PKG ? `ml:object(address:"${IDS.board}"){dynamicField(name:{type:"${ML_PKG}::game::MotherlodeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
-    mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}` : ""}}`);
+    mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}` : ""}
+    ${FF_Q}}`);
+  setFairFrom(d);
   const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
   const sq = num(m.current_sqrt_price) / 2 ** 64;
@@ -162,6 +199,7 @@ async function cachedEvents() {
   return [ev("settled"), ev("deployed"), ev("redeemed"), ev("staked"), ev("unstaked"), ev("ml")];
 }
 async function loadHistory() {
+  if (FF_Q && FAIR_FROM === Infinity) setFairFrom(await gql(`{${FF_Q}}`).catch(() => null));
   const [settled, deployed, redeemed, staked, unstaked, mlEv] = await cachedEvents().catch(() =>
     Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.staked), allEvents(EV.unstaked), EV.ml ? allEvents(EV.ml) : { list: [] }]));
   const ml = mlRows(mlEv.list.map(e => e.j));
@@ -175,13 +213,14 @@ async function loadHistory() {
     byRound.get(r).push({ player: e.j.player, total: num(e.j.total), amounts: (e.j.amounts || []).map(num) });
   });
   const rounds = settled.list.map(e => ({ ...withMl(settledRow(e.j, e.ts), ml), digest: e.digest }));
+  rounds.forEach(r => { r.split = splitOf(r, byRound.get(r.round) || []); });
   return {
     rounds, byRound, stakes, deployed: deployed.list, redeemed: redeemed.list,
     capped: settled.capped || deployed.capped,
     totals: {
       rounds: rounds.length,
       volume: rounds.reduce((a, r) => a + r.total, 0),
-      paid: rounds.reduce((a, r) => a + (r.winners > 0 ? r.winners + r.payout : 0), 0),
+      paid: rounds.reduce((a, r) => a + (r.winners > 0 ? r.winners + wonFromOthers(r) : 0), 0),
       reserve: rounds.reduce((a, r) => a + vaulted(r), 0),
       snPaid: rounds.reduce((a, r) => a + (r.ml?.paid || 0), 0),
       stakerGts: rounds.reduce((a, r) => a + r.stakerReward, 0),
@@ -215,6 +254,7 @@ async function connect(w, silent = false) {
   if (!accs.length) return false;
   wallet = w; account = accs[0]; USER = null;
   try { localStorage.setItem("gtstar.wallet", isWeb(w) ? WEB_KEY : w.name); } catch {}
+  if (isWeb(w)) try { localStorage.setItem("gtstar.webUsed", "1"); } catch {}
   // One listener, for the wallet in use: account switches in the wallet show up here.
   offChange?.();
   offChange = w.features["standard:events"]?.on("change", ({ accounts }) => {
@@ -227,12 +267,15 @@ async function connect(w, silent = false) {
   return true;
 }
 async function disconnect() {
+  const wasWeb = isWeb(wallet);
   offChange?.(); offChange = null;
   try { await within(wallet?.features["standard:disconnect"]?.disconnect() ?? Promise.resolve(), 4000); } catch {}
   try { localStorage.removeItem("gtstar.wallet"); } catch {}
   wallet = null; account = null; USER = null;
   $("acctMenu").hidden = true; $("mNameForm").hidden = true;
   renderWallet(); refresh();
+  // Slush keeps the Google login on its own site, so signing in again would return the same account.
+  if (wasWeb) toast('Signed out. To use a different Google account, also sign out at <a href="https://my.slush.app" target="_blank" rel="noopener">my.slush.app</a>.', false, true);
 }
 function renderWallet() {
   const b = $("btnConnect");
@@ -253,6 +296,7 @@ function openWalletModal() {
   $("noWallet").hidden = list.length > 0;
   $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first round is free.</b> " : "") +
     "New to crypto? This creates your free wallet in seconds. No app, no seed phrase. Apple sign-in works too.";
+  try { $("googleSwitch").hidden = !localStorage.getItem("gtstar.webUsed"); } catch {}
   $("btnGoogle").onclick = () => startConnect(SLUSH_WEB);
   list.forEach(w => {
     const b = document.createElement("button"); b.type = "button";
@@ -619,7 +663,7 @@ function roundPlayers(round) {
   });
   return [...m.values()].sort((x, y) => (y.ts > x.ts ? 1 : -1));
 }
-const winOf = (p, r) => { const w = p.amounts[r.tile] || 0; return w > 0 && r.winners > 0 ? w + Math.floor(r.payout * w / r.winners) : 0; };
+const winOf = (p, r) => payoutOf(r, p.amounts[r.tile] || 0, p.total, p.player).back;
 // Profit on the winning tile: the share of the losing tiles, without the stake that comes back.
 const profitOf = (p, r) => winOf(p, r) - (p.amounts[r.tile] || 0);
 
@@ -749,9 +793,10 @@ function renderResult() {
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
-  let sub = L.winners === 0 ? (L.ml ? (L.vault > 5 * L.dev ? "No one was on this tile. Half the pot rolled into the Supernova, half went to the reserve." : "No one was on this tile. The pot rolled into the Supernova.") : "No one was on this tile. The pot went to the reserve.")
-    : L.ml?.paid > 0 ? `Supernova! ${sui(L.ml.paid, 4)} SUI exploded onto this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI`
-    : L.payout > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(L.payout, 4)} SUI from the other tiles`
+  const won = L.round >= FAIR_FROM ? winners.reduce((a, x) => a + profitOf(x.p, L), 0) : L.payout;
+  let sub = L.winners === 0 ? (L.ml ? (L.round >= FAIR_FROM ? "No one was on this tile. 19.5% of the pot went into the Wealth Fund, the rest to the reserve." : L.vault > 5 * L.dev ? "No one was on this tile. Half the pot went into the Wealth Fund, half went to the reserve." : "No one was on this tile. The pot went into the Wealth Fund.") : "No one was on this tile. The pot went to the reserve.")
+    : L.ml?.paid > 0 ? `Wealth Fund paid out! ${sui(L.ml.paid, 4)} SUI landed on this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI`
+    : won > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
   const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
   if (top && topProfit > 0) sub += ` · Top <span${nameOf(top.p.player) ? "" : ' class="mono"'}>${esc(top.p.player === account?.address ? "You" : label(top.p.player))}</span> +${sui(topProfit, 4)} SUI`;
@@ -836,7 +881,7 @@ function rewards() {
     if (r) {
       out.gts = r.total ? Math.floor(r.reward * m.total / r.total) : 0;
       const w = m.deployed[r.tile] || 0;
-      out.sui = w > 0 && r.winners > 0 ? w + Math.floor(r.payout * w / r.winners) : 0;
+      out.sui = payoutOf(r, w, m.total, account?.address).back;
     }
   }
   if (STATE) out.yield = (USER?.positions || []).reduce((a, p) => a + posPending(p, Date.now()), 0n);
@@ -929,10 +974,10 @@ let actShown = ROWS, revShown = ROWS, lbShown = ROWS, actTab = "rounds", revTab 
 const openRounds = new Set();
 const txLink = d => `<a href="${SCAN}/tx/${d}" target="_blank" rel="noopener" data-stop>${d.slice(0, 6)}…</a>`;
 const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener"${nameOf(a) ? "" : ' class="mono"'} data-stop>${esc(label(a))}</a>`;
+// Players on the winning tile: address -> { onWin, total }.
 function winnersOf(r) {
-  const list = HIST.byRound.get(r.round) || [];
-  const agg = new Map();
-  list.forEach(d => { const w = d.amounts[r.tile] || 0; if (w > 0) agg.set(d.player, (agg.get(d.player) || 0) + w); });
+  const agg = playersOf(r, HIST.byRound.get(r.round) || []);
+  agg.forEach((a, p) => { if (!a.onWin) agg.delete(p); });
   return agg;
 }
 const marketText = () => (STATE.market ? `${fmt(STATE.market, 6)} SUI` : "—");
@@ -968,12 +1013,12 @@ function renderActivity() {
   if (actTab === "rounds") {
     $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
     const rows = HIST.rounds.slice(0, actShown);
-    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">Supernova</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
+    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">Wealth Fund</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
       const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
       const sn = r.ml?.paid > 0 ? `<span class="gold">Hit ${sui(r.ml.paid, 4)}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
-      const winnings = r.winners > 0 ? r.payout : 0;
+      const winnings = wonFromOthers(r);
       let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
         <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td><td class="r">${sui(vaulted(r), 4)}</td>
@@ -1005,10 +1050,9 @@ const txLinkAgo = r => `<a href="${SCAN}/tx/${r.digest}" target="_blank" rel="no
 function minersHtml(r) {
   const list = HIST.byRound.get(r.round) || [];
   if (!list.length) return `<span class="muted">No deploy events found for this round.</span>`;
-  const agg = new Map();
-  list.forEach(d => { const a = agg.get(d.player) || { total: 0, onWin: 0 }; a.total += d.total; a.onWin += d.amounts[r.tile] || 0; agg.set(d.player, a); });
+  const agg = playersOf(r, list);
   return `<div class="miners">` + [...agg.entries()].sort((x, y) => y[1].total - x[1].total).map(([p, a]) => {
-    const won = a.onWin > 0 && r.winners > 0 ? Math.floor(r.payout * a.onWin / r.winners) : 0;
+    const won = Math.max(0, payoutOf(r, a.onWin, a.total, p).back - a.onWin);
     const gts = r.total ? r.reward * a.total / r.total : 0;
     return `<div class="m">${acctLink(p)}<span>${sui(a.total, 3)} SUI deployed · ${sui(gts, 4)} GTS mined</span>
       <span class="${won ? "won" : "muted"}">${won ? `Won +${sui(won, 4)} SUI` : a.onWin > 0 && r.winners > 0 ? "Stake returned" : "No SUI win"}</span></div>`;
@@ -1016,8 +1060,8 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + half when no one wins", label: "Added to the GTS reserve" },
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Half the pot when no one wins", label: "Added to the Supernova" },
+    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + 75.5% when no one wins", label: "Added to the GTS reserve" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "19.5% of the pot when no one wins", label: "Added to the Wealth Fund" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
@@ -1026,7 +1070,7 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 && (!r.ml || r.vault > 5 * r.dev) ? "Fee plus pot (no miner on winning tile)" : "Fee from losing pot"}</td>
+    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "stakers" ? "Streamed over 7 days" : revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 && (!r.ml || r.vault > 5 * r.dev) ? "Fee plus pot (no miner on winning tile)" : r.split?.reserve > 0 ? "Fee plus winnings not kept (spread stakes)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
   $("moreRev").hidden = rows.length <= revShown;
@@ -1040,7 +1084,7 @@ function renderLeaderboard() {
   } else if (lbTab === "winners") {
     sub = "Top winners by SUI won from other tiles (stakes returned are not counted).";
     const m = new Map();
-    HIST.rounds.forEach(r => { if (!r.winners) return; winnersOf(r).forEach((amt, p) => m.set(p, (m.get(p) || 0) + Math.floor(r.payout * amt / r.winners))); });
+    HIST.rounds.forEach(r => { if (!r.winners) return; winnersOf(r).forEach((a, p) => m.set(p, (m.get(p) || 0) + payoutOf(r, a.onWin, a.total, p).back - a.onWin)); });
     rows = [...m.entries()].filter(([, v]) => v > 0);
   } else {
     sub = "Top stakers by GTS currently staked."; unit = "GTS";

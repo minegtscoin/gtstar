@@ -160,18 +160,19 @@
       <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>Rewards</h3>
-    <p><strong>Winners</strong> get their stake back plus 95% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. <strong>Everyone</strong> in the round, winners and losers alike, mines GTS in proportion to their deposits.</p>
+    <p><strong>Winners</strong> get their stake back plus a share of 95% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. That share is then scaled by how much of your own round deposit sat on the winning tile, so covering many tiles cannot collect the whole pot: 0.01 SUI on each of the 25 tiles (0.25 SUI) keeps 1/25 of its share. The part not kept goes to the GTS reserve. Each wallet plays a round with one miner, so all of its deposits count together. <strong>Everyone</strong> in the round, winners and losers alike, mines GTS in proportion to their deposits.</p>
     <span class="code">losing_pot = total_deposits - winning_tile_total
-payout     = my_stake + losing_pot * 95% * my_stake / winning_tile_total
+my_share   = losing_pot * 95% * my_stake / winning_tile_total
+payout     = my_stake + my_share * my_stake / my_round_deposits
 round_reward = full_reward * min(round_total, 1 SUI) / 1 SUI
 my_gts       = round_reward * my_deposits / round_total</span>
-    <h3>Supernova</h3>
-    <p>If no one deployed on the winning tile, the winners' 95% is split in two: half rolls into the <strong>Supernova</strong>, a jackpot that keeps growing, and half goes to the GTS reserve. Every round with a winner has a 1 in 25 chance to pay the whole Supernova to the winning tile, split by stake. The GTStar House wallet never keeps Supernova SUI.</p>
+    <h3>Wealth Fund</h3>
+    <p>If no one deployed on the winning tile, 19.5% of the pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, 1% goes to the creator and the rest to the GTS reserve. Every round with a winner has a 1 in 500 chance to pay the whole Wealth Fund to the winning tile, split like the pot (the same rule for spread deposits applies, and what is not kept stays in the fund). The GTStar House wallet never keeps Wealth Fund SUI.</p>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
-        <tr><td>Supernova</td><td class="n">47.5%</td></tr>
-        <tr><td>Reserve (4% fee + 47.5%)</td><td class="n">51.5%</td></tr>
+        <tr><td>Wealth Fund</td><td class="n">19.5%</td></tr>
+        <tr><td>Reserve (4% fee + 75.5%)</td><td class="n">79.5%</td></tr>
         <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
     </table></div>
@@ -206,7 +207,7 @@ my_gts       = round_reward * my_deposits / round_total</span>
     <div class="tbl"><table>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td>Winners</td><td class="n">95%</td><td>Split across the winning tile by stake</td></tr>
+        <tr><td>Winners</td><td class="n">up to 95%</td><td>Split across the winning tile by stake; the part a spread deposit does not keep goes to the reserve</td></tr>
         <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td>Fixed address in the contract</td></tr>
       </tbody>
