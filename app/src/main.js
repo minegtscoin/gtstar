@@ -197,11 +197,15 @@ async function loadUser(addr) {
     ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)} ${objs("p", T_POS, 50)}}}`);
   const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
   const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c"), positions = nodes("p");
-  // Mining leaves many small GTS coins; read every page so none of them is mistaken for address balance.
-  for (let pi = d.address?.c?.pageInfo, n = 0; pi?.hasNextPage && n < 20; n++) {
-    const more = (await gql(`{address(address:"${addr}"){${objs("c", T_COIN, 50, pi.endCursor)}}}`)).address?.c;
-    (more?.nodes || []).forEach(x => coins.push({ id: x.address, f: x.contents?.json || {} }));
-    pi = more?.pageInfo;
+  // Read every page of each list: mining leaves many small GTS coins, and a missed coin or stake position
+  // would be mistaken for address balance or left out of a claim.
+  const lists = { m: [miners, T_MINER], c: [coins, T_COIN], p: [positions, T_POS] };
+  for (const [k, [out, type]] of Object.entries(lists)) {
+    for (let pi = d.address?.[k]?.pageInfo, n = 0; pi?.hasNextPage && n < 100; n++) {
+      const more = (await gql(`{address(address:"${addr}"){${objs(k, type, 50, pi.endCursor)}}}`)).address?.[k];
+      (more?.nodes || []).forEach(x => out.push({ id: x.address, f: x.contents?.json || {} }));
+      pi = more?.pageInfo;
+    }
   }
   userAt = Date.now();
   const miner = miners.find(m => num(m.f.round_id) !== 0) || miners[0] || null;
@@ -462,6 +466,8 @@ function gtsCoin(tx, amount, split = amount) {
   const coins = USER?.gtsCoins || [];
   const inCoins = coins.reduce((a, c) => a + c.balance, 0);
   if ((USER?.gts || 0) < amount) throw new Error("Insufficient GTS balance.");
+  // Never withdraw more from the address balance than the chain reports is there.
+  if (inCoins + (USER?.gtsAB || 0) < amount) throw new Error("Your balance just changed. Try again.");
   const parts = coins.map(c => tx.object(c.id));
   if (inCoins < amount) {
     abUsed = amount - inCoins;
