@@ -865,3 +865,149 @@ fun test_rounds_before_v7_keep_old_split() {
 fun test_wealth_fund_odds() {
     assert!(game::motherlode_odds_for_testing() == 500, 0);
 }
+
+// ===== Settings (AdminCap) =====
+
+const OWNER: address = @0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e;
+
+#[test_only]
+fun take_admin(sc: &mut ts::Scenario): game::AdminCap {
+    ts::next_tx(sc, OWNER);
+    let mut board = ts::take_shared<Board>(sc);
+    game::take_admin_for_testing(&mut board, ts::ctx(sc));
+    ts::return_shared(board);
+    ts::next_tx(sc, OWNER);
+    ts::take_from_sender<game::AdminCap>(sc)
+}
+
+/// The owner changes the odds and the fund share at once; the next no-winner round uses the new share.
+#[test]
+fun test_admin_changes_settings() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let (o, sh, p) = game::current_params(&board);
+    assert!(o == 500 && sh == 1_950 && !p, 0);
+    game::set_params(&cap, &mut board, 100, 3_000, 400, 100, 10_000_000, 60_000, 5_000, false);
+    let (o2, sh2, _) = game::current_params(&board);
+    assert!(o2 == 100 && sh2 == 3_000, 1);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode_share(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, 3_000, &mut sc);
+    assert!(t > 0, 2);
+    clock::destroy_for_testing(clk);
+    transfer::public_transfer(cap, OWNER);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
+/// Like fill_motherlode, for a given fund share.
+#[test_only]
+fun fill_motherlode_share(
+    board: &mut Board, treasury: &mut Treasury, pool: &mut StakePool, rs: &Random,
+    clk: &mut clock::Clock, amt: u64, share_bps: u64, sc: &mut ts::Scenario,
+): u64 {
+    let mut t = 1_000;
+    let mut guard = 0u64;
+    while (game::motherlode_value(board) == 0 && guard < 60) {
+        clock::set_for_testing(clk, t);
+        let mut m = game::new_miner(ts::ctx(sc));
+        game::deploy(board, &mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(sc)), one_tile(0, amt), clk, ts::ctx(sc));
+        clock::set_for_testing(clk, t + 60_000);
+        game::settle_with_odds_for_testing(board, treasury, pool, rs, clk, 1_000_000_000, ts::ctx(sc));
+        let (g, s) = game::claim(board, &mut m, treasury, clk, ts::ctx(sc));
+        if (coin::value(&s) == 0) { assert!(game::motherlode_value(board) == amt * share_bps / 10_000, 100); };
+        coin::burn_for_testing(g); coin::burn_for_testing(s);
+        transfer::public_transfer(m, OWNER);
+        t = t + 100_000; guard = guard + 1;
+    };
+    assert!(game::motherlode_value(board) > 0, 102);
+    t
+}
+
+/// The creator fee can never go above 1%.
+#[test, expected_failure(abort_code = gtstar::game::EBadParams)]
+fun test_admin_cannot_raise_creator_fee() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&cap, &mut board, 500, 1_950, 400, 200, 10_000_000, 60_000, 5_000, false);
+    abort 0
+}
+
+/// Fund share plus fees can never exceed the pot.
+#[test, expected_failure(abort_code = gtstar::game::EBadParams)]
+fun test_admin_share_bounded() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&cap, &mut board, 500, 9_600, 400, 100, 10_000_000, 60_000, 5_000, false);
+    abort 0
+}
+
+/// Only the owner can take the AdminCap.
+#[test, expected_failure(abort_code = gtstar::game::ENotOwner)]
+fun test_admin_owner_only() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::take_admin_for_testing(&mut board, ts::ctx(&mut sc));
+    abort 0
+}
+
+/// The AdminCap can be taken only once.
+#[test, expected_failure(abort_code = gtstar::game::EAdminTaken)]
+fun test_admin_once() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::take_admin_for_testing(&mut board, ts::ctx(&mut sc));
+    transfer::public_transfer(cap, OWNER);
+    abort 0
+}
+
+/// A pause stops new deposits but the open round still settles and pays.
+#[test]
+fun test_pause_blocks_deposits_only() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
+    game::set_params(&cap, &mut board, 500, 1_950, 400, 100, 10_000_000, 60_000, 5_000, true);
+    clock::set_for_testing(&mut clk, 61_000);
+    game::settle_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, ts::ctx(&mut sc));
+    let (g, s) = game::claim(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == 10_000_000, 0); // the round settled and paid its GTS
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(m, OWNER); transfer::public_transfer(cap, OWNER);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
+#[test, expected_failure(abort_code = gtstar::game::EPaused)]
+fun test_paused_deploy_rejected() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&cap, &mut board, 500, 1_950, 400, 100, 10_000_000, 60_000, 5_000, true);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
+    abort 0
+}

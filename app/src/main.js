@@ -425,10 +425,18 @@ function gtsCoin(tx, amount, split = amount) {
   const [c] = tx.splitCoins(primary, [split]);
   return c;
 }
+// Until the per-round split is live (FAIR_FROM known), a wallet plays at most TILE_CAP tiles a round.
+const TILE_CAP = 3;
+function overCap() {
+  if (FAIR_FROM !== Infinity) return false;
+  const b = STATE?.board, m = USER?.miner, tiles = new Set(selected);
+  if (b && m && b.cur_started && m.round_id === b.cur_id && Date.now() < b.cur_end_ms) m.deployed.forEach((v, i) => v > 0 && tiles.add(i));
+  return tiles.size > TILE_CAP;
+}
 async function play() {
   if (!account) { openWalletModal(); return; }
   const per = toMist($("amt").value);
-  if (!selected.size || per < STATE.board.min_deploy) return;
+  if (!selected.size || per < STATE.board.min_deploy || overCap()) return;
   const amounts = Array(25).fill(0);
   selected.forEach(i => (amounts[i] = per));
   const total = per * selected.size;
@@ -955,6 +963,7 @@ function renderMine() {
     else if (p === "frozen") { label = "Round closing"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
+    else if (overCap()) { label = `Up to ${TILE_CAP} tiles per round`; dis = true; }
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }

@@ -37,6 +37,8 @@ The token package only mints through a single `MinterCap` held by the game, and 
 
 The game holds the `MinterCap`, the SUI of open rounds and the Wealth Fund, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
 
+Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: the creator fee can never go above 1%, and settings can never mint GTS or move the pot, the Wealth Fund or the reserve. See `set_params` in [`game.move`](contracts/game/sources/game.move) and [`scripts/admin.mjs`](scripts/admin.mjs).
+
 Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 
 Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
@@ -84,7 +86,7 @@ Rounds are settled by a permissionless `settle` call. The keeper runs every minu
 
 ## Security
 
-- 39 Move unit tests across the three packages: emission ceiling, hard cap, burn accounting, redemption floor, pot solvency, double claims, freeze window, payment checks, minimum deposit, early settlement, install once, streamed staking, sniping resistance, Wealth Fund rollover and payout, spread-deposit split, one miner per wallet per round, version guard, reward scaling, upgrade timelock.
+- 46 Move unit tests across the three packages: emission ceiling, hard cap, burn accounting, redemption floor, pot solvency, double claims, freeze window, payment checks, minimum deposit, early settlement, install once, streamed staking, sniping resistance, Wealth Fund rollover and payout, spread-deposit split, one miner per wallet per round, settings bounds and pause, version guard, reward scaling, upgrade timelock.
 
 ## License
 

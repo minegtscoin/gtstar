@@ -21,6 +21,11 @@
 /// the GTS reserve. Every round that has a winner also has a 1 in MOTHERLODE_ODDS chance (drawn
 /// with `sui::random`) to pay the whole Motherlode to the winning square, split like the normal
 /// pot. The GTStar House wallet never keeps any of it.
+///
+/// Settings: the owner's AdminCap can change the game settings at once, only inside fixed bounds
+/// (odds, the Motherlode share, the reserve fee, the minimum deposit, round timing, pause). The
+/// creator fee can only go down from 1%. Nothing here can mint GTS or move the pot, the
+/// Motherlode or the reserve; a pause only stops new deposits (settle and claim always work).
 module gtstar::game;
 
 use sui::balance::{Self, Balance};
@@ -55,12 +60,22 @@ const FULL_REWARD_DEPLOY: u64 = 1_000_000_000;
 /// paid out (permissionlessly) only to this address via `withdraw_dev_fees`.
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
-/// Chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS
-/// (about once every 500 rounds, so it grows into a real jackpot).
+/// Default chance per round with a winner that the Motherlode pays out: 1 in MOTHERLODE_ODDS
+/// (about once every 500 rounds, so it grows into a real jackpot). Adjustable, see `set_params`.
 const MOTHERLODE_ODDS: u64 = 500;
-/// Share of a no-winner round's losing pot that rolls into the Motherlode (19.5%). The creator
-/// keeps its 1% and the rest (79.5%, including the usual 4%) goes to the GTS reserve.
+/// Default share of a no-winner round's losing pot that rolls into the Motherlode (19.5%). The
+/// creator keeps its 1% and the rest (79.5%, including the usual 4%) goes to the GTS reserve.
 const MOTHERLODE_SHARE_BPS: u64 = 1_950;
+/// The only address that can take the AdminCap, once (the deployer).
+const OWNER_ADDR: address = @0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e;
+// Bounds for `set_params`.
+const MAX_ODDS: u64 = 1_000_000;
+const MAX_VAULT_BPS: u64 = 2_000;          // reserve fee up to 20%
+const MAX_DEV_BPS: u64 = 100;              // creator fee never above 1%
+const MIN_MIN_DEPLOY: u64 = 1_000_000;     // 0.001 SUI
+const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
+const MIN_ROUND_MS: u64 = 30_000;
+const MAX_ROUND_MS: u64 = 3_600_000;
 /// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
@@ -84,6 +99,10 @@ const ENotInstalled: u64 = 12;
 const EAlreadyInstalled: u64 = 13;
 const EWrongVersion: u64 = 14;
 const EOneMinerPerRound: u64 = 15;
+const ENotOwner: u64 = 16;
+const EAdminTaken: u64 = 17;
+const EBadParams: u64 = 18;
+const EPaused: u64 = 19;
 
 
 /// Archived, settled round.
@@ -134,6 +153,25 @@ public struct FairFromKey has copy, drop, store {}
 /// Dynamic field on the Board: the Miner `player` uses in `round_id` (one per address and round).
 /// Removed when that Miner claims the round.
 public struct SeatKey has copy, drop, store { round_id: u64, player: address }
+/// Dynamic field on the Board: adjustable settings that are not Board fields (see `set_params`).
+public struct ParamsKey has copy, drop, store {}
+public struct Params has copy, drop, store { ml_odds: u64, ml_share_bps: u64, paused: bool }
+/// Dynamic field on the Board: set once the AdminCap has been taken.
+public struct AdminKey has copy, drop, store {}
+
+/// Right to change the game settings within the bounds above.
+public struct AdminCap has key, store { id: UID }
+
+public struct ParamsChanged has copy, drop {
+    ml_odds: u64,
+    ml_share_bps: u64,
+    vault_bps: u64,
+    dev_bps: u64,
+    min_deploy: u64,
+    round_ms: u64,
+    freeze_ms: u64,
+    paused: bool,
+}
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
@@ -256,6 +294,9 @@ fun check_version(board: &mut Board) {
     let v = df::borrow_mut<VersionKey, u64>(&mut board.id, VersionKey {});
     assert!(*v <= VERSION, EWrongVersion);
     *v = VERSION;
+    if (!df::exists(&board.id, ParamsKey {})) {
+        df::add(&mut board.id, ParamsKey {}, Params { ml_odds: MOTHERLODE_ODDS, ml_share_bps: MOTHERLODE_SHARE_BPS, paused: false });
+    };
     // v7 split: from the first round that no older version can have taken deposits for.
     if (!df::exists(&board.id, FairFromKey {})) {
         let from = if (board.cur_started) { board.cur_id + 1 } else { board.cur_id };
@@ -266,6 +307,45 @@ fun check_version(board: &mut Board) {
 fun fair_from(board: &Board): u64 {
     if (df::exists(&board.id, FairFromKey {})) { *df::borrow<FairFromKey, u64>(&board.id, FairFromKey {}) }
     else { 18_446_744_073_709_551_615 }
+}
+
+fun params(board: &Board): Params { *df::borrow<ParamsKey, Params>(&board.id, ParamsKey {}) }
+
+/// The owner takes the AdminCap, once.
+entry fun take_admin(board: &mut Board, ctx: &mut TxContext) {
+    check_version(board);
+    assert!(tx_context::sender(ctx) == OWNER_ADDR, ENotOwner);
+    assert!(!df::exists(&board.id, AdminKey {}), EAdminTaken);
+    df::add(&mut board.id, AdminKey {}, true);
+    transfer::public_transfer(AdminCap { id: object::new(ctx) }, OWNER_ADDR);
+}
+
+/// Change the game settings at once, inside the fixed bounds. Fee changes apply from the next settle.
+public fun set_params(
+    _: &AdminCap,
+    board: &mut Board,
+    ml_odds: u64,
+    ml_share_bps: u64,
+    vault_bps: u64,
+    dev_bps: u64,
+    min_deploy: u64,
+    round_ms: u64,
+    freeze_ms: u64,
+    paused: bool,
+) {
+    check_version(board);
+    assert!(ml_odds >= 1 && ml_odds <= MAX_ODDS, EBadParams);
+    assert!(vault_bps <= MAX_VAULT_BPS && dev_bps <= MAX_DEV_BPS, EBadParams);
+    assert!(ml_share_bps + vault_bps + dev_bps <= 10_000, EBadParams);
+    assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
+    assert!(round_ms >= MIN_ROUND_MS && round_ms <= MAX_ROUND_MS && freeze_ms <= round_ms / 2, EBadParams);
+    *df::borrow_mut<ParamsKey, Params>(&mut board.id, ParamsKey {}) = Params { ml_odds, ml_share_bps, paused };
+    board.vault_bps = vault_bps;
+    board.dev_bps = dev_bps;
+    board.min_deploy = min_deploy;
+    board.round_ms = round_ms;
+    board.freeze_ms = freeze_ms;
+    event::emit(ParamsChanged { ml_odds, ml_share_bps, vault_bps, dev_bps, min_deploy, round_ms, freeze_ms, paused });
 }
 
 fun mul_div(a: u64, b: u64, c: u64): u64 { (((a as u128) * (b as u128)) / (c as u128)) as u64 }
@@ -307,6 +387,7 @@ public fun deploy(
     check_version(board);
     assert!(vector::length(&amounts) == GRID, EBadLen);
     assert!(has_minter(board), ENotInstalled);
+    assert!(!params(board).paused, EPaused);
     let now = clock::timestamp_ms(clock);
 
     // Lazy-start the round on first deploy.
@@ -372,7 +453,9 @@ entry fun settle(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    settle_with_odds(board, treasury, pool, r, clock, MOTHERLODE_ODDS, ctx)
+    check_version(board);
+    let odds = params(board).ml_odds;
+    settle_with_odds(board, treasury, pool, r, clock, odds, ctx)
 }
 
 fun settle_with_odds(
@@ -411,7 +494,8 @@ fun settle_with_odds(
     let mut ml_paid = 0;
     if (winners_total == 0) {
         if (losing_after_fee > 0) {
-            ml_added = losing_pot * MOTHERLODE_SHARE_BPS / 10_000; // below losing_after_fee (95%)
+            // The bounds keep this within losing_after_fee (share + fees <= 100%).
+            ml_added = losing_pot * params(board).ml_share_bps / 10_000;
             let to_vault = losing_after_fee - ml_added;
             if (ml_added > 0) {
                 let part = balance::split(&mut board.pot, ml_added);
@@ -588,6 +672,11 @@ public fun motherlode_paid(board: &Board, round_id: u64): u64 {
     if (df::exists(&board.id, k)) { *df::borrow<JackpotKey, u64>(&board.id, k) } else { 0 }
 }
 public fun installed(board: &Board): bool { has_minter(board) }
+/// Current settings: (Motherlode odds, Motherlode share in bps, paused).
+public fun current_params(board: &Board): (u64, u64, bool) {
+    if (df::exists(&board.id, ParamsKey {})) { let p = params(board); (p.ml_odds, p.ml_share_bps, p.paused) }
+    else { (MOTHERLODE_ODDS, MOTHERLODE_SHARE_BPS, false) }
+}
 /// First round paid with the v7 split (u64 max until v7 has run).
 public fun fair_from_round(board: &Board): u64 { fair_from(board) }
 /// Full reward of the current round (paid in full at FULL_REWARD_DEPLOY SUI deployed).
@@ -655,3 +744,6 @@ public fun set_fair_from_for_testing(board: &mut Board, round_id: u64) {
 
 #[test_only]
 public fun motherlode_odds_for_testing(): u64 { MOTHERLODE_ODDS }
+
+#[test_only]
+public fun take_admin_for_testing(board: &mut Board, ctx: &mut TxContext) { take_admin(board, ctx) }

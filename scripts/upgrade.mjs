@@ -2,6 +2,7 @@
 //   1. node scripts/upgrade.mjs announce   builds contracts/game and announces its digest on-chain
 //   2. wait 48 hours (the site and anyone else can check the announced digest meanwhile)
 //   3. node scripts/upgrade.mjs execute    rebuilds, authorizes, upgrades and commits in one transaction
+//   node scripts/upgrade.mjs cancel        drops the pending announcement (to announce different code)
 // Bump VERSION in game.move before announcing. `execute` fails if the code changed since `announce`
 // (the digest no longer matches). Signs with the active `sui client` address (the deployer).
 import fs from "fs";
@@ -19,7 +20,7 @@ const { Ed25519Keypair } = await sdk("keypairs/ed25519/index.mjs");
 const { fromBase64 } = await sdk("utils/index.mjs");
 
 const mode = process.argv[2];
-if (!["announce", "execute"].includes(mode)) throw new Error("usage: node scripts/upgrade.mjs <announce|execute>");
+if (!["announce", "execute", "cancel"].includes(mode)) throw new Error("usage: node scripts/upgrade.mjs <announce|execute|cancel>");
 const SUI = process.env.SUI_BIN || "C:\\Users\\ASD21\\sui-cli\\sui.exe";
 const DEP_FILE = path.join(ROOT, "deployments", "mainnet.json");
 const dep = JSON.parse(fs.readFileSync(DEP_FILE, "utf8"));
@@ -44,7 +45,9 @@ const kp = signer();
 const { modules, dependencies, digest } = build();
 const tx = new Transaction();
 
-if (mode === "announce") {
+if (mode === "cancel") {
+  tx.moveCall({ target: `${TL}::cancel`, arguments: [tx.object(dep.timelock)] });
+} else if (mode === "announce") {
   tx.moveCall({ target: `${TL}::announce`, arguments: [tx.object(dep.timelock), tx.pure.u8(COMPATIBLE), tx.pure.vector("u8", digest), tx.object.clock()] });
 } else {
   const ticket = tx.moveCall({ target: `${TL}::authorize`, arguments: [tx.object(dep.timelock), tx.object.clock()] });
@@ -68,7 +71,7 @@ console.log(`${mode}: ${r.digest}`);
 
 if (mode === "announce") {
   console.log(`digest ${Buffer.from(digest).toString("hex")}, can run from ${new Date(Number(event("Announced").ready_ms)).toISOString()}`);
-} else {
+} else if (mode === "execute") {
   const pkg = r.effects.changedObjects.find(c => c.outputState === "PackageWrite" && c.idOperation === "Created").objectId;
   const version = Number(event("Upgraded").version);
   dep.latest = pkg;
