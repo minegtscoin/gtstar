@@ -37,7 +37,7 @@ let NAMES = {};
 const nameOf = a => NAMES[a] || "";
 const label = a => nameOf(a) || short(a);
 // GTStar Bot 1 and 2 (keeper/bots.mjs) and the Matcher (keeper/matcher.mjs) are left off the leaderboard.
-const BOTS = new Set(["0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa", "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7", "0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de"]);
+const BOTS = new Set(["0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa", "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7", "0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de", "0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4"]);
 const fmt = (n, d = 4) => Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
 const sui = (mist, d = 4) => fmt(mist / MIST, d);
 const parseAmt = v => { const x = parseFloat(String(v).replace(/,/g, "")); return isFinite(x) && x > 0 ? x : 0; };
