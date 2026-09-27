@@ -839,7 +839,7 @@ const shareUrl = (net, L) => "https://x.com/intent/post?" + new URLSearchParams(
 });
 const shareLink = (net, L) => `<a class="share-x" href="${shareUrl(net, L)}" target="_blank" rel="noopener">Share on X</a>`;
 function renderRecent() {
-  const list = STATE?.recent || [];
+  const list = (STATE?.recent || []).slice(0, 3);
   $("recent").innerHTML = list.length ? list.map(r =>
     `<a href="#explorer" class="rc${r.winners ? "" : " none"}" title="Round #${r.round}: ${sui(r.total, 3)} SUI deployed, ${r.players} ${r.players === 1 ? "player" : "players"}"><b>${r.tile + 1}</b><span>#${r.round}</span></a>`).join("")
     : `<span class="muted">No rounds yet.</span>`;
