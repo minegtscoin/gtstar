@@ -1222,6 +1222,7 @@ function renderTokenomics() {
   const done = epoch >= PERIODS;
   const next = (epoch + 1) * HALVING_ROUNDS + 1;
   $("kEpochLbl").textContent = genesis ? `Genesis ${fmtDate(genesis)}` : "Starts with the first round";
+  $("kRound").textContent = `#${fmt(round, 0)}`;
   $("kReward").textContent = `Up to ${fmt(rewardFor(round), 4)} GTS`;
   $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? "Emission ends" : `In ${fmt(next - round, 0)} rounds`;
   drawChart(STATE.board.cur_id - 1);
