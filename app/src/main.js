@@ -1,6 +1,7 @@
 // GTStar dApp — static and non-custodial. Every player signs with their own wallet.
 import { Transaction } from "@mysten/sui/transactions";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
 import { SlushWallet, SLUSH_WALLET_ICON } from "@mysten/slush-wallet";
@@ -141,6 +142,7 @@ async function loadGlobal() {
     const j = n.contents?.json || {};
     return { round: num(j.round_id), player: j.player, amounts: (j.amounts || []).map(num), total: num(j.total), ts: n.timestamp, digest: n.transaction?.digest };
   }).reverse();
+  const board = await freshBoard(boardOf(b, tGenesis), tGenesis);
   return {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
     staked: num(p.total_staked), motherlode: num(d.ml?.dynamicField?.value?.json),
@@ -151,14 +153,26 @@ async function loadGlobal() {
       finish: num(p.period_finish), last: num(p.last_update),
     },
     last: recent[0] || null, recent, deploys,
-    board: {
-      genesis: num(b.genesis_ms) || tGenesis,
-      cur_id: num(b.cur_id), cur_total: num(b.cur_total), cur_started: b.cur_started === true, cur_players: num(b.cur_players),
-      round_ms: num(b.round_ms) || 60_000,
-      cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
-      freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
-    },
+    board,
   };
+}
+const boardOf = (b, tGenesis) => ({
+  genesis: num(b.genesis_ms) || tGenesis,
+  cur_id: num(b.cur_id), cur_total: num(b.cur_total), cur_started: b.cur_started === true, cur_players: num(b.cur_players),
+  round_ms: num(b.round_ms) || 60_000,
+  cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
+  freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
+});
+// The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
+// a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
+const NODE = new SuiGrpcClient({ network: CFG.network, baseUrl: `https://fullnode.${CFG.network}.sui.io:443` });
+async function freshBoard(board, tGenesis) {
+  if (!board.cur_started || Date.now() < board.cur_end_ms + 5000) return board;
+  try {
+    const r = await within(NODE.getObject({ objectId: IDS.board, include: { json: true } }), 5000);
+    const f = boardOf(r.object.json, tGenesis);
+    return f.cur_id > board.cur_id || !f.cur_started ? f : board;
+  } catch (e) { console.warn("fullnode board read failed", e); return board; }
 }
 // One request for everything the wallet view needs (balances, miner, GTS coins, stake positions).
 async function loadUser(addr) {
