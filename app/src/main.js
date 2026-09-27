@@ -1682,6 +1682,42 @@ async function checkVersion() {
 setInterval(checkVersion, 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion().then(reloadIfStale); });
 
+// Install as an app: phones only, never once installed, and never again after the user closes it.
+// Android installs with one tap; iPhone has no install prompt, so the banner says how to add it.
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+(() => {
+  const ua = navigator.userAgent;
+  const installed = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const phone = matchMedia("(pointer: coarse) and (max-width: 760px)").matches;
+  if (installed || !phone || store.get("gtstar.installClosed")) return;
+  const hide = () => { $("install").hidden = true; };
+  $("insX").onclick = () => { hide(); store.set("gtstar.installClosed", "1"); };
+  addEventListener("appinstalled", hide);
+  const show = () => setTimeout(() => { if (!store.get("gtstar.installClosed")) $("install").hidden = false; }, 4000);
+  const ios = /iPhone|iPad|iPod/.test(ua) && /Safari\//.test(ua);
+  if (ios) {
+    $("insTxt").textContent = "Tap Share, then Add to Home Screen.";
+    $("insBtn").hidden = true;
+    show();
+    return;
+  }
+  let prompt = null;
+  addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    const first = !prompt;
+    prompt = e;
+    if (first) show();
+  });
+  $("insBtn").onclick = async () => {
+    if (!prompt) return;
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice.catch(() => ({}));
+    prompt = null;
+    hide();
+    if (outcome === "dismissed") store.set("gtstar.installClosed", "1");
+  };
+})();
+
 $("pkgLink").href = `${SCAN}/coin/${T_GTS}`;
 $("caAddr").textContent = T_GTS;
 $("caScan").href = `${SCAN}/coin/${T_GTS}`;
