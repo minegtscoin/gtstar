@@ -371,6 +371,7 @@ async function startConnect(w) {
     toast(/reject|cancel|denied/i.test(m) ? "Connection cancelled."
       : m === "timeout" ? "No answer from the wallet. Try again."
       : /open new window/i.test(m) ? "Your browser blocked the sign-in window. Allow pop-ups for this site and try again."
+      : /set up your wallet/i.test(m) ? `${w.name} is installed but not set up yet. Open it to finish setup, or sign in with Google instead.`
       : "Connection failed: " + m, true);
   }
   finally { btn.disabled = false; renderWallet(); }
