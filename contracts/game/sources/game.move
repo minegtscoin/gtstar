@@ -22,6 +22,13 @@
 /// with `sui::random`) to pay the whole Motherlode to the winning square, split like the normal
 /// pot. The GTStar House wallet never keeps any of it.
 ///
+/// Unrefined GTS (since v8, like ORE): mined GTS is not paid out at claim. It waits on the Board in
+/// the player's unrefined balance. Withdrawing it costs REFINE_FEE_BPS (10%), and that fee is shared
+/// among everyone still holding unrefined GTS, in proportion to their balance: whoever sells at once
+/// pays the players who wait. If nobody else is holding, the fee is burned for the reserve (redeem +
+/// vault_add), so the floor rises. The House bots burn or pool their GTS, so they are paid at claim as
+/// before: they never pay the fee and never take a share of it.
+///
 /// Settings: the owner's AdminCap can change the game settings at once, only inside fixed bounds
 /// (odds, the Motherlode share, the reserve fee, the minimum deposit, round timing, pause). The
 /// creator fee can only go down from 1%. Nothing here can mint GTS or move the pot, the
@@ -79,9 +86,20 @@ const MAX_ROUND_MS: u64 = 3_600_000;
 /// GTStar House wallet (see the site): its share of a Motherlode payout goes back to the Motherlode.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 
+/// Share of an unrefined balance kept back at withdrawal and given to the players still holding (10%).
+const REFINE_FEE_BPS: u64 = 1_000;
+/// Precision of the per-GTS fee accumulator.
+const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
+/// The other House bots (Bot 1, Bot 2, Bot 3, Matcher; see the site). With HOUSE_ADDR they get mined
+/// GTS at claim and stay out of the unrefined balances.
+const BOT1_ADDR: address = @0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa;
+const BOT2_ADDR: address = @0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7;
+const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4;
+const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
+
 /// Package version. Every call that changes the Board runs `check_version`, which blocks all
 /// older versions of this package (see there). Bump it on every upgrade.
-const VERSION: u64 = 7;
+const VERSION: u64 = 8;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -103,6 +121,7 @@ const ENotOwner: u64 = 16;
 const EAdminTaken: u64 = 17;
 const EBadParams: u64 = 18;
 const EPaused: u64 = 19;
+const ENothingToWithdraw: u64 = 20;
 
 
 /// Archived, settled round.
@@ -158,6 +177,15 @@ public struct ParamsKey has copy, drop, store {}
 public struct Params has copy, drop, store { ml_odds: u64, ml_share_bps: u64, paused: bool }
 /// Dynamic field on the Board: set once the AdminCap has been taken.
 public struct AdminKey has copy, drop, store {}
+
+/// Dynamic field on the Board holding all unrefined GTS (since v8).
+public struct RefineryKey has copy, drop, store {}
+/// `total`: unrefined GTS of all players. `acc`: fee GTS earned per unrefined GTS so far, scaled by REFINE_SCALE.
+public struct Refinery has store { gts: Balance<GTS>, total: u64, acc: u256 }
+/// Dynamic field on the Board: one player's unrefined balance. Removed when it is withdrawn.
+public struct UnrefinedKey has copy, drop, store { player: address }
+/// `amount`: mined GTS waiting. `bonus`: fee GTS earned up to `snap` (the accumulator when last updated).
+public struct Unrefined has store, drop { amount: u64, bonus: u64, snap: u256 }
 
 /// Right to change the game settings within the bounds above.
 public struct AdminCap has key, store { id: UID }
@@ -218,6 +246,17 @@ public struct Forfeited has copy, drop {
     player: address,
     to_reserve: u64,
     to_fund: u64,
+}
+
+/// A player withdrew their unrefined balance: `paid` = amount - fee + bonus. The fee went to the
+/// other holders, or was `burned` for the reserve when nobody else was holding.
+public struct GtsWithdrawn has copy, drop {
+    player: address,
+    amount: u64,
+    fee: u64,
+    bonus: u64,
+    paid: u64,
+    burned: u64,
 }
 
 public struct Deployed has copy, drop {
@@ -302,6 +341,36 @@ fun check_version(board: &mut Board) {
         let from = if (board.cur_started) { board.cur_id + 1 } else { board.cur_id };
         df::add(&mut board.id, FairFromKey {}, from);
     };
+    if (!df::exists(&board.id, RefineryKey {})) {
+        df::add(&mut board.id, RefineryKey {}, Refinery { gts: balance::zero<GTS>(), total: 0, acc: 0 });
+    };
+}
+
+/// House bots: paid mined GTS at claim, outside the unrefined balances.
+fun is_bot(a: address): bool {
+    a == HOUSE_ADDR || a == BOT1_ADDR || a == BOT2_ADDR || a == BOT3_ADDR || a == MATCHER_ADDR
+}
+
+fun refinery(board: &Board): &Refinery { df::borrow<RefineryKey, Refinery>(&board.id, RefineryKey {}) }
+
+/// Fee GTS earned by `amount` unrefined GTS since the accumulator was at `snap`.
+fun earned(amount: u64, acc: u256, snap: u256): u64 { (((amount as u256) * (acc - snap)) / REFINE_SCALE) as u64 }
+
+/// Add mined GTS to `player`'s unrefined balance.
+fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>) {
+    let amount = balance::value(&gts);
+    let acc = refinery(board).acc;
+    let key = UnrefinedKey { player };
+    if (!df::exists(&board.id, key)) {
+        df::add(&mut board.id, key, Unrefined { amount: 0, bonus: 0, snap: acc });
+    };
+    let u = df::borrow_mut<UnrefinedKey, Unrefined>(&mut board.id, key);
+    u.bonus = u.bonus + earned(u.amount, acc, u.snap);
+    u.snap = acc;
+    u.amount = u.amount + amount;
+    let r = df::borrow_mut<RefineryKey, Refinery>(&mut board.id, RefineryKey {});
+    r.total = r.total + amount;
+    balance::join(&mut r.gts, gts);
 }
 
 fun fair_from(board: &Board): u64 {
@@ -585,7 +654,13 @@ public fun claim(
 
     // GTS mining reward — proportional to this miner's share of the round (everyone earns).
     let gts_amt = if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
-    let gts_coin = gts::mint(treasury, minter(board), gts_amt, clock, ctx);
+    let mined = gts::mint(treasury, minter(board), gts_amt, clock, ctx);
+    let mined_amt = coin::value(&mined);
+    // v8: it goes to the unrefined balance (the House bots get it here, as before).
+    let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
+        add_unrefined(board, player, coin::into_balance(mined));
+        coin::zero<GTS>(ctx)
+    };
 
     // SUI winnings if the miner had stake on the winning square: own stake back plus a share of
     // the losing pot (and any Motherlode) in proportion to the stake on the winning square.
@@ -628,7 +703,7 @@ public fun claim(
     event::emit(Claimed {
         round_id,
         player,
-        gts: coin::value(&gts_coin),
+        gts: mined_amt, // GTS mined (since v8 usually added to the unrefined balance)
         sui: coin::value(&sui_coin),
     });
 
@@ -643,6 +718,49 @@ public fun claim(
     };
 
     (gts_coin, sui_coin)
+}
+
+/// Claim a settled round and get its SUI. The mined GTS goes to the unrefined balance (a House bot
+/// is sent its GTS). Same as `claim` without the empty GTS coin.
+public fun claim_sui(
+    board: &mut Board,
+    miner: &mut Miner,
+    treasury: &mut Treasury,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<SUI> {
+    let (g, s) = claim(board, miner, treasury, clock, ctx);
+    if (coin::value(&g) == 0) { coin::destroy_zero(g) } else { transfer::public_transfer(g, tx_context::sender(ctx)) };
+    s
+}
+
+/// Withdraw the whole unrefined balance: it minus REFINE_FEE_BPS, plus the bonus earned from other
+/// players' fees. The fee is shared among everyone still holding, or burned for the reserve if nobody is.
+public fun withdraw_gts(board: &mut Board, treasury: &mut Treasury, ctx: &mut TxContext): Coin<GTS> {
+    check_version(board);
+    let player = tx_context::sender(ctx);
+    let key = UnrefinedKey { player };
+    assert!(df::exists(&board.id, key), ENothingToWithdraw);
+    let Unrefined { amount, bonus, snap } = df::remove(&mut board.id, key);
+    let r = df::borrow_mut<RefineryKey, Refinery>(&mut board.id, RefineryKey {});
+    let bonus = bonus + earned(amount, r.acc, snap);
+    let fee = mul_div(amount, REFINE_FEE_BPS, 10_000);
+    r.total = r.total - amount;
+    let paid = amount - fee + bonus;
+    let out = balance::split(&mut r.gts, paid);
+    let mut burned = 0;
+    if (fee > 0) {
+        if (r.total > 0) {
+            r.acc = r.acc + (fee as u256) * REFINE_SCALE / (r.total as u256);
+        } else if (gts::vault_value(treasury) > 0) {
+            // Nobody left to share it: burn it and put its reserve share straight back.
+            let sui_out = gts::redeem(treasury, coin::from_balance(balance::split(&mut r.gts, fee), ctx), ctx);
+            gts::vault_add(treasury, coin::into_balance(sui_out));
+            burned = fee;
+        };
+    };
+    event::emit(GtsWithdrawn { player, amount, fee, bonus, paid, burned });
+    coin::from_balance(out, ctx)
 }
 
 /// Send accrued creator fees to DEV_ADDR. Anyone may call; funds can only go to DEV_ADDR.
@@ -684,6 +802,18 @@ public fun current_reward(board: &Board, _clock: &Clock): u64 {
     if (!has_minter(board)) { 0 } else { reward_for_round(board.cur_id) }
 }
 public fun full_reward_deploy(): u64 { FULL_REWARD_DEPLOY }
+/// `player`'s unrefined GTS and the bonus earned so far (what `withdraw_gts` adds on top of it minus the fee).
+public fun unrefined_of(board: &Board, player: address): (u64, u64) {
+    let key = UnrefinedKey { player };
+    if (!df::exists(&board.id, key) || !df::exists(&board.id, RefineryKey {})) { return (0, 0) };
+    let u = df::borrow<UnrefinedKey, Unrefined>(&board.id, key);
+    (u.amount, u.bonus + earned(u.amount, refinery(board).acc, u.snap))
+}
+/// Unrefined GTS of all players together.
+public fun unrefined_total(board: &Board): u64 {
+    if (df::exists(&board.id, RefineryKey {})) { refinery(board).total } else { 0 }
+}
+public fun refine_fee_bps(): u64 { REFINE_FEE_BPS }
 
 #[test_only]
 public fun reward_for_round_for_testing(round_id: u64): u64 { reward_for_round(round_id) }

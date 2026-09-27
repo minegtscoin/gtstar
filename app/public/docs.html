@@ -172,6 +172,10 @@ my_share   = losing_pot * 95% * my_stake / winning_tile_total
 payout     = my_stake + my_share * my_stake / my_round_deposits
 round_reward = full_reward * min(round_total, 1 SUI) / 1 SUI
 my_gts       = round_reward * my_deposits / round_total</span>
+    <h3>Unrefined GTS</h3>
+    <p>Coming with game v8, live when its 48-hour timelock ends. Mined GTS no longer goes straight to your wallet. It waits in your <strong>unrefined balance</strong>, and you withdraw it whenever you want. Withdrawing costs 10%, and that 10% is shared among every player still holding unrefined GTS, in proportion to their balance. Players who sell at once pay the players who wait. If no one else is holding, the fee is burned and its reserve share stays in the reserve, so the floor price rises. The GTStar House bots get their GTS at claim as before. They never pay the fee and never receive any of it.</p>
+    <span class="code">withdraw = my_unrefined * 90% + my_bonus
+my_bonus += fee * my_unrefined / all_unrefined   (each time another player withdraws)</span>
     <h3>Wealth Fund</h3>
     <p>If no one deployed on the winning tile, 19.5% of the pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, 1% goes to the creator and the rest to the GTS reserve. Every round with a winner has a 1 in 1000 chance to pay the whole Wealth Fund to the winning tile, split like the pot (the same rule for spread deposits applies, and what is not kept stays in the fund). The GTStar House wallet never keeps Wealth Fund SUI.</p>
     <div class="tbl"><table>

@@ -25,6 +25,9 @@ const TK = name => `${IDS.token}::${name}`;           // token package (immutabl
 const T_MINER = T("game::Miner"), T_GTS = TK("gts::GTS"), T_POS = T("staking::StakePosition");
 const ML_PKG = IDS.motherlode;                    // version that introduced the Motherlode (its types)
 const FAIR_PKG = IDS.fair;                        // version that introduced the v7 split (its types)
+const REFINE_PKG = IDS.refine;                    // version that introduced unrefined GTS (v8); off until then
+const REFINE_FEE = 0.1;                           // share of unrefined GTS kept back at withdrawal
+const REFINE_SCALE = 10n ** 18n;
 const HOUSE = "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a"; // never keeps Wealth Fund SUI
 const EV = { ml: ML_PKG ? `${ML_PKG}::game::MotherlodeUpdate` : "", settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
 const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake", "learn"];
@@ -193,8 +196,14 @@ async function pollBoard() {
 async function loadUser(addr) {
   const objs = (alias, type, first, after) => `${alias}:objects(filter:{type:"${type}"},first:${first}${after ? `,after:"${after}"` : ""}){pageInfo{hasNextPage endCursor} nodes{address contents{json}}}`;
   const T_COIN = `0x2::coin::Coin<${T_GTS}>`;
+  // v8: the player's unrefined GTS and the fee accumulator, both dynamic fields on the Board.
+  const df = (alias, type, bcs) => `${alias}:dynamicField(name:{type:"${REFINE_PKG}::game::${type}",bcs:"${bcs}"}){value{... on MoveValue{json}}}`;
+  const addrBcs = btoa(String.fromCharCode(...addr.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16))));
+  const refQ = REFINE_PKG ? `rf:object(address:"${IDS.board}"){${df("u", "UnrefinedKey", addrBcs)} ${df("r", "RefineryKey", "AA==")}}` : "";
   const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
-    ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)} ${objs("p", T_POS, 50)}}}`);
+    ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)} ${objs("p", T_POS, 50)}} ${refQ}}`);
+  const uj = d.rf?.u?.value?.json, acc = BigInt(d.rf?.r?.value?.json?.acc || 0);
+  const unrefined = uj ? { amount: num(uj.amount), bonus: Number(BigInt(uj.bonus) + BigInt(uj.amount) * (acc - BigInt(uj.snap)) / REFINE_SCALE) } : { amount: 0, bonus: 0 };
   const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
   const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c"), positions = nodes("p");
   // Read every page of each list: mining leaves many small GTS coins, and a missed coin or stake position
@@ -211,7 +220,7 @@ async function loadUser(addr) {
   // With several Miners, use the one in the newest round: since v7 a round accepts one Miner per address.
   const miner = miners.reduce((a, m) => (!a || num(m.f.round_id) > num(a.f.round_id) ? m : a), null);
   return {
-    sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance),
+    sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance), unrefined,
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
     positions: positions.map(p => ({
@@ -467,9 +476,17 @@ async function exec(label, btnId, build, needMist = 0) {
   }
 }
 function claimInto(tx, minerArg) {
-  const [g, s] = tx.moveCall({ target: C("game::claim"), arguments: [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()] });
-  tx.transferObjects([g, s], account.address);
+  const args = [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()];
+  // v8: the mined GTS goes to the unrefined balance, so only the SUI comes back.
+  if (REFINE_PKG) tx.transferObjects([tx.moveCall({ target: C("game::claim_sui"), arguments: args })[0]], account.address);
+  else { const [g, s] = tx.moveCall({ target: C("game::claim"), arguments: args }); tx.transferObjects([g, s], account.address); }
 }
+// v8: take the whole unrefined balance out (10% fee to the players still holding, plus the bonus earned).
+const withdrawGts = () => exec("Withdraw", "btnWithdraw", tx => {
+  if (!(USER?.unrefined?.amount > 0)) throw new Error("Nothing to withdraw.");
+  const [g] = tx.moveCall({ target: C("game::withdraw_gts"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury)] });
+  tx.transferObjects([g], account.address);
+});
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
 // GTS may sit partly in the address balance (not as Coin objects); the shortfall is withdrawn from there.
 let abUsed = 0;              // GTS taken from the address balance in the transaction being built
@@ -963,6 +980,20 @@ function renderRewards() {
   if (!busy) {
     $("btnClaimAll").textContent = account ? "Claim all" : "Sign in";
     $("btnClaimAll").disabled = !!account && !R.any;
+  }
+  // v8 unrefined GTS: what waits, the bonus from other players' fees, and what a withdrawal pays now.
+  const U = USER?.unrefined || { amount: 0, bonus: 0 };
+  $("refine").hidden = !REFINE_PKG || !USER;
+  if (REFINE_PKG && USER) {
+    const out = U.amount - Math.floor(U.amount * REFINE_FEE) + U.bonus;
+    $("rfAmt").textContent = sui(U.amount, 4);
+    $("rfBonus").textContent = `+${sui(U.bonus, 4)}`;
+    $("rfBonus").classList.toggle("won", U.bonus > 0);
+    $("rfHint").textContent = U.amount > 0
+      ? `Withdrawing now pays ${sui(out, 4)} GTS. The 10% fee goes to the players who keep theirs; keep yours to earn from others' fees.`
+      : "Mined GTS waits here. Withdrawing costs 10%, paid to the players who keep theirs.";
+    if (!busy) { $("btnWithdraw").disabled = !(U.amount > 0); $("btnWithdraw").textContent = U.amount > 0 ? `Withdraw ${sui(out, 4)} GTS` : "Withdraw"; }
+    else if (busy !== "btnWithdraw") $("btnWithdraw").disabled = true;
   }
   const hc = $("hdrClaim");
   hc.hidden = !R.any;
@@ -1612,6 +1643,7 @@ $("btnPlay").onclick = async () => {
   if (r && selected.size) { await refresh(); play(); }
 };
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
+$("btnWithdraw").onclick = withdrawGts;
 $("hdrClaim").onclick = claimAll;
 $("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
 $("btnSwap").onclick = () => (!account ? openWalletModal() : swapDir === "buy" ? buy() : swap());

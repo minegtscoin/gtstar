@@ -266,6 +266,11 @@ body.on-home .hero{padding:8px 0 32px}
 .rw b{font-family:var(--disp);font-weight:600}
 .rw b.won{color:var(--win)}
 .rewards .gold-btn{margin-top:8px}
+.refine{border-top:1px solid var(--line);margin-top:12px;padding-top:8px;display:flex;flex-direction:column;gap:2px}
+.refine .hint{margin:4px 0 0;font-size:12px;color:var(--dim);line-height:1.45}
+.ghost-btn{width:100%;margin-top:8px;padding:10px;border-radius:999px;border:1px solid var(--line-2);color:var(--muted);font-weight:600;font-size:14px;transition:background .15s}
+.ghost-btn:hover:not(:disabled){background:rgba(255,255,255,.04)}
+.ghost-btn:disabled{color:var(--dim)}
 
 .live{margin-top:36px}
 .feed-live{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;overflow:hidden}
