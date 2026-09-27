@@ -1556,6 +1556,12 @@ $("wlBtn").onclick = () => {
 };
 $("wlClose").onclick = () => ($("welcomeModal").hidden = true);
 $("welcomeModal").onclick = e => { if (e.target.id === "welcomeModal") $("welcomeModal").hidden = true; };
+$("mBuy").onclick = async () => {
+  // Opened synchronously so popup blockers allow it; the address is copied for the player to paste in MoonPay.
+  window.open("https://buy.moonpay.com/?defaultCurrencyCode=sui", "_blank", "noopener");
+  try { await navigator.clipboard.writeText(account.address); toast("Your address is copied. Paste it in MoonPay as the wallet address."); }
+  catch { toast(`Paste this address in MoonPay as the wallet address: ${account.address}`); }
+};
 $("mCopy").onclick = async () => { try { await navigator.clipboard.writeText(account.address); toast("Address copied."); } catch { toast(account.address); } };
 $("closeModal").onclick = closeModal;
 $("walletModal").onclick = e => { if (e.target.id === "walletModal") closeModal(); };
