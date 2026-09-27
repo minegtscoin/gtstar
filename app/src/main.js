@@ -694,7 +694,9 @@ function buildArt() {
 function renderHome() {
   $("hMotherlode").textContent = STATE ? sui(STATE.motherlode, 3) : "—";
   $("hReserve").textContent = STATE ? sui(STATE.vault, 3) : "—";
-  $("hFloor").textContent = STATE ? fmt(STATE.floor, 5) : "—";
+  // Floor in dollars, next to the dollar price in the header; SUI until the SUI price loads.
+  $("hFloor").textContent = STATE ? (PRICE.sui ? usd(STATE.floor * PRICE.sui) : `${fmt(STATE.floor, 5)} SUI`) : "—";
+  $("hFloor").title = STATE ? `${fmt(STATE.floor, 5)} SUI per GTS` : "";
   $("hMined").textContent = STATE ? sui(STATE.minted, 2) : "—";
   $("hVolume").textContent = HIST ? sui(HIST.totals.volume, 2) : "—";
 }
