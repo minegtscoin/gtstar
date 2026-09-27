@@ -191,15 +191,22 @@ async function pollBoard() {
 }
 // One request for everything the wallet view needs (balances, miner, GTS coins, stake positions).
 async function loadUser(addr) {
-  const objs = (alias, type, first) => `${alias}:objects(filter:{type:"${type}"},first:${first}){nodes{address contents{json}}}`;
-  const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance}
-    ${objs("m", T_MINER, 10)} ${objs("c", `0x2::coin::Coin<${T_GTS}>`, 50)} ${objs("p", T_POS, 50)}}}`);
+  const objs = (alias, type, first, after) => `${alias}:objects(filter:{type:"${type}"},first:${first}${after ? `,after:"${after}"` : ""}){pageInfo{hasNextPage endCursor} nodes{address contents{json}}}`;
+  const T_COIN = `0x2::coin::Coin<${T_GTS}>`;
+  const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
+    ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)} ${objs("p", T_POS, 50)}}}`);
   const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
   const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c"), positions = nodes("p");
+  // Mining leaves many small GTS coins; read every page so none of them is mistaken for address balance.
+  for (let pi = d.address?.c?.pageInfo, n = 0; pi?.hasNextPage && n < 20; n++) {
+    const more = (await gql(`{address(address:"${addr}"){${objs("c", T_COIN, 50, pi.endCursor)}}}`)).address?.c;
+    (more?.nodes || []).forEach(x => coins.push({ id: x.address, f: x.contents?.json || {} }));
+    pi = more?.pageInfo;
+  }
   userAt = Date.now();
   const miner = miners.find(m => num(m.f.round_id) !== 0) || miners[0] || null;
   return {
-    sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance),
+    sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance),
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
     positions: positions.map(p => ({
