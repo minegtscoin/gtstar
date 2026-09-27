@@ -27,7 +27,7 @@ const ML_PKG = IDS.motherlode;                    // version that introduced the
 const FAIR_PKG = IDS.fair;                        // version that introduced the v7 split (its types)
 const HOUSE = "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a"; // never keeps Wealth Fund SUI
 const EV = { ml: ML_PKG ? `${ML_PKG}::game::MotherlodeUpdate` : "", settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed"), staked: T("staking::Staked"), unstaked: T("staking::Unstaked") };
-const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake"];
+const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "stake", "learn"];
 
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
@@ -1419,6 +1419,8 @@ function route() {
   document.body.classList.toggle("on-home", view === "home");
   document.body.classList.toggle("on-mine", view === "mine");
   document.querySelectorAll(".tabs a[data-view]").forEach(a => a.classList.toggle("on", a.dataset.view === view));
+  $("moreBtn").classList.toggle("on", !!$("moreMenu").querySelector(`[data-view="${view}"]`));
+  $("moreMenu").hidden = true; $("moreBtn").setAttribute("aria-expanded", "false");
   window.scrollTo(0, 0);
   render();
   if (["home", "mine", "explorer", "tokenomics"].includes(view)) refreshHistory();
@@ -1429,7 +1431,11 @@ $("btnConnect").onclick = e => {
   if (!account) return openWalletModal();
   e.stopPropagation(); $("acctMenu").hidden = !$("acctMenu").hidden;
 };
-document.addEventListener("click", e => { if (!e.target.closest(".acct")) $("acctMenu").hidden = true; });
+document.addEventListener("click", e => {
+  if (!e.target.closest(".acct")) $("acctMenu").hidden = true;
+  if (!e.target.closest(".more")) { $("moreMenu").hidden = true; $("moreBtn").setAttribute("aria-expanded", "false"); }
+});
+$("moreBtn").onclick = () => { const m = $("moreMenu"); m.hidden = !m.hidden; $("moreBtn").setAttribute("aria-expanded", String(!m.hidden)); };
 $("mDisconnect").onclick = disconnect;
 async function loadNames() {
   try { const r = await fetch("/api/names", { cache: "no-store" }); if (r.ok) { NAMES = await r.json(); renderWallet(); render(); } } catch {}

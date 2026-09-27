@@ -37,11 +37,17 @@
     </a>
     <nav class="tabs" aria-label="Main">
       <a href="#mine" data-view="mine">Mine</a>
-      <a href="#trade" data-view="trade">Trade</a>
       <a href="#stake" data-view="stake">Stake</a>
-      <a href="#explorer" data-view="explorer">Explorer</a>
-      <a href="#tokenomics" data-view="tokenomics">Tokenomics</a>
-      <a href="docs.html">Docs</a>
+      <a href="#trade" data-view="trade">Trade</a>
+      <div class="more" id="more">
+        <button type="button" class="more-btn" id="moreBtn" aria-label="More" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        <div class="more-menu" id="moreMenu" hidden>
+          <a href="#explorer" data-view="explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V14M12 20V8M18 20V4"/></svg>Explore</a>
+          <a href="#learn" data-view="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>Learn</a>
+          <a href="#tokenomics" data-view="tokenomics"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg>Tokenomics</a>
+          <a href="docs.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7"/></svg>Docs</a>
+        </div>
+      </div>
     </nav>
     <div class="bar-right">
       <div class="ticker" id="tGts" title="GTS market price, Cetus GTS/SUI pool"><i class="tok gts" aria-hidden="true"></i><span class="v" id="tGtsUsd">—</span></div>
@@ -357,6 +363,39 @@
         <p class="note-sm">A winner keeps their share of the 95% in proportion to how much of their own round deposit sat on the winning tile: 0.01 SUI on each of the 25 tiles keeps 1/25 of it. What is not kept goes to the reserve. One wallet plays with one miner per round.</p>
         <p class="note-sm">If no one deployed on the winning tile, 19.5% of the pot goes into the Wealth Fund, 1% to the creator and the rest (79.5%) to the reserve. Every round with a winner has a 1 in 1000 chance to pay the whole Wealth Fund to the winning tile, split like the pot. The GTStar House wallet never keeps any of it.</p>
       </div>
+    </div>
+  </section>
+
+  <!-- STAKE -->
+  <!-- LEARN -->
+  <section class="view" id="view-learn" hidden>
+    <div class="learn">
+      <h1>How GTStar works</h1>
+      <p class="sub">A 60-second game on a 5x5 board. Pick tiles, put SUI on them, and mine GTS every round.</p>
+      <ol class="learn-steps">
+        <li><b>Pick tiles</b><span>Choose one or more of the 25 tiles and put SUI on them. Minimum 0.01 SUI per tile.</span></li>
+        <li><b>Wait 60 seconds</b><span>The round runs for one minute. Deposits close 5 seconds before the end.</span></li>
+        <li><b>One tile wins</b><span>Sui's on-chain randomness draws the winning tile. No one can see or change it in advance.</span></li>
+        <li><b>Claim</b><span>Winners get SUI. Everyone who played gets GTS, win or lose.</span></li>
+      </ol>
+      <h2>What you win</h2>
+      <ul class="learn-list">
+        <li><b>On the winning tile:</b> you get your SUI back plus a share of the SUI on the other 24 tiles, based on how much you put in.</li>
+        <li><b>On any tile:</b> you mine GTS. More SUI in the round means more GTS for you.</li>
+        <li><b>Tip:</b> spreading SUI over many tiles wins more often but keeps a smaller part of the pot. One or a few tiles is the way to win big.</li>
+      </ul>
+      <h2>Wealth Fund</h2>
+      <p>When no one is on the winning tile, part of the pot goes into the Wealth Fund, a jackpot that keeps growing. Every round with a winner has a small chance to pay the whole fund to the winning tile.</p>
+      <h2>What to do with GTS</h2>
+      <ul class="learn-list">
+        <li><b>Hold:</b> every GTS is backed by SUI in an on-chain reserve, so it always has a floor price.</li>
+        <li><b>Stake:</b> earn more GTS. No lock-up, withdraw any time.</li>
+        <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
+      </ul>
+      <h2>Getting started</h2>
+      <p>Sign in with Google or a Sui wallet. New Google players get 2 free rounds.</p>
+      <a class="primary learn-cta" href="#mine">Start mining</a>
+      <p class="note-sm">Full rules and contract addresses are in the <a href="docs.html">Docs</a>.</p>
     </div>
   </section>
 

@@ -100,11 +100,17 @@
     </a>
     <nav class="tabs" aria-label="Main">
       <a href="index.html#mine">Mine</a>
-      <a href="index.html#trade">Trade</a>
       <a href="index.html#stake">Stake</a>
-      <a href="index.html#explorer">Explorer</a>
-      <a href="index.html#tokenomics">Tokenomics</a>
-      <a href="docs.html" class="on">Docs</a>
+      <a href="index.html#trade">Trade</a>
+      <div class="more" id="more">
+        <button type="button" class="more-btn" id="moreBtn" aria-label="More" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        <div class="more-menu" id="moreMenu" hidden>
+          <a href="index.html#explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V14M12 20V8M18 20V4"/></svg>Explore</a>
+          <a href="index.html#learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>Learn</a>
+          <a href="index.html#tokenomics"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg>Tokenomics</a>
+          <a href="docs.html" class="on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7"/></svg>Docs</a>
+        </div>
+      </div>
     </nav>
     <div class="bar-right"><a class="pill" href="index.html#mine">Start mining</a></div>
   </div>
@@ -245,5 +251,6 @@ floor_price   = reserve / total_supply</span>
 </footer>
 <script src="config.js"></script>
 <script src="docs.js"></script>
+<script>(function(){var b=document.getElementById("moreBtn"),m=document.getElementById("moreMenu");b.onclick=function(e){e.stopPropagation();m.hidden=!m.hidden;b.setAttribute("aria-expanded",!m.hidden)};document.addEventListener("click",function(){m.hidden=true;b.setAttribute("aria-expanded","false")})})();</script>
 </body>
 </html>
