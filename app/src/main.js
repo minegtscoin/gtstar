@@ -62,19 +62,28 @@ let busy = false, view = "home";
 let userAt = 0, txAt = 0;   // when the wallet view was last loaded, and when we last sent a transaction
 
 // ---------- chain reads ----------
-// Every read has a time limit and one retry: a stalled request must never freeze the app.
-async function gql(query) {
-  for (let attempt = 0; ; attempt++) {
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
-    try {
-      const r = await fetch(GQL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }), signal: ctl.signal });
-      const j = await r.json();
-      if (j.errors) throw new Error(j.errors[0].message);
-      return j.data;
-    } catch (e) {
-      if (attempt >= 1 || !(e.name === "AbortError" || e instanceof TypeError)) throw e;
-    } finally { clearTimeout(timer); }
-  }
+// Every read has a time limit, and a read with no answer after 1.5 seconds is sent again in parallel:
+// the public indexer sometimes stalls one request for many seconds while a second one answers at once.
+function gqlOnce(query, ms) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(GQL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }), signal: ctl.signal })
+    .then(r => r.json()).then(j => { if (j.errors) throw new Error(j.errors[0].message); return j.data; })
+    .finally(() => clearTimeout(timer));
+}
+function gql(query) {
+  return new Promise((resolve, reject) => {
+    let sent = 0, failed = 0, done = false, hedge;
+    const finish = (f, x) => { if (!done) { done = true; clearTimeout(hedge); f(x); } };
+    const go = () => {
+      sent++;
+      gqlOnce(query, 6000).then(d => finish(resolve, d), e => {
+        failed++;
+        if (!(e.name === "AbortError" || e instanceof TypeError)) return finish(reject, e);
+        if (sent < 2) { clearTimeout(hedge); go(); } else if (failed >= sent) finish(reject, e);
+      });
+    };
+    go(); hedge = setTimeout(() => { if (!done && sent < 2) go(); }, 1500);
+  });
 }
 const objQ = (alias, id) => `${alias}:object(address:"${id}"){asMoveObject{contents{json}}}`;
 const pick = (d, k) => d[k]?.asMoveObject?.contents?.json || {};
@@ -1429,13 +1438,23 @@ function render() {
 // Refreshes overlap (poll, wallet change, after a transaction). A reply only counts if nothing newer has
 // been shown yet and, for the wallet view, the same wallet is still signed in; the board and the wallet
 // load independently so one slow or failed read never holds back the other.
+// The last protocol state is kept in the browser and shown the moment the page opens, so the numbers
+// are never blank while Sui answers; the live read replaces it within a second.
+const SNAP_KEY = "gtstar.state";
+function saveSnap(g) { try { localStorage.setItem(SNAP_KEY, JSON.stringify({ at: Date.now(), g }, (k, v) => typeof v === "bigint" ? { $b: String(v) } : v)); } catch {} }
+function loadSnap() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SNAP_KEY), (k, v) => v && typeof v === "object" && "$b" in v ? BigInt(v.$b) : v);
+    if (s && Date.now() - s.at < 6 * 3600_000 && !STATE) { STATE = s.g; render(); pollBoard(); }
+  } catch {}
+}
 let seqG = 0, seqU = 0, shownG = 0, shownU = 0;
 async function refresh() {
   const sg = ++seqG, su = ++seqU, addr = account?.address;
   const g = loadGlobal().then(g => {
     if (sg < shownG) return;
     if (STATE?.board && newerBoard(STATE.board, g.board)) g.board = STATE.board;
-    shownG = sg; STATE = g; trackRounds(); render();
+    shownG = sg; STATE = g; trackRounds(); render(); saveSnap(g);
   }, e => console.warn("refresh failed", e));
   const u = (addr ? loadUser(addr) : Promise.resolve(null)).then(u => {
     if (su < shownU || account?.address !== addr) return;
@@ -1745,7 +1764,7 @@ $("caAddr").textContent = T_GTS;
 $("caScan").href = `${SCAN}/coin/${T_GTS}`;
 $("caCopy").onclick = $("caAddr").onclick = async () => { try { await navigator.clipboard.writeText(T_GTS); toast("Contract address copied."); } catch { toast(T_GTS); } };
 $("amt").value = "0.01";
-buildBoard(); buildArt(); route(); autoReconnect();
+buildBoard(); buildArt(); loadSnap(); route(); autoReconnect();
 // Price every minute, retried after 10 seconds while there is none yet.
 (function price() { loadPrice().then(ok => setTimeout(price, ok || PRICE.sui ? 60_000 : 10_000)); })();
 // Poll faster on the board, fastest while a finished round is waiting to be drawn.
