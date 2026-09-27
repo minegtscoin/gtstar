@@ -127,7 +127,8 @@ async function loadGlobal() {
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
     ${ML_PKG ? `ml:object(address:"${IDS.board}"){dynamicField(name:{type:"${ML_PKG}::game::MotherlodeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
     mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}` : ""}
-    ${FF_Q}}`);
+    ${FF_Q}
+    ${FAIR_PKG ? `pm:object(address:"${IDS.board}"){dynamicField(name:{type:"${FAIR_PKG}::game::ParamsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}}`);
   setFairFrom(d);
   const b = pick(d, "b"), t = pick(d, "t"), p = pick(d, "p"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
@@ -143,6 +144,8 @@ async function loadGlobal() {
   return {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
     staked: num(p.total_staked), motherlode: num(d.ml?.dynamicField?.value?.json),
+    // Wealth Fund odds: the on-chain setting once it exists, before that the contract's fixed 1 in 25.
+    mlOdds: num(d.pm?.dynamicField?.value?.json?.ml_odds) || 25,
     pool: {
       total: BigInt(p.total_staked || 0), acc: BigInt(p.acc_reward_per_share || 0), rate: BigInt(p.reward_rate || 0),
       finish: num(p.period_finish), last: num(p.last_update),
@@ -921,10 +924,22 @@ function renderRewards() {
   if (R.any) hc.textContent = R.sui > 0 ? `Claim ${sui(R.sui, 3)} SUI` : "Claim";
 }
 
+// "1 in N chance each round with a winner · M rounds since the last payout" (M once history is loaded).
+function mlOddsText() {
+  if (!STATE) return "";
+  let t = `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`;
+  if (HIST?.rounds.length) {
+    const hit = HIST.rounds.find(r => r.ml?.paid > 0), start = HIST.rounds.filter(r => r.ml).pop();
+    const since = hit ? HIST.rounds.filter(r => r.round > hit.round).length : start ? HIST.rounds.filter(r => r.round >= start.round).length : 0;
+    t += ` · ${fmt(since, 0)} rounds since the last payout`;
+  }
+  return t;
+}
 function renderMine() {
   const b = STATE?.board, p = phase();
   $("sDeployed").textContent = b ? sui(b.cur_total, 3) : "—";
   $("sMotherlode").textContent = STATE ? `${sui(STATE.motherlode, 4)} SUI` : "—";
+  $("sMlOdds").textContent = mlOddsText();
   $("sRound").textContent = b ? `#${fmt(b.cur_id, 0)}` : "—";
   $("sPlayers").textContent = b ? fmt(b.cur_players, 0) : "—";
   let t = "—", lbl = "Time left", prog = 0;
@@ -1006,6 +1021,7 @@ function renderExplorer() {
   $("gReserve").textContent = `${sui(STATE.vault, 4)} SUI`;
   $("gMarket").textContent = marketText();
   $("gSupernova").textContent = `${sui(STATE.motherlode, 4)} SUI`;
+  $("gMlOdds").textContent = `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner`;
   $("gSnPaid").textContent = t ? `${sui(t.snPaid, 4)} SUI` : "—";
   $("gDeployed").textContent = `${sui(STATE.board.cur_total, 3)} SUI`;
   $("gRounds").textContent = t ? fmt(t.rounds, 0) : "—";
@@ -1372,7 +1388,7 @@ function route() {
   document.querySelectorAll(".tabs a[data-view]").forEach(a => a.classList.toggle("on", a.dataset.view === view));
   window.scrollTo(0, 0);
   render();
-  if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory();
+  if (["home", "mine", "explorer", "tokenomics"].includes(view)) refreshHistory();
 }
 
 // ---------- wire ----------
