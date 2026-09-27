@@ -1306,6 +1306,7 @@ function route() {
   view = VIEWS.includes(v) ? v : "home";
   VIEWS.forEach(n => ($("view-" + n).hidden = n !== view));
   document.body.classList.toggle("on-home", view === "home");
+  document.body.classList.toggle("on-mine", view === "mine");
   document.querySelectorAll(".tabs a[data-view]").forEach(a => a.classList.toggle("on", a.dataset.view === view));
   window.scrollTo(0, 0);
   render();
@@ -1367,19 +1368,33 @@ async function loadWelcome() {
   } catch {}
   renderWelcome();
 }
+// A new player sees the gift as a popup right after signing in (once per account), then as a gold box by Deploy.
+const welcomeShown = new Set();
 function renderWelcome() {
   const w = account && WELCOME?.addr === account.address ? WELCOME : null;
   const fresh = USER && !USER.miner && USER.sui === 0;
   const show = !!w && ((w.status === "none" && w.open && fresh) || w.status === "queued");
   $("welcome").hidden = !show;
-  if (!show) return;
+  if (!show) { if (!$("welcomeModal").hidden && $("wlBtn").dataset.state !== "sent") $("welcomeModal").hidden = true; return; }
   const amt = sui(w.amount || 0, 3);
-  $("welcomeTxt").textContent = w.status === "queued"
-    ? `Sending ${amt} SUI to your wallet…`
-    : `Get ${amt} SUI free to play your first tile.`;
-  $("btnWelcome").disabled = w.status === "queued";
-  $("btnWelcome").textContent = w.status === "queued" ? "Sending" : "Get it";
-  if (w.status === "queued" && !welcomePoll) welcomePoll = setInterval(loadWelcome, 3000);
+  const queued = w.status === "queued";
+  $("welcomeTxt").textContent = queued ? `Sending ${amt} SUI to your wallet…` : `Claim ${amt} SUI free and play your first tile.`;
+  $("btnWelcome").disabled = queued;
+  $("btnWelcome").textContent = queued ? "Sending" : "Claim";
+  $("wlAmt").textContent = amt;
+  $("wlTitle").textContent = "Your first round is on us";
+  $("wlTxt").textContent = queued ? "Sending the SUI to your wallet. This takes a few seconds." : "Claim free SUI and play your first tile. No deposit, no card.";
+  $("wlBtn").dataset.state = queued ? "queued" : "claim";
+  $("wlBtn").disabled = queued;
+  $("wlBtn").textContent = queued ? "Sending to your wallet…" : `Claim ${amt} SUI free`;
+  $("wlNote").hidden = queued;
+  if (!welcomeShown.has(account.address)) {
+    welcomeShown.add(account.address);
+    if (view !== "mine") location.hash = "#mine";
+    $("walletModal").hidden = true;
+    $("welcomeModal").hidden = false;
+  }
+  if (queued && !welcomePoll) welcomePoll = setInterval(loadWelcome, 3000);
 }
 async function welcomeArrived() {
   clearInterval(welcomePoll); welcomePoll = null;
@@ -1388,30 +1403,51 @@ async function welcomeArrived() {
   $("amt").value = String(min / MIST);
   if (!selected.size) selected.add(Math.floor(Math.random() * 25));
   render();
-  toast(`${sui(WELCOME.amount, 3)} SUI arrived. We picked a tile for you: press Deploy to play.`);
+  const amt = sui(WELCOME.amount, 3);
+  $("wlTitle").textContent = `${amt} SUI is in your wallet`;
+  $("wlAmt").textContent = amt;
+  $("wlTxt").textContent = "We picked a tile for you. Deploy it now and play your free round.";
+  $("wlBtn").dataset.state = "sent";
+  $("wlBtn").disabled = false;
+  $("wlBtn").textContent = "Play my free round";
+  $("wlNote").hidden = true;
+  $("welcomeModal").hidden = false;
 }
-$("btnWelcome").onclick = async () => {
+async function claimWelcome() {
   const signer = wallet?.features["sui:signPersonalMessage"];
   if (!signer || !account) return;
-  const btn = $("btnWelcome"); btn.disabled = true; btn.textContent = "Sign…";
+  const btn = $("btnWelcome"), big = $("wlBtn");
+  btn.disabled = big.disabled = true; btn.textContent = "Sign…"; big.textContent = "Approve in the popup…";
   try {
     const address = account.address, ts = Date.now();
-    const message = new TextEncoder().encode(`GTStar welcome\nAddress: ${address}\nTime: ${ts}`);
+    const message = new TextEncoder().encode(`GTStar welcome
+Address: ${address}
+Time: ${ts}`);
     const { signature } = await signer.signPersonalMessage({ message, account, chain: CHAIN });
-    btn.textContent = "Sending";
+    btn.textContent = "Sending"; big.textContent = "Sending to your wallet…";
     const r = await fetch("/api/welcome", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, ts, signature }) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { WELCOME = null; renderWelcome(); return toast(j.error || "Could not get the free round.", true); }
+    if (!r.ok) { WELCOME = null; $("welcomeModal").hidden = true; renderWelcome(); return toast(j.error || "Could not get the free round.", true); }
     WELCOME = { ...WELCOME, status: j.status, addr: address };
-    if (j.status === "sent") welcomeArrived();
+    if (j.status === "sent") return welcomeArrived();
   } catch (err) {
     toast(/reject|cancel|denied/i.test(err?.message || "") ? "Signature cancelled." : "Could not sign the message.", true);
-  } finally { renderWelcome(); }
+  }
+  renderWelcome();
+}
+$("btnWelcome").onclick = claimWelcome;
+$("wlBtn").onclick = () => {
+  if ($("wlBtn").dataset.state !== "sent") return claimWelcome();
+  $("welcomeModal").hidden = true;
+  if (view !== "mine") location.hash = "#mine";
+  $("btnPlay").click();
 };
+$("wlClose").onclick = () => ($("welcomeModal").hidden = true);
+$("welcomeModal").onclick = e => { if (e.target.id === "welcomeModal") $("welcomeModal").hidden = true; };
 $("mCopy").onclick = async () => { try { await navigator.clipboard.writeText(account.address); toast("Address copied."); } catch { toast(account.address); } };
 $("closeModal").onclick = closeModal;
 $("walletModal").onclick = e => { if (e.target.id === "walletModal") closeModal(); };
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeModal(); $("acctMenu").hidden = true; } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeModal(); $("welcomeModal").hidden = true; $("acctMenu").hidden = true; } });
 document.querySelectorAll(".quick [data-add]").forEach(b => (b.onclick = () => {
   $("amt").value = String(+(parseAmt($("amt").value) + parseFloat(b.dataset.add)).toFixed(4)); render();
 }));
