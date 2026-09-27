@@ -1682,18 +1682,24 @@ async function checkVersion() {
 setInterval(checkVersion, 60_000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion().then(reloadIfStale); });
 
-// Install as an app: phones only, never once installed, and never again after the user closes it.
+// Install as an app: phones only, never once installed. Closed, it comes back after 3 more visits
+// (a visit is a new browser session, so reloads and tab switches do not count).
 // Android installs with one tap; iPhone has no install prompt, so the banner says how to add it.
 if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 (() => {
   const ua = navigator.userAgent;
   const installed = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   const phone = matchMedia("(pointer: coarse) and (max-width: 760px)").matches;
-  if (installed || !phone || store.get("gtstar.installClosed")) return;
+  if (installed || !phone) return;
+  let visits = +store.get("gtstar.visits") || 0;
+  try { if (!sessionStorage.getItem("gtstar.visit")) { sessionStorage.setItem("gtstar.visit", "1"); store.set("gtstar.visits", ++visits); } } catch {}
+  let snoozed = visits < (+store.get("gtstar.installNext") || 0);
+  if (snoozed) return;
   const hide = () => { $("install").hidden = true; };
-  $("insX").onclick = () => { hide(); store.set("gtstar.installClosed", "1"); };
+  const snooze = () => { snoozed = true; hide(); store.set("gtstar.installNext", visits + 3); };
+  $("insX").onclick = snooze;
   addEventListener("appinstalled", hide);
-  const show = () => setTimeout(() => { if (!store.get("gtstar.installClosed")) $("install").hidden = false; }, 4000);
+  const show = () => setTimeout(() => { if (!snoozed) $("install").hidden = false; }, 4000);
   const ios = /iPhone|iPad|iPod/.test(ua) && /Safari\//.test(ua);
   if (ios) {
     $("insTxt").textContent = "Tap Share, then Add to Home Screen.";
@@ -1713,8 +1719,7 @@ if ("serviceWorker" in navigator) addEventListener("load", () => navigator.servi
     prompt.prompt();
     const { outcome } = await prompt.userChoice.catch(() => ({}));
     prompt = null;
-    hide();
-    if (outcome === "dismissed") store.set("gtstar.installClosed", "1");
+    if (outcome === "dismissed") snooze(); else hide();
   };
 })();
 
