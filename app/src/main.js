@@ -1125,7 +1125,7 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    reserve: { v: vaulted, unit: "SUI", share: "4% of losing pot + 75.5% when no one wins", label: "Added to the GTS reserve" },
+    reserve: { v: vaulted, unit: "SUI", share: "4% of the pot, 79.5% if no one wins", label: "Added to the GTS reserve" },
     supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "19.5% of the pot when no one wins", label: "Added to the Wealth Fund" },
     stakers: { v: r => r.stakerReward, unit: "GTS", share: "+10% of round GTS", label: "Minted to the staking stream" },
   }[revTab];
