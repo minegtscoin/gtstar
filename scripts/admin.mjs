@@ -1,7 +1,7 @@
 // Game settings through the AdminCap (game v7+). Changes apply at once, only inside the contract's bounds.
 //   node scripts/admin.mjs show                      current settings
 //   node scripts/admin.mjs take                      take the AdminCap (once, deployer only)
-//   node scripts/admin.mjs set odds=500 fund=1950    change some settings, keep the rest
+//   node scripts/admin.mjs set odds=1000 fund=1950    change some settings, keep the rest
 // Keys: odds (Wealth Fund 1 in N), fund (fund share of a no-winner pot, bps), reserve (reserve fee, bps),
 // creator (bps, max 100), min (min deposit per tile, MIST), round (ms), freeze (ms), paused (true/false).
 // Signs with the active `sui client` address (the deployer). DRY=1 simulates.
