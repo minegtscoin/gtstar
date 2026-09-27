@@ -147,7 +147,7 @@ async function loadGlobal() {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
     staked: num(p.total_staked), motherlode: num(d.ml?.dynamicField?.value?.json),
     // Wealth Fund odds: the on-chain setting once it exists, before that the contract's fixed 1 in 25.
-    mlOdds: num(d.pm?.dynamicField?.value?.json?.ml_odds) || 25,
+    mlOdds: num(d.pm?.dynamicField?.value?.json?.ml_odds) || 25, mlOddsSet: !!num(d.pm?.dynamicField?.value?.json?.ml_odds),
     pool: {
       total: BigInt(p.total_staked || 0), acc: BigInt(p.acc_reward_per_share || 0), rate: BigInt(p.reward_rate || 0),
       finish: num(p.period_finish), last: num(p.last_update),
@@ -940,22 +940,29 @@ function renderRewards() {
   if (R.any) hc.textContent = R.sui > 0 ? `Claim ${sui(R.sui, 3)} SUI` : "Claim";
 }
 
-// "1 in N chance each round with a winner · M rounds since the last payout" (M once history is loaded).
+// Wealth Fund line: odds (before the v7 settings exist, the live 1 in 25 and the 1 in 1000 coming with
+// v7), then the last payout with the winning wallets, or the rounds since it started filling.
 function mlOddsText() {
   if (!STATE) return "";
-  let t = `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`;
+  let t = STATE.mlOddsSet ? `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`
+    : `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner, 1 in 1,000 from Sep 29`;
   if (HIST?.rounds.length) {
     const hit = HIST.rounds.find(r => r.ml?.paid > 0), start = HIST.rounds.filter(r => r.ml).pop();
     const since = hit ? HIST.rounds.filter(r => r.round > hit.round).length : start ? HIST.rounds.filter(r => r.round >= start.round).length : 0;
-    t += ` · ${fmt(since, 0)} rounds since the last payout`;
+    if (hit) {
+      const who = [...playersOf(hit, HIST.byRound.get(hit.round) || [])].filter(([, a]) => a.onWin > 0).map(([p]) => acctLink(p));
+      t = esc(t) + ` · Last paid ${sui(hit.ml.paid, 4)} SUI in round #${fmt(hit.round, 0)} to ${who.length ? who.join(", ") : "the winners"} · ${fmt(since, 0)} rounds ago`;
+      return t;
+    }
+    t += ` · no payout yet, ${fmt(since, 0)} rounds so far`;
   }
-  return t;
+  return esc(t);
 }
 function renderMine() {
   const b = STATE?.board, p = phase();
   $("sDeployed").textContent = b ? sui(b.cur_total, 3) : "—";
   $("sMotherlode").textContent = STATE ? `${sui(STATE.motherlode, 4)} SUI` : "—";
-  $("sMlOdds").textContent = mlOddsText();
+  $("sMlOdds").innerHTML = mlOddsText();
   $("sRound").textContent = b ? `#${fmt(b.cur_id, 0)}` : "—";
   $("sPlayers").textContent = b ? fmt(b.cur_players, 0) : "—";
   let t = "—", lbl = "Time left", prog = 0;
