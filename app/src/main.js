@@ -365,6 +365,8 @@ async function startConnect(w) {
   const btn = $("btnConnect");
   btn.textContent = "Connecting…"; btn.disabled = true;
   toast(isWeb(w) ? "Finish signing in in the new window." : `Approve the connection in ${w.name}.`);
+  // Extensions often queue the request without a visible window (locked, or the popup opened behind the browser).
+  const hint = isWeb(w) ? 0 : setTimeout(() => { toast(`No window from ${w.name}? Click the ${w.name} icon in your browser toolbar (the puzzle piece if it is hidden), unlock it and approve the request.`); clearTimeout($("toast")._t); }, 5000);
   try { await connect(w); $("toast").hidden = true; }
   catch (e) {
     const m = String(e?.message || e);
@@ -374,7 +376,7 @@ async function startConnect(w) {
       : /set up your wallet/i.test(m) ? `${w.name} is installed but not set up yet. Open it to finish setup, or sign in with Google instead.`
       : "Connection failed: " + m, true);
   }
-  finally { btn.disabled = false; renderWallet(); }
+  finally { clearTimeout(hint); btn.disabled = false; renderWallet(); }
 }
 const closeModal = () => ($("walletModal").hidden = true);
 async function autoReconnect() {
