@@ -1,8 +1,7 @@
 // GTStar House: a public, named house wallet that joins a round only after a real player has
 // started it, so nobody plays alone and every round has a winner. It never starts a round itself,
 // and stays out of rounds only the GTStar Bots have joined (bots.mjs).
-// Like a normal player it plays one random tile: 10% (HOUSE_MATCH_BPS) of the round's first real
-// deposit, at least HOUSE_PER_TILE_MIST and at most HOUSE_MAX_MIST. It claims its previous round
+// Like a normal player it puts HOUSE_PER_TILE_MIST on one random tile. It claims its previous round
 // inside the same transaction.
 // Once a day (addLiquidity) it puts the GTS it mined into the Cetus GTS/SUI pool, paired with its
 // own SUI at the pool price, in one full-range position it keeps. It never sells GTS for this.
@@ -12,10 +11,6 @@ import { Transaction } from "@mysten/sui/transactions";
 
 const PER_TILE = BigInt(process.env.HOUSE_PER_TILE_MIST || 10_000_000);        // 0.01 SUI
 const KEEP = BigInt(process.env.HOUSE_KEEP_MIST || 300_000_000);               // never spend below 0.3 SUI
-const MATCH_BPS = BigInt(process.env.HOUSE_MATCH_BPS || 1_000);                 // 10% of the first real deposit
-const MAX = BigInt(process.env.HOUSE_MAX_MIST || 1_000_000_000);                // never more than 1 SUI a round
-// GTStar Bot 1 and 2 (bots.mjs): their deposits are not "real" first deposits.
-const BOT_ADDRS = new Set(["0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa", "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7"]);
 const LEAD_MS = 8_000; // join only if the round has at least this long before its deploy freeze
 const LP_KEEP = BigInt(process.env.HOUSE_LP_KEEP_MIST || 1_000_000_000);     // SUI left for playing after adding liquidity
 const LP_MIN_GTS = 1_000_000_000n;                                           // add only once it holds at least 1 GTS
@@ -40,14 +35,6 @@ export function makeHouse(client, CFG, log, botsIn) {
   let miner; // { id, round_id }, cached for this run
   let failedRound = 0; // never retry a round whose join failed (each attempt costs gas)
 
-  // Total of the first deposit in `round` by anyone but the House and the Bots (0 if none seen).
-  async function firstDeposit(round) {
-    const r = await client.query({ query: `{events(filter:{type:"${CFG.origin || CFG.package}::game::Deployed"},last:50){nodes{contents{json}}}}` });
-    const d = (r.data.events?.nodes || []).map(n => n.contents.json)
-      .find(j => Number(j.round_id) === round && j.player !== me && !BOT_ADDRS.has(j.player));
-    return d ? BigInt(d.total) : 0n;
-  }
-
   async function load() {
     const r = await client.query({
       query: `query($o:SuiAddress!,$t:String!){address(address:$o){balance(coinType:"0x2::sui::SUI"){totalBalance} objects(filter:{type:$t},first:1){nodes{address contents{json}}}}}`,
@@ -68,8 +55,7 @@ export function makeHouse(client, CFG, log, botsIn) {
     if (botsIn && Number(b.cur_players) - await botsIn(Number(b.cur_id)) < 1) return false;
     const balance = await load();
     if (miner && miner.round_id === Number(b.cur_id)) return false;
-    const match = await firstDeposit(Number(b.cur_id)) * MATCH_BPS / 10_000n;
-    const total = match > MAX ? MAX : match > PER_TILE ? match : PER_TILE;
+    const total = PER_TILE;
     if (balance < total + KEEP) { failedRound = Number(b.cur_id); log.push(`house low balance ${Number(balance) / 1e9} SUI`); return false; }
 
     const tile = Math.floor(Math.random() * 25);
@@ -87,13 +73,13 @@ export function makeHouse(client, CFG, log, botsIn) {
       fresh = true;
     }
     const [pay] = tx.splitCoins(tx.gas, [total]);
-    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array.from({ length: 25 }, (_, i) => (i === tile ? total : 0n))), tx.object.clock()] });
+    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array.from({ length: 25 }, (_, i) => (i === tile ? PER_TILE : 0n))), tx.object.clock()] });
     if (fresh) tx.transferObjects([m], me);
 
     failedRound = Number(b.cur_id); // cleared below on success; a throw also stops retries this round
     const r = await client.signAndExecuteTransaction({ transaction: tx, signer });
     const res = r.Transaction || r.FailedTransaction;
-    log.push(`house join #${b.cur_id} ${Number(total) / 1e9} SUI ${res.status.success ? "ok" : "failed"} ${res.digest}`);
+    log.push(`house join #${b.cur_id} ${res.status.success ? "ok" : "failed"} ${res.digest}`);
     await client.waitForTransaction({ digest: res.digest });
     if (res.status.success) failedRound = 0;
     miner = res.status.success && !fresh ? { id: miner.id, round_id: Number(b.cur_id) } : undefined; // else reload next time

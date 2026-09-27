@@ -1,13 +1,14 @@
 // GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
 // The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
-// and runs the House (house.mjs) and the GTStar Bots (bots.mjs).
+// and runs the House (house.mjs), the Matcher (matcher.mjs) and the GTStar Bots (bots.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 import { makeBots } from "./bots.mjs";
 import { makeHouse } from "./house.mjs";
+import { makeMatcher } from "./matcher.mjs";
 import { makeWelcome } from "./welcome.mjs";
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
@@ -26,6 +27,7 @@ export default async () => {
   const log = [];
   const bots = makeBots(client, CFG, log, process.env.BOTS_DIR || ".");
   const house = makeHouse(client, CFG, log, bots?.botsIn);
+  const matcher = makeMatcher(client, CFG, log);
   const welcome = makeWelcome(client, log);
 
   async function board() {
@@ -59,6 +61,7 @@ export default async () => {
     try {
       if (!b) b = await board();
       if (house && await house.tick(b)) { b = await board(); continue; }
+      if (matcher && await matcher.tick(b)) { b = await board(); continue; }
       if (bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
       const end = Number(b.cur_end_ms);
