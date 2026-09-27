@@ -1551,15 +1551,15 @@ async function welcomeArrived() {
   await refresh();
   const min = STATE?.board.min_deploy || 10_000_000;
   $("amt").value = String(min / MIST);
-  if (!selected.size) selected.add(Math.floor(Math.random() * 25));
   render();
+  const picked = selected.size > 0;
   const amt = sui(WELCOME.amount, 3);
   $("wlTitle").textContent = `${amt} SUI is in your wallet`;
   $("wlAmt").textContent = amt;
-  $("wlTxt").textContent = "We picked a tile for you. Deploy it now and play your first free round. The second one is on us too.";
+  $("wlTxt").textContent = picked ? "Deploy your tile now and play your first free round. The second one is on us too." : "Pick any tile you like, then deploy it to play your first free round. The second one is on us too.";
   $("wlBtn").dataset.state = "sent";
   $("wlBtn").disabled = false;
-  $("wlBtn").textContent = "Play my free round";
+  $("wlBtn").textContent = picked ? "Play my free round" : "Pick my tile";
   $("wlNote").hidden = true;
   $("welcomeModal").hidden = false;
 }
@@ -1590,7 +1590,8 @@ $("wlBtn").onclick = () => {
   if ($("wlBtn").dataset.state !== "sent") return claimWelcome();
   $("welcomeModal").hidden = true;
   if (view !== "mine") location.hash = "#mine";
-  $("btnPlay").click();
+  if (selected.size) $("btnPlay").click();
+  else toast("Tap a tile on the board, then deploy.");
 };
 $("wlClose").onclick = () => ($("welcomeModal").hidden = true);
 $("welcomeModal").onclick = e => { if (e.target.id === "welcomeModal") $("welcomeModal").hidden = true; };
