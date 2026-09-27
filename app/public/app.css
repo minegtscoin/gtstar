@@ -330,7 +330,7 @@ button.sw-bal:hover{color:var(--text)}
   .mine{grid-template-columns:minmax(0,clamp(460px,calc(100vh - 340px),640px)) 360px;grid-template-areas:"board side" "live live";justify-content:center}
   /* tiles stay square when there is room, and get shorter on short screens so the whole board fits */
   .board-wrap{container-type:inline-size}
-  .board .tile{aspect-ratio:auto;height:max(60px,min(calc((100cqw - 32px) / 5),calc((100dvh - 462px) / 5)))}
+  .board .tile{aspect-ratio:auto;height:max(60px,min(calc((100cqw - 32px) / 5),calc((100dvh - 500px) / 5)))}
 }
 /* wide screens: players on the left, board sized to the screen height, controls on the right */
 @media(min-width:1240px){
