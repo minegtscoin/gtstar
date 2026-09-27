@@ -405,6 +405,7 @@ async function exec(label, btnId, build, needMist = 0) {
     if (!USER || userAt <= txAt || Date.now() - userAt > 6000) { const s = ++seqU; USER = await loadUser(account.address); shownU = s; }
     const tx = new Transaction();
     tx.setSender(account.address);
+    abUsed = 0;
     await build(tx);
     // If the wallet window is closed without an answer the request never settles; release the app after 90s.
     const r = await within(signAndExecuteTransaction(wallet, { transaction: tx, account, chain: CHAIN }), 90_000)
@@ -415,7 +416,12 @@ async function exec(label, btnId, build, needMist = 0) {
     return r;
   } catch (e) {
     txAt = Date.now();
-    toast(esc(friendlyError(e)), true, true);
+    // Older wallet SDKs (e.g. Surf) cannot read the address-balance withdrawal input and fail with a schema error.
+    if (abUsed && /Invalid type|Expected .* but received|withdraw/i.test(String(e?.message || e))) {
+      NO_AB.add(wallet?.name);
+      const coins = (USER?.gtsCoins || []).reduce((a, c) => a + c.balance, 0);
+      toast(esc(`${wallet?.name || "This wallet"} can't spend the ${sui(abUsed)} GTS held in your address balance yet. Swap up to ${sui(coins)} GTS here, or use Slush for the full amount.`), true, true);
+    } else toast(esc(friendlyError(e)), true, true);
     refresh();
   } finally {
     busy = false; b.disabled = false; b.textContent = old; render();
@@ -427,13 +433,16 @@ function claimInto(tx, minerArg) {
 }
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
 // GTS may sit partly in the address balance (not as Coin objects); the shortfall is withdrawn from there.
+let abUsed = 0;              // GTS taken from the address balance in the transaction being built
+const NO_AB = new Set();      // wallets that failed on an address-balance withdrawal
 function gtsCoin(tx, amount, split = amount) {
   const coins = USER?.gtsCoins || [];
   const inCoins = coins.reduce((a, c) => a + c.balance, 0);
   if ((USER?.gts || 0) < amount) throw new Error("Insufficient GTS balance.");
   const parts = coins.map(c => tx.object(c.id));
   if (inCoins < amount) {
-    const w = tx.withdrawal({ amount: amount - inCoins, type: T_GTS });
+    abUsed = amount - inCoins;
+    const w = tx.withdrawal({ amount: abUsed, type: T_GTS });
     parts.push(tx.moveCall({ target: "0x2::coin::redeem_funds", typeArguments: [T_GTS], arguments: [w] })[0]);
   }
   const primary = parts[0];
@@ -1361,7 +1370,9 @@ function renderTrade() {
   }
 }
 // Amount the percentage buttons work from: all GTS when selling, SUI minus gas when buying.
-const swapMax = () => (swapDir === "sell" ? USER.gts : Math.max(0, USER.sui - 2 * GAS_RESERVE));
+const swapMax = () => (swapDir === "sell"
+  ? (NO_AB.has(wallet?.name) ? USER.gtsCoins.reduce((a, c) => a + c.balance, 0) : USER.gts)
+  : Math.max(0, USER.sui - 2 * GAS_RESERVE));
 
 function render() {
   if (view !== "mine") setTitle("GTStar");
