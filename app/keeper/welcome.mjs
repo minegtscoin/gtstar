@@ -1,4 +1,4 @@
-// Free first round: sends the welcome grant to wallets queued by welcome.php (which already checked
+// Two free rounds: sends the welcome grant to wallets queued by welcome.php (which already checked
 // the signature, the zkLogin scheme, that the wallet is brand new and the daily cap).
 // Queue: ~/gtstar-data/welcome/queue/<address>; once paid the file moves to sent/<address> with the digest.
 // Pays from WELCOME_KEY (defaults to the keeper key) and never spends below WELCOME_KEEP_MIST,
@@ -8,7 +8,7 @@ import path from "path";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
-const AMOUNT = BigInt(process.env.WELCOME_MIST || 20_000_000);         // 0.02 SUI, matches welcome.php
+const AMOUNT = BigInt(process.env.WELCOME_MIST || 30_000_000);         // 0.03 SUI, matches welcome.php
 const KEEP = BigInt(process.env.WELCOME_KEEP_MIST || 1_000_000_000);   // keep 1 SUI for settle gas
 const MAX_BATCH = 20;
 

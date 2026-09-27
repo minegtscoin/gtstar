@@ -52,7 +52,7 @@ function ago(ts) {
 }
 
 let wallet = null, account = null;
-let WELCOME = null, welcomePoll = null, WELCOME_OPEN = false; // free first round (see welcome.php)
+let WELCOME = null, welcomePoll = null, WELCOME_OPEN = false; // two free rounds (see welcome.php)
 let STATE = null, USER = null, HIST = null;
 let selected = new Set();
 let busy = false, view = "home";
@@ -320,7 +320,7 @@ function openWalletModal() {
   const list = suiWallets();
   const box = $("walletList"); box.innerHTML = "";
   $("noWallet").hidden = list.length > 0;
-  $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first round is free.</b> " : "") +
+  $("googleNote").innerHTML = (WELCOME_OPEN ? "<b>Your first 2 rounds are free.</b> " : "") +
     "New to crypto? This creates your free wallet in seconds. No app, no seed phrase. Apple sign-in works too.";
   try { $("googleSwitch").hidden = !localStorage.getItem("gtstar.webUsed"); } catch {}
   $("btnGoogle").onclick = () => startConnect(SLUSH_WEB);
@@ -1015,7 +1015,7 @@ function renderMine() {
     : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
-  if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first round free.";
+  if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first 2 rounds free.";
   $("playHint").textContent = hint;
   $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
@@ -1452,8 +1452,8 @@ $("mNameForm").onsubmit = async e => {
     toast(/reject|cancel|denied/i.test(err?.message || "") ? "Signature cancelled." : "Could not sign the message.", true);
   } finally { btn.disabled = false; btn.textContent = "Save"; }
 };
-// ---------- free first round ----------
-// A brand-new wallet made with Google or Apple (Slush in the browser) gets enough SUI for one 0.01 SUI tile.
+// ---------- two free rounds ----------
+// A brand-new wallet made with Google or Apple (Slush in the browser) gets enough SUI for two 0.01 SUI rounds.
 // welcome.php checks the signed request; the keeper sends the SUI within seconds.
 fetch("/api/welcome", { cache: "no-store" }).then(r => r.json()).then(j => { WELCOME_OPEN = !!j.open; render(); }).catch(() => {});
 async function loadWelcome() {
@@ -1479,12 +1479,12 @@ function renderWelcome() {
   if (!show) { if (!$("welcomeModal").hidden && $("wlBtn").dataset.state !== "sent") $("welcomeModal").hidden = true; return; }
   const amt = sui(w.amount || 0, 3);
   const queued = w.status === "queued";
-  $("welcomeTxt").textContent = queued ? `Sending ${amt} SUI to your wallet…` : `Claim ${amt} SUI free and play your first tile.`;
+  $("welcomeTxt").textContent = queued ? `Sending ${amt} SUI to your wallet…` : `Claim ${amt} SUI free and play your first 2 rounds.`;
   $("btnWelcome").disabled = queued;
   $("btnWelcome").textContent = queued ? "Sending" : "Claim";
   $("wlAmt").textContent = amt;
-  $("wlTitle").textContent = "Your first round is on us";
-  $("wlTxt").textContent = queued ? "Sending the SUI to your wallet. This takes a few seconds." : "Claim free SUI and play your first tile. No deposit, no card.";
+  $("wlTitle").textContent = "Your first 2 rounds are on us";
+  $("wlTxt").textContent = queued ? "Sending the SUI to your wallet. This takes a few seconds." : "Claim free SUI and play your first 2 rounds. No deposit, no card.";
   $("wlBtn").dataset.state = queued ? "queued" : "claim";
   $("wlBtn").disabled = queued;
   $("wlBtn").textContent = queued ? "Sending to your wallet…" : `Claim ${amt} SUI free`;
@@ -1507,7 +1507,7 @@ async function welcomeArrived() {
   const amt = sui(WELCOME.amount, 3);
   $("wlTitle").textContent = `${amt} SUI is in your wallet`;
   $("wlAmt").textContent = amt;
-  $("wlTxt").textContent = "We picked a tile for you. Deploy it now and play your free round.";
+  $("wlTxt").textContent = "We picked a tile for you. Deploy it now and play your first free round. The second one is on us too.";
   $("wlBtn").dataset.state = "sent";
   $("wlBtn").disabled = false;
   $("wlBtn").textContent = "Play my free round";
@@ -1528,7 +1528,7 @@ Time: ${ts}`);
     btn.textContent = "Sending"; big.textContent = "Sending to your wallet…";
     const r = await fetch("/api/welcome", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, ts, signature }) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { WELCOME = null; $("welcomeModal").hidden = true; renderWelcome(); return toast(j.error || "Could not get the free round.", true); }
+    if (!r.ok) { WELCOME = null; $("welcomeModal").hidden = true; renderWelcome(); return toast(j.error || "Could not get the free rounds.", true); }
     WELCOME = { ...WELCOME, status: j.status, addr: address };
     if (j.status === "sent") return welcomeArrived();
   } catch (err) {

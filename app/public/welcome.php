@@ -1,5 +1,5 @@
 <?php
-// Free first round for new players.
+// Two free rounds for new players.
 //   GET  /api/welcome?address=0x…   {open, amount, status: none|queued|sent|used, digest}
 //   POST /api/welcome               {address, ts, signature}: ask for the welcome grant.
 // Only brand-new wallets made with Google/Apple sign-in (zkLogin, e.g. Slush web) qualify: every such
@@ -10,8 +10,8 @@
 header("Content-Type: application/json; charset=utf-8");
 header("Cache-Control: no-cache");
 
-const AMOUNT_MIST = 20000000;   // 0.02 SUI: one 0.01 SUI tile plus gas for the first deploy
-const DAILY_CAP = 25;           // grants per UTC day, at most 0.5 SUI a day
+const AMOUNT_MIST = 30000000;   // 0.03 SUI: two 0.01 SUI rounds plus gas (create_miner + two deploys)
+const DAILY_CAP = 25;           // grants per UTC day, at most 0.75 SUI a day
 
 $dir = dirname(__DIR__, 3) . "/gtstar-data/welcome";
 @mkdir("$dir/queue", 0700, true);
@@ -53,7 +53,7 @@ if ($sig === "" || !preg_match('#^[A-Za-z0-9+/=]+$#', $sig)) $fail(400, "Bad sig
 if ($s !== "none") { echo json_encode(["status" => $s]); exit; }
 // Signature scheme flag 0x05 = zkLogin (a wallet opened with Google, Apple and similar).
 if (ord(base64_decode($sig)[0] ?? "\0") !== 0x05)
-  $fail(403, "The free first round is for new wallets made with Google or Apple sign-in.");
+  $fail(403, "The free rounds are for new wallets made with Google or Apple sign-in.");
 if ($today() >= DAILY_CAP) $fail(429, "Today's free rounds are gone. Come back tomorrow.");
 
 $msg = "GTStar welcome\nAddress: $addr\nTime: $ts";
@@ -65,7 +65,7 @@ if (($r["data"]["verifySignature"]["success"] ?? false) !== true) $fail(401, "Si
 $r = $gql('query($a:SuiAddress!){address(address:$a){transactions(first:1,relation:AFFECTED){nodes{digest}}}}', ["a" => $addr]);
 if ($r === null || !isset($r["data"])) $fail(503, "Could not reach Sui. Try again.");
 if (count($r["data"]["address"]["transactions"]["nodes"] ?? []) > 0)
-  $fail(403, "The free first round is for brand-new wallets only.");
+  $fail(403, "The free rounds are for brand-new wallets only.");
 
 $f = @fopen("$dir/queue/$addr", "x");
 if ($f) { fwrite($f, (string)time()); fclose($f); }
