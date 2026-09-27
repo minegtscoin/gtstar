@@ -1178,36 +1178,19 @@ function renderLeaderboard() {
 // ---------- render: tokenomics ----------
 function renderTokenomics() {
   if (!STATE) return;
-  const now = Date.now();
   const genesis = STATE.board.genesis;
   const supply = STATE.supply / MIST;
-  const minted = STATE.minted / MIST;
-  // Mined GTS is minted only when claimed, so everything earned comes from the settled rounds (full history only).
-  const emitted = HIST && !HIST.capped ? Math.max(minted, HIST.totals.emitted / MIST) : minted;
-  const burned = HIST ? HIST.totals.burned / MIST : null;
   $("kSupply").textContent = fmt(supply, 2);
-  $("kMinedPct").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
   $("kSchedMax").textContent = fmt(Math.round(MAX_SUPPLY), 0);
-  $("kBurned").textContent = burned == null ? "—" : fmt(burned, 3);
   $("kReserve").textContent = `${sui(STATE.vault, 3)} SUI`;
   $("kFloor").textContent = `${fmt(STATE.floor, 5)} SUI`;
   const round = STATE.board.cur_id;
   const epoch = Math.floor((round - 1) / HALVING_ROUNDS);
   const done = epoch >= PERIODS;
   const next = (epoch + 1) * HALVING_ROUNDS + 1;
-  $("kEpoch").textContent = done ? "Ended" : `${epoch + 1} of ${PERIODS}`;
   $("kEpochLbl").textContent = genesis ? `Genesis ${fmtDate(genesis)}` : "Starts with the first round";
-  $("kReward").textContent = `Up to ${fmt(rewardFor(round), 6)} GTS + ${fmt(rewardFor(round) * STAKER_SHARE, 6)} to stakers`;
-  $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? `Emission ends after round ${fmt(LAST_ROUND, 0)}` : `Round ${fmt(next, 0)} · ${fmt(next - round, 0)} rounds left`;
-  $("kNextReward").textContent = done || next > LAST_ROUND ? "0 GTS" : `${fmt(rewardFor(next), 6)} GTS`;
-  $("kEnds").textContent = `After round ${fmt(LAST_ROUND, 0)}`;
-  $("kEmitted").textContent = emitted == null ? "—" : `${fmt(emitted, 3)} GTS`;
-  $("kUnclaimed").textContent = HIST && !HIST.capped ? `${fmt(Math.max(0, emitted - minted), 3)} GTS` : "—";
-  $("kFloor2").textContent = `${fmt(STATE.floor, 6)} SUI`;
-  $("kBacked").textContent = `${sui(STATE.vault, 4)} SUI`;
-  $("kMarket").textContent = marketText();
-  $("kStaked").textContent = `${sui(STATE.staked, 3)} GTS`;
-  $("kStakedPct").textContent = STATE.supply ? `${fmt(STATE.staked / STATE.supply * 100, 2)}%` : "0%";
+  $("kReward").textContent = `Up to ${fmt(rewardFor(round), 4)} GTS`;
+  $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? "Emission ends" : `In ${fmt(next - round, 0)} rounds`;
   drawChart(STATE.board.cur_id - 1);
 }
 let chartSize = 0;

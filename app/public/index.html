@@ -282,7 +282,6 @@
   <section class="view" id="view-tokenomics" hidden>
     <div class="page-head">
       <h1>Tokenomics</h1>
-      <p class="sub">Live supply, emission and backing for GTS. Updates automatically from the chain.</p>
     </div>
     <div class="ca">
       <span class="ca-l">Contract address</span>
@@ -292,11 +291,9 @@
       </button>
       <a id="caScan" href="https://suiscan.xyz/mainnet/coin/0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e::gts::GTS" target="_blank" rel="noopener">Suiscan</a>
     </div>
-    <div class="kpis">
-      <div><span>Circulating supply</span><b id="kSupply">—</b></div>
+    <div class="kpis kpis4">
       <div><span>Max supply</span><b id="kSchedMax">—</b></div>
-      <div><span>Emitted</span><b id="kMinedPct">—</b></div>
-      <div><span>Burned</span><b id="kBurned">—</b></div>
+      <div><span>Circulating supply</span><b id="kSupply">—</b></div>
       <div><span>Reserve</span><b id="kReserve">—</b></div>
       <div><span>Floor price</span><b id="kFloor">—</b></div>
     </div>
@@ -304,55 +301,21 @@
       <div class="panel">
         <div class="panel-h"><h2>Emission schedule</h2><span class="muted" id="kEpochLbl"></span></div>
         <div class="chart" id="chart"></div>
-        <div class="chart-foot"><span>Maximum GTS by rounds played, halving every 262,000 rounds</span><span class="now-key"><i></i>Now</span></div>
-      </div>
-      <div class="panel">
-        <div class="panel-h"><h2>Emission</h2></div>
-        <dl class="dl">
-          <div><dt>Emission period</dt><dd id="kEpoch">—</dd></div>
+        <div class="chart-foot"><span>Reward halves every 262,000 rounds</span><span class="now-key"><i></i>Now</span></div>
+        <dl class="dl t-dl">
           <div><dt>Reward per round</dt><dd id="kReward">—</dd></div>
           <div><dt>Next halving</dt><dd id="kToHalving">—</dd></div>
-          <div><dt>Reward after halving</dt><dd id="kNextReward">—</dd></div><div><dt>Emission ends</dt><dd id="kEnds">—</dd></div>
-          <div><dt>Emitted to date</dt><dd id="kEmitted">—</dd></div>
-          <div><dt>Unclaimed by miners</dt><dd id="kUnclaimed">—</dd></div>
         </dl>
-        <p class="note-sm">The full reward needs 1 SUI deployed in the round. A smaller round mints a matching part (0.25 SUI gives 0.25 GTS) and the rest is never minted.</p>
-      </div>
-      <div class="t-stack">
-      <div class="panel">
-        <div class="panel-h"><h2>Market and backing</h2></div>
-        <dl class="dl">
-          <div><dt>Floor price</dt><dd id="kFloor2">—</dd></div>
-          <div><dt>Backed value (reserve)</dt><dd id="kBacked">—</dd></div>
-          <div><dt>Market price</dt><dd id="kMarket">—</dd></div>
-          <div><dt>GTS staked</dt><dd id="kStaked">—</dd></div>
-          <div><dt>Staked share of supply</dt><dd id="kStakedPct">—</dd></div>
-        </dl>
-        <p class="note-sm">Market price is read from the Cetus GTS/SUI pool. The floor is what the reserve pays for each GTS when it is burned.</p>
-      </div>
       </div>
       <div class="panel">
-        <div class="panel-h"><h2>Fair launch</h2></div>
-        <dl class="dl">
-          <div><dt>Premine / team / presale</dt><dd>0%</dd></div>
-          <div><dt>Distributed by</dt><dd>Mining and staking only</dd></div>
-          <div><dt>Token contract</dt><dd>Immutable</dd></div>
-          <div><dt>Emission ceiling</dt><dd>Enforced on-chain</dd></div>
-          <div><dt>Game upgrades</dt><dd>Announced 48h ahead</dd></div>
-          <div><dt>Game settings</dt><dd>Adjustable within fixed limits</dd></div>
-          <div><dt>Trading liquidity</dt><dd>Burned</dd></div>
-          <div><dt>Max supply</dt><dd>571,897 GTS</dd></div>
-        </dl>
-        <p class="note-sm">The supply ceiling and the reserve live in an immutable token contract: there is no team allocation, and SUI leaves the reserve only when GTS is burned. The game contract can be upgraded. It holds the right to mint, the SUI of open rounds and the Wealth Fund, so an upgrade could mint up to the token's ceiling or move that SUI. That is why every game upgrade has to be announced on-chain 48 hours before it can run.</p>
-        <div class="panel-h sub-h"><h2>Each losing pot</h2></div>
-        <div class="split" aria-hidden="true"><div style="flex:95"></div><div style="flex:4"></div><div style="flex:1"></div></div>
-        <dl class="dl">
-          <div><dt>Winners (up to)</dt><dd>95%</dd></div>
-          <div><dt>Reserve (backs GTS)</dt><dd>4%</dd></div>
-          <div><dt>Creator</dt><dd>1%</dd></div>
-        </dl>
-        <p class="note-sm">A winner keeps their share of the 95% in proportion to how much of their own round deposit sat on the winning tile: 0.01 SUI on each of the 25 tiles keeps 1/25 of it. What is not kept goes to the reserve. One wallet plays with one miner per round.</p>
-        <p class="note-sm">If no one deployed on the winning tile, 19.5% of the pot goes into the Wealth Fund, 1% to the creator and the rest (79.5%) to the reserve. Every round with a winner has a 1 in 1000 chance to pay the whole Wealth Fund to the winning tile, split like the pot. The GTStar House wallet never keeps any of it.</p>
+        <div class="panel-h"><h2>Why GTS</h2><a class="muted" href="docs.html">Full rules</a></div>
+        <ul class="why">
+          <li><b>0% team, 0% presale</b><span>Every GTS is mined by players.</span></li>
+          <li><b>Hard cap</b><span>571,897 GTS, locked in an immutable contract.</span></li>
+          <li><b>Backed by SUI</b><span>Burn GTS anytime and get the floor price from the reserve.</span></li>
+          <li><b>Reserve grows every round</b><span>At least 4% of every pot goes into it.</span></li>
+          <li><b>Liquidity burned</b><span>The trading pool can never be pulled.</span></li>
+        </ul>
       </div>
     </div>
   </section>
