@@ -296,11 +296,18 @@ const isWeb = w => !!w && w === SLUSH_WEB;
 // Slush opens its sign-in and approval screens with window.open("about:blank", "_blank"), which browsers show
 // as a full tab. Give that call a size so it opens as a small popup window centered over the site.
 const openWindow = window.open.bind(window);
-window.open = (url, target, features) => {
-  if (url !== "about:blank" || target !== "_blank" || features) return openWindow(url, target, features);
+const openPopup = () => {
   const w = 440, h = 720;
   const left = Math.round(window.screenX + (window.outerWidth - w) / 2), top = Math.round(window.screenY + (window.outerHeight - h) / 2);
-  return openWindow(url, target, `popup=yes,width=${w},height=${h},left=${Math.max(0, left)},top=${Math.max(0, top)}`);
+  return openWindow("about:blank", "_blank", `popup=yes,width=${w},height=${h},left=${Math.max(0, left)},top=${Math.max(0, top)}`);
+};
+// A window opened in the click itself: Slush only opens its own after the transaction is built, and a window
+// opened that late (no longer "from a click") loads Slush broken on phones ("Failed to fetch api.slush.app").
+let prePopup = null;
+window.open = (url, target, features) => {
+  if (url !== "about:blank" || target !== "_blank" || features) return openWindow(url, target, features);
+  const pre = prePopup; prePopup = null;
+  return pre && !pre.closed ? pre : openPopup();
 };
 const suiWallets = () => walletsApi.get().filter(w => w.chains.some(c => c.startsWith("sui:")) && w.features["standard:connect"]);
 
@@ -436,6 +443,7 @@ async function exec(label, btnId, build, needMist = 0) {
   if (!account) { openWalletModal(); return; }
   if (busy || lowBalance(needMist)) return;
   busy = btnId;
+  if (isWeb(wallet)) prePopup = openPopup();
   const b = $(btnId), old = b.textContent;
   b.disabled = true; b.textContent = "Confirm in wallet";
   try {
@@ -464,6 +472,8 @@ async function exec(label, btnId, build, needMist = 0) {
     } else toast(esc(friendlyError(e)), true, true);
     refresh();
   } finally {
+    // Not used (the build failed before signing): close the waiting window.
+    if (prePopup) { try { prePopup.close(); } catch {} prePopup = null; }
     busy = false; b.disabled = false; b.textContent = old; render();
   }
 }
