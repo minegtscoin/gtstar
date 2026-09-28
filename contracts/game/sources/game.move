@@ -31,8 +31,14 @@
 ///
 /// Settings: the owner's AdminCap can change the game settings at once, only inside fixed bounds
 /// (odds, never better than 1 in MIN_ODDS, the Motherlode share, the reserve fee, the minimum deposit, round timing, pause). The
-/// creator fee can only go down from 1%. Nothing here can mint GTS or move the pot, the
+/// creator fee can only go down from 1%. Settings cannot mint GTS or move the pot, the
 /// Motherlode or the reserve; a pause only stops new deposits (settle and claim always work).
+///
+/// Next game (since v9): the AdminCap can issue one MintAuth, once. It lets the next GTStar game (a new
+/// package without the upgrade timelock) mint GTS within the token's emission ceiling, fund the stakers
+/// and take over the Motherlode. The MinterCap stays on this Board, so rounds played here keep paying
+/// their GTS at claim, and unrefined balances stay withdrawable. Do not upgrade this package after v9:
+/// a newer version would cut off the v9 functions the next game calls.
 module gtstar::game;
 
 use sui::balance::{Self, Balance};
@@ -102,7 +108,7 @@ const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d
 
 /// Package version. Every call that changes the Board runs `check_version`, which blocks all
 /// older versions of this package (see there). Bump it on every upgrade.
-const VERSION: u64 = 8;
+const VERSION: u64 = 9;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -125,6 +131,7 @@ const EAdminTaken: u64 = 17;
 const EBadParams: u64 = 18;
 const EPaused: u64 = 19;
 const ENothingToWithdraw: u64 = 20;
+const EAuthIssued: u64 = 21;
 
 
 /// Archived, settled round.
@@ -192,6 +199,15 @@ public struct Unrefined has store, drop { amount: u64, bonus: u64, snap: u256 }
 
 /// Right to change the game settings within the bounds above.
 public struct AdminCap has key, store { id: UID }
+
+/// Right of the next GTStar game to mint GTS (within the token's ceiling), fund the stakers and take
+/// the Motherlode (v9). Only one can ever exist: see `issue_mint_auth`.
+public struct MintAuth has key, store { id: UID }
+/// Dynamic field on the Board: the ID of the MintAuth, set when it is issued.
+public struct MintAuthKey has copy, drop, store {}
+public struct MintAuthIssued has copy, drop { auth: ID }
+/// The Motherlode moved to the next game (v9).
+public struct MotherlodeMoved has copy, drop { amount: u64 }
 
 public struct ParamsChanged has copy, drop {
     ml_odds: u64,
@@ -776,6 +792,46 @@ entry fun withdraw_dev_fees(board: &mut Board, ctx: &mut TxContext) {
     };
 }
 
+// ===== Next game (v9) =====
+
+/// Issue the MintAuth, once. It is returned so the same transaction can hand it to the next game.
+public fun issue_mint_auth(_: &AdminCap, board: &mut Board, ctx: &mut TxContext): MintAuth {
+    check_version(board);
+    assert!(!df::exists(&board.id, MintAuthKey {}), EAuthIssued);
+    let auth = MintAuth { id: object::new(ctx) };
+    df::add(&mut board.id, MintAuthKey {}, object::id(&auth));
+    event::emit(MintAuthIssued { auth: object::id(&auth) });
+    auth
+}
+
+/// Mint GTS for the next game. The token clamps it to its emission ceiling, as for every round here.
+public fun mint_with_auth(
+    _: &MintAuth,
+    board: &mut Board,
+    treasury: &mut Treasury,
+    amount: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<GTS> {
+    check_version(board);
+    gts::mint(treasury, minter(board), amount, clock, ctx)
+}
+
+/// Add GTS to the stakers' stream (the same pool and 7-day stream as the rounds here).
+public fun add_staking_rewards_with_auth(_: &MintAuth, pool: &mut StakePool, reward: Balance<GTS>, clock: &Clock) {
+    staking::add_rewards(pool, reward, clock);
+}
+
+/// Move the whole Motherlode to the next game.
+public fun take_motherlode_with_auth(_: &MintAuth, board: &mut Board): Balance<SUI> {
+    check_version(board);
+    if (!df::exists(&board.id, MotherlodeKey {})) { return balance::zero<SUI>() };
+    let ml = df::borrow_mut<MotherlodeKey, Balance<SUI>>(&mut board.id, MotherlodeKey {});
+    let out = balance::withdraw_all(ml);
+    event::emit(MotherlodeMoved { amount: balance::value(&out) });
+    out
+}
+
 // ===== Views =====
 public fun current_round(board: &Board): u64 { board.cur_id }
 public fun current_end_ms(board: &Board): u64 { board.cur_end_ms }
@@ -818,6 +874,8 @@ public fun unrefined_total(board: &Board): u64 {
     if (df::exists(&board.id, RefineryKey {})) { refinery(board).total } else { 0 }
 }
 public fun refine_fee_bps(): u64 { REFINE_FEE_BPS }
+/// Whether the MintAuth has been issued (v9).
+public fun mint_auth_issued(board: &Board): bool { df::exists(&board.id, MintAuthKey {}) }
 
 #[test_only]
 public fun reward_for_round_for_testing(round_id: u64): u64 { reward_for_round(round_id) }

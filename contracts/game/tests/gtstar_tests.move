@@ -686,7 +686,7 @@ fun test_v5_migrates_legacy_board() {
     let mut m = game::new_miner(ts::ctx(&mut sc));
     game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
     assert!(!game::legacy_minter_for_testing(&board), 2);
-    assert!(game::version_for_testing(&board) == 8, 3);
+    assert!(game::version_for_testing(&board) == 9, 3);
     assert!(game::installed(&board), 4);
 
     // The game still mints after the move: settle and claim pay the GTS reward (0.01 SUI -> 0.01 GTS).
@@ -708,7 +708,7 @@ fun test_older_version_blocked() {
     setup_round(&mut sc);
     ts::next_tx(&mut sc, ADMIN);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_version_for_testing(&mut board, 9);
+    game::set_version_for_testing(&mut board, 10);
     let clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
@@ -1213,4 +1213,68 @@ fun test_withdraw_nothing() {
 fun held(board: &Board, p: address, amount: u64, bonus: u64): bool {
     let (a, b) = game::unrefined_of(board, p);
     a == amount && b == bonus
+}
+
+// ===== Next game: MintAuth (v9) =====
+
+/// The AdminCap issues the MintAuth; it mints within the ceiling, funds the stakers and takes the
+/// Motherlode, and rounds played here still pay their GTS at claim afterwards.
+#[test]
+fun test_mint_auth() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let mut pool = ts::take_shared<StakePool>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let t = fill_motherlode(&mut board, &mut treasury, &mut pool, &rs, &mut clk, 100_000_000, &mut sc);
+    let ml = game::motherlode_value(&board);
+
+    assert!(!game::mint_auth_issued(&board), 0);
+    let auth = game::issue_mint_auth(&cap, &mut board, ts::ctx(&mut sc));
+    assert!(game::mint_auth_issued(&board), 1);
+
+    // Minting is clamped to the token's ceiling.
+    clock::set_for_testing(&mut clk, t);
+    let room = gts::allowance(&treasury, t) - gts::minted(&treasury);
+    let g = game::mint_with_auth(&auth, &mut board, &mut treasury, room + 5_000_000_000, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == room, 2);
+    let rewards_before = staking::total_rewards_for_testing(&pool);
+    game::add_staking_rewards_with_auth(&auth, &mut pool, coin::into_balance(g), &clk);
+    assert!(staking::total_rewards_for_testing(&pool) == rewards_before + room, 3);
+
+    let fund = game::take_motherlode_with_auth(&auth, &mut board);
+    assert!(balance::value(&fund) == ml && game::motherlode_value(&board) == 0, 4);
+    balance::destroy_for_testing(fund);
+
+    // A round played here still settles and pays its GTS at claim.
+    clock::set_for_testing(&mut clk, t + 3_600_000);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(1_000_000_000, ts::ctx(&mut sc)), one_tile(0, 1_000_000_000), &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, t + 3_660_000);
+    game::settle_for_testing(&mut board, &mut treasury, &mut pool, &rs, &clk, ts::ctx(&mut sc));
+    let unrefined_before = game::unrefined_total(&board);
+    let (g2, s2) = game::claim(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g2) + game::unrefined_total(&board) - unrefined_before > 0, 5);
+    coin::burn_for_testing(g2); coin::burn_for_testing(s2);
+
+    transfer::public_transfer(m, OWNER); transfer::public_transfer(auth, OWNER); transfer::public_transfer(cap, OWNER);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury); ts::return_shared(pool);
+    ts::end(sc);
+}
+
+/// Only one MintAuth can ever be issued.
+#[test, expected_failure(abort_code = gtstar::game::EAuthIssued)]
+fun test_mint_auth_once() {
+    let mut sc = ts::begin(@0x0);
+    setup_round(&mut sc);
+    let cap = take_admin(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let a1 = game::issue_mint_auth(&cap, &mut board, ts::ctx(&mut sc));
+    let a2 = game::issue_mint_auth(&cap, &mut board, ts::ctx(&mut sc));
+    transfer::public_transfer(a1, OWNER); transfer::public_transfer(a2, OWNER); transfer::public_transfer(cap, OWNER);
+    abort 0
 }
