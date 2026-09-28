@@ -697,7 +697,9 @@ function renderReserveAdd() {
   if (!STATE) return;
   const amt = toMist($("resAmt").value);
   $("resNote").textContent = amt > 0 && STATE.supply > 0
-    ? `SUI · floor ${fmt(STATE.floor, 5)} → ${fmt((STATE.vault + amt) / STATE.supply, 5)} SUI per GTS`
+    ? (PRICE.sui
+      ? `SUI · floor $${fmt(STATE.floor * PRICE.sui, 4)} → $${fmt((STATE.vault + amt) / STATE.supply * PRICE.sui, 4)} per GTS`
+      : `SUI · floor ${fmt(STATE.floor, 5)} → ${fmt((STATE.vault + amt) / STATE.supply, 5)} SUI per GTS`)
     : `SUI${USER ? ` · ${sui(USER.sui, 4)} in wallet` : ""}`;
   if (busy) return;
   const btn = $("btnReserve");
