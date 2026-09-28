@@ -62,10 +62,13 @@ export default async () => {
   while (Date.now() - start < WINDOW_MS) {
     try {
       if (!b) b = await board();
-      if (house && await house.tick(b)) { b = await board(); continue; }
       if (shield && await shield.tick(b)) { b = await board(); continue; }
-      if (matcher && await matcher.tick(b)) { b = await board(); continue; }
-      if (bots && await bots.tick(b)) { b = await board(); continue; }
+      // In the target's rounds the House, Matcher and Bots stay out: a small stake on the winning tile
+      // would only take a slice of the Shield's pot.
+      const skip = shield && b.cur_started === true && await shield.targetIn(Number(b.cur_id));
+      if (!skip && house && await house.tick(b)) { b = await board(); continue; }
+      if (!skip && matcher && await matcher.tick(b)) { b = await board(); continue; }
+      if (!skip && bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;

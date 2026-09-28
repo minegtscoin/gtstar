@@ -36,9 +36,12 @@ export function makeShield(client, CFG, log, dir) {
   const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
   let joined = 0, failedRound = 0;
 
+  let seen = 0; // last round the target was seen in
   async function targetIn(round) {
+    if (seen === round) return true;
     const r = await client.query({ query: `{events(filter:{type:"${CFG.origin || CFG.package}::game::Deployed"},last:20){nodes{contents{json}}}}` });
-    return (r.data.events?.nodes || []).some(n => Number(n.contents.json.round_id) === round && n.contents.json.player === TARGET);
+    if ((r.data.events?.nodes || []).some(n => Number(n.contents.json.round_id) === round && n.contents.json.player === TARGET)) seen = round;
+    return seen === round;
   }
 
   async function wallet() {
@@ -130,5 +133,5 @@ export function makeShield(client, CFG, log, dir) {
     return true;
   }
 
-  return { tick, me };
+  return { tick, me, targetIn };
 }
