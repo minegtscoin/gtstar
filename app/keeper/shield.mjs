@@ -13,7 +13,7 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
 export const TARGET = "0xf375efd6dbfcad20fac4be034f37a74b546c6c89ac9607c4c9f4855a92ebbac4";
-const PER_TILE = BigInt(process.env.SHIELD_PER_TILE || 200_000_000);   // 0.2 SUI a tile, 5 SUI a round
+const PER_TILE = BigInt(process.env.SHIELD_PER_TILE || 150_000_000);   // 0.15 SUI a tile, 3.75 SUI a round
 const STOP_LOSS = BigInt(process.env.SHIELD_STOP_MIST || 5_500_000_000); // stop below 5.5 SUI
 const KEEP = BigInt(process.env.SHIELD_KEEP_MIST || 10_000_000_000);     // skim what is above 10 SUI
 const GAS = 50_000_000n;
