@@ -13,11 +13,12 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
 export const TARGET = "0xf375efd6dbfcad20fac4be034f37a74b546c6c89ac9607c4c9f4855a92ebbac4";
-// It came back from a new address (0x1b63...), so any other wallet covering COVER+ tiles is a target too.
+// Any other outside wallet covering COVER+ tiles is a target too (it may come back from a new address).
 const COVER = 20;
-// Never targets: the owner's wallet, the House, Bot 1-3, the Matcher and the Shield itself.
+// Never targets: the owner's wallets, the House, Bot 1-3, the Matcher and the Shield itself.
 const OURS = new Set([
   "0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077",
+  "0x1b63fe321009fad9a09016f09f9058eddbbfae3b6cefb1c036b7a3a0e0caa86f",
   "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a",
   "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa",
   "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7",
