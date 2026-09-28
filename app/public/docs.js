@@ -16,8 +16,7 @@
     ["Reserve", C.ids.treasury, "object", "The SUI that backs every GTS."],
     ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and staking."],
     ["Upgrade timelock", A.timelock, "object", "Every game upgrade is announced here 48 hours in advance."],
-    ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool. Its liquidity is burned."],
-    ["Creator fee", A.dev, "account", "Receives the 1% creator fee. No special rights."]
+    ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool. Its liquidity is burned."]
   ].filter(function (r) { return r[1]; });
   var list0 = document.getElementById("addrList");
   rows.forEach(function (r) {
