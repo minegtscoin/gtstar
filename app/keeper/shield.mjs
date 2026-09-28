@@ -13,6 +13,18 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
 export const TARGET = "0xf375efd6dbfcad20fac4be034f37a74b546c6c89ac9607c4c9f4855a92ebbac4";
+// It came back from a new address (0x1b63...), so any other wallet covering COVER+ tiles is a target too.
+const COVER = 20;
+// Never targets: the owner's wallet, the House, Bot 1-3, the Matcher and the Shield itself.
+const OURS = new Set([
+  "0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077",
+  "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a",
+  "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa",
+  "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7",
+  "0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4",
+  "0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de",
+  "0xed6c5dccb7a79d39afbe498f9f7d7764cc343d4a45e1f8e97f4daeea0c2f79c2",
+]);
 // Stake: 1 GTS a round (~0.235 SUI at the floor) is split by SUI, and ~4.8% of what sits on losing tiles
 // goes to fees, so the two of them break even together at ~4.9 SUI a round. The Shield fills up to
 // BREAK_MIST minus the target's round: it stays near even and the target keeps nothing. Checked on
@@ -46,7 +58,8 @@ export function makeShield(client, CFG, log, dir) {
   async function targetIn(round) {
     if (seen === round) return true;
     const r = await client.query({ query: `{events(filter:{type:"${CFG.origin || CFG.package}::game::Deployed"},last:20){nodes{contents{json}}}}` });
-    const d = (r.data.events?.nodes || []).map(n => n.contents.json).filter(j => Number(j.round_id) === round && j.player === TARGET);
+    const d = (r.data.events?.nodes || []).map(n => n.contents.json).filter(j => Number(j.round_id) === round && !OURS.has(j.player)
+      && (j.player === TARGET || j.amounts.filter(a => BigInt(a) > 0n).length >= COVER));
     if (d.length) { seen = round; seenTotal = d.reduce((t, j) => t + BigInt(j.total), 0n); }
     return seen === round;
   }
