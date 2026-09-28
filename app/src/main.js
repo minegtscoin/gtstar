@@ -174,6 +174,7 @@ const boardOf = (b, tGenesis) => ({
   round_ms: num(b.round_ms) || 60_000,
   cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
   freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
+  vault_bps: num(b.vault_bps), dev_bps: num(b.dev_bps),
 });
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
 // a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
@@ -989,6 +990,38 @@ function renderFeed() {
   });
 }
 
+// What the deploy being set up would earn if the round ended right now, as game::settle and
+// game::claim compute it, with the player's earlier deposits this round included. The GTS is
+// split by share of the round; the SUI is for the case one of the selected tiles wins (Wealth Fund left out).
+function estimate(per, p) {
+  const b = STATE?.board;
+  if (!b || !selected.size || !(per > 0) || (p !== "open" && p !== "live" && p !== "ended")) return null;
+  const live = p === "live", round = p === "ended" ? b.cur_id + 1 : b.cur_id;
+  const dep = live && b.cur_deployed?.length ? [...b.cur_deployed] : Array(25).fill(0);
+  const m = USER?.miner, mine = live && m && m.round_id === b.cur_id ? [...m.deployed] : Array(25).fill(0);
+  const a = Math.round(per * MIST);
+  selected.forEach(i => { dep[i] += a; mine[i] += a; });
+  const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
+  const gts = rewardFor(round) * Math.min(1, tot / MIST) * myTot / tot;
+  const keep = 1 - (b.vault_bps + b.dev_bps) / 10_000, fair = round >= FAIR_FROM;
+  const wins = [...selected].map(i => {
+    const share = (tot - dep[i]) * keep * mine[i] / dep[i];
+    return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
+  });
+  return { gts, lo: Math.min(...wins), hi: Math.max(...wins), cost: myTot / MIST };
+}
+function renderEstimate(per, p) {
+  const e = estimate(per, p), el = $("estLine");
+  el.hidden = !e;
+  if (!e) return;
+  // After v8 mined GTS is withdrawn with a 10% fee, so its dollar value is shown net of it.
+  const v = e.gts * gtsSui() * (REFINE_PKG ? 1 - REFINE_FEE : 1) * (PRICE.sui || 0);
+  const win = e.lo === e.hi ? fmt(e.hi, 4) : `${fmt(e.lo, 4)}–${fmt(e.hi, 4)}`;
+  el.innerHTML = `If the round ended now: mine <b>~${fmt(e.gts, 4)} GTS</b>${PRICE.sui && v > 0 ? ` (${usd(v)})` : ""}. `
+    + `If ${selected.size === 1 ? "your tile" : "one of your tiles"} wins (${selected.size} in 25): <b>${win} SUI</b> back for ${fmt(e.cost, 4)} SUI in. `
+    + `<span>Changes as others join.</span>`;
+}
+
 // Everything the connected wallet can claim right now.
 function rewards() {
   const out = { ready: false, sui: 0, gts: 0, yield: 0n };
@@ -1084,6 +1117,7 @@ function renderMine() {
   $("selRepeat").disabled = !lastDeploy();
   renderAlerts();
   $("totalCost").textContent = fmt(per * selected.size, 4);
+  renderEstimate(per, p);
   $("mbTiles").textContent = `${selected.size} ${selected.size === 1 ? "tile" : "tiles"} · ${fmt(per, 4)} SUI each`;
   $("mbTotal").textContent = `Total ${fmt(per * selected.size, 4)} SUI`;
 
