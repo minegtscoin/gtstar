@@ -1294,7 +1294,7 @@ function renderTokenomics() {
   $("kSupply").textContent = N.supply();
   $("kSchedMax").textContent = fmt(Math.round(MAX_SUPPLY), 0);
   $("kReserve").textContent = `${N.reserve()} SUI`;
-  $("kFloor").textContent = `${N.floor()} SUI`;
+  $("kPrice").textContent = PRICE.sui ? usd(gtsSui() * PRICE.sui) : `${fmt(gtsSui(), 5)} SUI`;
   const round = STATE.board.cur_id;
   const epoch = Math.floor((round - 1) / HALVING_ROUNDS);
   const done = epoch >= PERIODS;
