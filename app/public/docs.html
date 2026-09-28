@@ -177,13 +177,12 @@ my_gts       = round_reward * my_deposits / round_total</span>
     <span class="code">withdraw = my_unrefined * 90% + my_bonus
 my_bonus += fee * my_unrefined / all_unrefined   (each time another player withdraws)</span>
     <h3>Wealth Fund</h3>
-    <p>If no one deployed on the winning tile, 19.5% of the pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, 1% goes to the creator and the rest to the GTS reserve. Every round with a winner has a 1 in 1000 chance to pay the whole Wealth Fund to the winning tile, split like the pot (the same rule for spread deposits applies, and what is not kept stays in the fund). The GTStar House wallet never keeps Wealth Fund SUI, and from v8 (Sep 29) the same applies to every GTStar bot (Bot 1, Bot 2, Bot 3, Matcher): their share goes back to the fund.</p>
+    <p>If no one deployed on the winning tile, 19.5% of the pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, and the rest goes to the GTS reserve and fees. Every round with a winner has a 1 in 1000 chance to pay the whole Wealth Fund to the winning tile, split like the pot (the same rule for spread deposits applies, and what is not kept stays in the fund). The GTStar House wallet never keeps Wealth Fund SUI, and from v8 (Sep 29) the same applies to every GTStar bot (Bot 1, Bot 2, Bot 3, Matcher): their share goes back to the fund.</p>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
         <tr><td>Wealth Fund</td><td class="n">19.5%</td></tr>
-        <tr><td>Reserve</td><td class="n">79.5%</td></tr>
-        <tr><td>Creator</td><td class="n">1%</td></tr>
+        <tr><td>Reserve and fees</td><td class="n">80.5%</td></tr>
       </tbody>
     </table></div>
 
@@ -219,7 +218,7 @@ my_bonus += fee * my_unrefined / all_unrefined   (each time another player withd
       <tbody>
         <tr><td>Winners</td><td class="n">up to 95%</td><td>Split across the winning tile by stake; the part a spread deposit does not keep goes to the reserve</td></tr>
         <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS</td></tr>
-        <tr><td>Creator</td><td class="n">1%</td><td>Fixed address in the contract</td></tr>
+        <tr><td>Creator</td><td class="n">1%</td><td></td></tr>
       </tbody>
     </table></div>
     <h3>Reserve</h3>
@@ -235,7 +234,7 @@ floor_price   = reserve / total_supply</span>
     <h2 id="verify">Verify</h2>
     <p class="sub">Don't trust, verify.</p>
     <p>The <strong>token contract</strong> holds GTS, its emission limit and the reserve, and is immutable. The <strong>game contract</strong> runs rounds and staking and can receive fixes. Every game upgrade must be announced on-chain 48 hours before it can run, so players always have time to review it.</p>
-    <p>Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: the creator fee can never go above 1%, the Wealth Fund odds can never be set better than 1 in 500 (from v8, Sep 29), and settings can never mint GTS or move the pot, the Wealth Fund or the reserve.</p>
+    <p>Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: the Wealth Fund odds can never be set better than 1 in 500 (from v8, Sep 29), and settings can never mint GTS or move the pot, the Wealth Fund or the reserve.</p>
     <p>Addresses on <strong id="netName">Sui</strong>:</p>
     <div class="addr" id="addrList"></div>
     <p>All source code is public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Project updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>. Questions and open discussion happen in the <a href="https://t.me/MineGTS" target="_blank" rel="noopener">Telegram group</a>.</p>

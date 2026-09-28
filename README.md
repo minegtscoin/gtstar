@@ -16,7 +16,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Max supply | 571,897 GTS: 7 halving periods of 262,000 rounds |
 | Premine / team / presale | None |
 | Emission | Up to 1 GTS per round to miners (full reward from 1 SUI deployed in the round, less for smaller rounds), +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
-| Losing pot | Up to 95% winners · 4% reserve · 1% creator. A winner's share is scaled by the part of their own round deposit on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round. No one on the winning tile: 19.5% to the Wealth Fund, 1% creator, 79.5% reserve |
+| Losing pot | Up to 95% winners · 4% reserve · 1% creator. A winner's share is scaled by the part of their own round deposit on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round. No one on the winning tile: 19.5% to the Wealth Fund, the rest to the reserve and fees |
 | Wealth Fund | Every round with a winner: 1 in 1000 chance to pay the whole Wealth Fund to the winning tile |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
 | Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
@@ -37,7 +37,7 @@ The token package only mints through a single `MinterCap` held by the game, and 
 
 The game holds the `MinterCap`, the SUI of open rounds and the Wealth Fund, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
 
-Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: the creator fee can never go above 1%, and settings can never mint GTS or move the pot, the Wealth Fund or the reserve. See `set_params` in [`game.move`](contracts/game/sources/game.move) and [`scripts/admin.mjs`](scripts/admin.mjs).
+Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: settings can never mint GTS or move the pot, the Wealth Fund or the reserve. See `set_params` in [`game.move`](contracts/game/sources/game.move) and [`scripts/admin.mjs`](scripts/admin.mjs).
 
 Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
 
