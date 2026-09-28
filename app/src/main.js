@@ -537,8 +537,8 @@ function gtsCoin(tx, amount, split = amount) {
   const [c] = tx.splitCoins(primary, [split]);
   return c;
 }
-// Until the per-round split is live (FAIR_FROM known), a wallet plays at most TILE_CAP tiles a round.
-const TILE_CAP = 3;
+// The site used to cap a wallet at 3 tiles a round until the v7 split; the contract never did, so the cap is off.
+const TILE_CAP = 25;
 function overCap() {
   if (FAIR_FROM !== Infinity) return false;
   const b = STATE?.board, m = USER?.miner, tiles = new Set(selected);
