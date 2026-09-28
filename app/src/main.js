@@ -739,7 +739,7 @@ function renderHome() {
   // Floor in dollars, next to the dollar price in the header; SUI until the SUI price loads.
   $("hFloor").textContent = STATE ? N.floorUsd() || `${N.floor()} SUI` : "—";
   $("hFloor").title = STATE ? `${N.floor()} SUI per GTS` : "";
-  $("hMined").textContent = STATE ? N.mined() : "—";
+  $("hSupply").textContent = STATE ? N.supply() : "—";
   $("hVolume").textContent = HIST ? N.volume() : "—";
 }
 
