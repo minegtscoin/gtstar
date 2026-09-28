@@ -1,7 +1,7 @@
 // GTStar Shield: a temporary bot wallet against 0xf375...bac4, which covers all 25 tiles with 1 SUI a round
 // straight through the contract. Until game v8 (the fair split) the whole winning share goes to whoever sits
 // on the winning tile, so covering the board takes most of the GTS emission and the Wealth Fund.
-// The Shield joins only rounds that wallet is in, with SHIELD_PER_TILE on every tile, so it takes most of
+// The Shield joins only rounds that wallet is in, on every tile (see BREAK below), so it takes most of
 // both instead. It claims its previous round in the same transaction and redeems the GTS at the floor
 // (burned, SUI back), so the same SUI rolls round after round.
 // Stops by itself at STOP_AT (before the v8 upgrade) or when its SUI falls below SHIELD_STOP_MIST.
@@ -13,7 +13,13 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 
 export const TARGET = "0xf375efd6dbfcad20fac4be034f37a74b546c6c89ac9607c4c9f4855a92ebbac4";
-const PER_TILE = BigInt(process.env.SHIELD_PER_TILE || 150_000_000);   // 0.15 SUI a tile, 3.75 SUI a round
+// Stake: 1 GTS a round (~0.235 SUI at the floor) is split by SUI, and ~4.8% of what sits on losing tiles
+// goes to fees, so the two of them break even together at ~4.9 SUI a round. The Shield fills up to
+// BREAK_MIST minus the target's round: it stays near even and the target keeps nothing. Checked on
+// chain: 3.75 vs 1 and 3.75 vs 3 matched this within 0.01 SUI a round.
+const MAX_TILE = BigInt(process.env.SHIELD_PER_TILE || 150_000_000);    // at most 0.15 SUI a tile
+const BREAK = BigInt(process.env.SHIELD_BREAK_MIST || 4_600_000_000);  // 4.6 SUI together a round
+const TICK = 10_000_000n;                                               // 0.01 SUI, the minimum per tile
 const STOP_LOSS = BigInt(process.env.SHIELD_STOP_MIST || 5_500_000_000); // stop below 5.5 SUI
 const KEEP = BigInt(process.env.SHIELD_KEEP_MIST || 10_000_000_000);     // skim what is above 10 SUI
 const GAS = 50_000_000n;
@@ -36,11 +42,12 @@ export function makeShield(client, CFG, log, dir) {
   const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
   let joined = 0, failedRound = 0;
 
-  let seen = 0; // last round the target was seen in
+  let seen = 0, seenTotal = 0n; // last round the target was seen in, and what it put in
   async function targetIn(round) {
     if (seen === round) return true;
     const r = await client.query({ query: `{events(filter:{type:"${CFG.origin || CFG.package}::game::Deployed"},last:20){nodes{contents{json}}}}` });
-    if ((r.data.events?.nodes || []).some(n => Number(n.contents.json.round_id) === round && n.contents.json.player === TARGET)) seen = round;
+    const d = (r.data.events?.nodes || []).map(n => n.contents.json).filter(j => Number(j.round_id) === round && j.player === TARGET);
+    if (d.length) { seen = round; seenTotal = d.reduce((t, j) => t + BigInt(j.total), 0n); }
     return seen === round;
   }
 
@@ -111,7 +118,10 @@ export function makeShield(client, CFG, log, dir) {
       log.push(`shield STOPPED: ${state.stopped}`);
       return false;
     }
-    const total = PER_TILE * 25n;
+    let per = seenTotal < BREAK ? (BREAK - seenTotal) / 25n / TICK * TICK : 0n;
+    if (per > MAX_TILE) per = MAX_TILE;
+    if (per < TICK) { joined = cur; log.push(`shield skip #${cur}: target ${Number(seenTotal) / 1e9} SUI loses alone`); return false; }
+    const total = per * 25n;
     if (w.balance + pending < total + GAS) { failedRound = cur; log.push(`shield low balance ${Number(w.balance) / 1e9} SUI`); return false; }
 
     const tx = new Transaction();
@@ -119,7 +129,7 @@ export function makeShield(client, CFG, log, dir) {
     let m = w.miner ? tx.object(w.miner.id) : null, fresh = false;
     if (!m) { [m] = tx.moveCall({ target: C("game::new_miner") }); fresh = true; }
     const [pay] = tx.splitCoins(tx.gas, [total]);
-    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array(25).fill(PER_TILE)), tx.object.clock()] });
+    tx.moveCall({ target: C("game::deploy"), arguments: [tx.object(CFG.board), m, pay, tx.pure.vector("u64", Array(25).fill(per)), tx.object.clock()] });
     if (fresh) tx.transferObjects([m], me);
     // Every 5 hours: send what is above KEEP (the round's deposit is already out, so compare after it).
     if (to && now - (state.skim || 0) >= SKIM_MS && w.balance + pending - total > KEEP) {
