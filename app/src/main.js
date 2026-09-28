@@ -685,6 +685,28 @@ const compound = () => exec("Claim and deposit", "btnCompound", tx => {
   tx.moveCall({ target: C("staking::stake"), arguments: [tx.object(IDS.pool), pos, c, tx.object.clock()] });
 });
 
+// Donation: gts::vault_add puts SUI into the reserve. Nobody can take it out except by burning GTS.
+const addReserve = () => exec("Reserve deposit", "btnReserve", tx => {
+  const amt = toMist($("resAmt").value);
+  if (amt <= 0) throw new Error("Enter an amount.");
+  const [c] = tx.splitCoins(tx.gas, [amt]);
+  const bal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: ["0x2::sui::SUI"], arguments: [c] });
+  tx.moveCall({ target: TK("gts::vault_add"), arguments: [tx.object(IDS.treasury), bal] });
+}, toMist($("resAmt").value)).then(r => { if (r) { $("resAmt").value = ""; renderReserveAdd(); } });
+function renderReserveAdd() {
+  if (!STATE) return;
+  const amt = toMist($("resAmt").value);
+  $("resNote").textContent = amt > 0 && STATE.supply > 0
+    ? `SUI · floor ${fmt(STATE.floor, 5)} → ${fmt((STATE.vault + amt) / STATE.supply, 5)} SUI per GTS`
+    : `SUI${USER ? ` · ${sui(USER.sui, 4)} in wallet` : ""}`;
+  if (busy) return;
+  const btn = $("btnReserve");
+  if (!account) { btn.textContent = "Sign in"; btn.disabled = false; return; }
+  const over = USER && amt + GAS_RESERVE > USER.sui;
+  btn.textContent = over ? "Insufficient SUI" : "Add to reserve";
+  btn.disabled = amt <= 0 || over;
+}
+
 // ---------- emission math (round-based, mirrors game::reward_for_round) ----------
 const rewardFor = round => { const e = Math.floor((round - 1) / HALVING_ROUNDS); return round < 1 || e >= PERIODS ? 0 : BASE_REWARD / 2 ** e; };
 // Maximum cumulative emission (miners + stakers) after `n` rounds.
@@ -1303,6 +1325,7 @@ function renderTokenomics() {
   $("kRound").textContent = `#${fmt(round, 0)}`;
   $("kReward").textContent = `Up to ${fmt(rewardFor(round), 4)} GTS`;
   $("kToHalving").textContent = done ? "—" : next > LAST_ROUND ? "Emission ends" : `In ${fmt(next - round, 0)} rounds`;
+  renderReserveAdd();
   drawChart(STATE.board.cur_id - 1);
 }
 let chartSize = 0;
@@ -1748,6 +1771,8 @@ document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button")
   if (set === "act") { actTab = t; actShown = ROWS; } else if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }
   renderExplorer();
 })));
+$("btnReserve").onclick = () => (account ? addReserve() : openWalletModal());
+$("resAmt").oninput = renderReserveAdd;
 $("btnStakeClaim").onclick =() => (account ? claimStake() : openWalletModal());
 $("btnCompound").onclick = () => (account ? compound() : openWalletModal());
 $("stakeAmt").addEventListener("input", renderStake);
