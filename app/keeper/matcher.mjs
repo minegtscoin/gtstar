@@ -13,12 +13,15 @@ const KEEP = BigInt(process.env.MATCH_KEEP_MIST || 50_000_000);            // SU
 const LEAD_MS = 8_000; // join only if the round has at least this long before its deploy freeze
 const TOKEN = "0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e";
 const GTS = `${TOKEN}::gts::GTS`;
-// Not "real" first deposits: the GTStar House and Bot 1, 2 and 3.
+// Not "real" first deposits: the GTStar House, Bot 1, 2 and 3, the Shield, and the wallet the Shield plays
+// against (it covers all 25 tiles, so matching it only fed its winning share).
 const OURS = new Set([
   "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a",
   "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa",
   "0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7",
   "0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4",
+  "0xed6c5dccb7a79d39afbe498f9f7d7764cc343d4a45e1f8e97f4daeea0c2f79c2",
+  "0xf375efd6dbfcad20fac4be034f37a74b546c6c89ac9607c4c9f4855a92ebbac4",
 ]);
 
 export function makeMatcher(client, CFG, log) {
