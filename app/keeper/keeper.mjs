@@ -1,12 +1,14 @@
 // GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
 // The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
-// and runs the House (house.mjs), the Shield (shield.mjs), the Matcher (matcher.mjs) and the GTStar Bots (bots.mjs).
+// and runs the House (house.mjs), the Shield (shield.mjs), the Matcher (matcher.mjs), the GTStar Bots (bots.mjs)
+// and the Floor bot (floor.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 import { makeBots } from "./bots.mjs";
+import { makeFloor } from "./floor.mjs";
 import { makeHouse } from "./house.mjs";
 import { makeMatcher } from "./matcher.mjs";
 import { makeShield } from "./shield.mjs";
@@ -31,6 +33,7 @@ export default async () => {
   const matcher = makeMatcher(client, CFG, log);
   const shield = makeShield(client, CFG, log, process.env.BOTS_DIR || ".");
   const welcome = makeWelcome(client, log);
+  const floor = makeFloor(client, CFG, log);
 
   async function board() {
     const r = await client.query({ query: `{object(address:"${CFG.board}"){asMoveObject{contents{json}}}}` });
@@ -70,6 +73,7 @@ export default async () => {
       if (!skip && matcher && await matcher.tick(b)) { b = await board(); continue; }
       if (!skip && bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
+      if (floor && await floor.tick()) continue;
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;
       if (b.cur_started === true && !worth) {
