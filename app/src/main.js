@@ -1451,8 +1451,6 @@ function renderTrade() {
   $("swUsdOut").textContent = known ? val(outMist, !sell) : "";
   const rate = known ? (sell ? outMist / need : need / outMist) : sell ? STATE?.floor : STATE?.market;
   $("swRate").textContent = rate ? `1 GTS = ${fmt(rate, 6)} SUI` : "—";
-  $("swRoute").textContent = viaPool ? "Cetus GTS/SUI pool" : "GTS reserve (burn at floor)";
-  $("swFee").textContent = viaPool ? `1% pool fee, ${SLIPPAGE * 100}% max slippage` : "None";
   // Price impact: how far this trade's price is from the pool's current price, fee included.
   const spot = STATE?.market || 0, px = known ? (sell ? outMist / need : need / outMist) : 0;
   const impact = viaPool && spot && px ? (sell ? 1 - px / spot : px / spot - 1) : 0;
