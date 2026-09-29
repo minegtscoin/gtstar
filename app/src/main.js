@@ -214,7 +214,7 @@ const boardOf = (b, tGenesis) => ({
   round_ms: num(b.round_ms) || 60_000,
   cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
   freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
-  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps),
+  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 100, // liquidity 1%, fixed
 });
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
 // a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
@@ -1086,7 +1086,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = isFair(round) && !V10_PKG;
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + b.liq_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = isFair(round) && !V10_PKG;
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
@@ -1267,7 +1267,7 @@ function renderExplorer() {
   $("gNextCut").textContent = roundReward() > 0 ? `In ${fmt(em().step - em().count, 0)} rounds` : "Mining ended";
   $("gMined").textContent = `${N.mined()} GTS`;
   $("gSupply").textContent = `${N.supply()} GTS`;
-  // Every GTS ever minted that is no longer in supply was burned (withdraw fees, buyback, old redemptions).
+  // Every GTS ever minted that is no longer in supply was burned (withdraw fees, the old buyback, old redemptions).
   $("gBurned").textContent = `${sui(STATE.minted - STATE.supply, 3)} GTS`;
   document.querySelectorAll(".tabset").forEach(ts => {
     const cur = { act: actTab, rev: revTab, lb: lbTab }[ts.dataset.set];

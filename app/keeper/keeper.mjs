@@ -1,7 +1,8 @@
 // GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
 // The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
-// and spends the game's buyback SUI on GTS and burns it (buyback.mjs). The first game's House, Shield, Matcher,
+// spends the game's buyback SUI on GTS kept in the game, and adds its liquidity SUI to the Cetus pool as a position
+// locked in the game (buyback.mjs). The first game's House, Shield, Matcher,
 // Bots and Floor bot are archived in legacy/app/keeper.
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";

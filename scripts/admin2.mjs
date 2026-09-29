@@ -1,13 +1,13 @@
 // Relaunch game settings through the AdminCap. Changes apply at once, only inside the contract's bounds.
 //   node scripts/admin2.mjs show                           current settings and emission
-//   node scripts/admin2.mjs set odds=1000 buyback=100      change some settings, keep the rest
+//   node scripts/admin2.mjs set odds=1000 refine=1000      change some settings, keep the rest
 //   node scripts/admin2.mjs emission reward=1 step=15658   change the emission, keep the rest
 //   node scripts/admin2.mjs staking 300                    stakers' share of the losing pot, bps (creates the pool once)
 //   node scripts/admin2.mjs reserve-to-fund                move the SUI left in the old reserve into the Wealth Fund (once)
 //   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
 //   node scripts/admin2.mjs tiles 5                        most tiles one player may use in a round, 1-25 (game v10)
 // set keys: odds (Wealth Fund 1 in N), fund (no-winner share, unused from game v9), reserve (bps, must be 0 from v9),
-//   buyback (bps), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
+//   buyback (bps, fixed at 200 from game v11), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
 //   full (SUI in a round for the full reward).
 // Signs with the active `sui client` address (the deployer, which holds the AdminCap). DRY=1 simulates.

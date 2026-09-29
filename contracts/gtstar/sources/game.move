@@ -1,14 +1,14 @@
 /// GTStar game (relaunch): a 5x5 grid, 60s rounds, on Sui.
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
-/// losing pot pays: creator DEV_BPS (1%, fixed), buyback `buyback_bps`, stakers `stake_bps`, Wealth
-/// Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
+/// losing pot pays: creator DEV_BPS (1%, fixed), buyback BUYBACK_BPS (2%, fixed), liquidity LIQ_BPS (1%,
+/// fixed), stakers `stake_bps`, Wealth Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
 /// the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
 /// part matching the part of their round deposit on the winning square, the fair split). A player may
 /// deposit on at most `max_tiles` squares a round (5; see `set_max_tiles`). With no one on the winning
 /// square the whole rest goes to the Wealth Fund. Every round
 /// has a 1 in `ml_odds` chance to pay the whole Wealth Fund to one ticket, drawn by weight. Tickets:
-/// every mist of fee a player paid (creator + buyback + stakers + Wealth Fund, on the SUI they lost)
+/// every mist of fee a player paid (creator + buyback + liquidity + stakers + Wealth Fund, on the SUI lost)
 /// since the last payout is one ticket, added when the round is claimed. House bots get no tickets.
 /// Tickets reset after each payout.
 ///
@@ -27,13 +27,20 @@
 /// since the player's last withdrawal (or first mining); before that the fee falls linearly from
 /// `refine_fee_bps` to 0 over the 7 days, and the fee GTS is burned.
 ///
-/// Buyback: `buyback_bps` of every losing pot is saved in the game. Only the keeper may take it
-/// (`buyback_take`), and the same transaction must burn GTS for it (`buyback_burn` closes the receipt).
-/// `BuybackDone` shows the SUI spent and the GTS burned.
+/// Buyback (v11): 2% of every losing pot is saved in the game. Only the keeper may take it
+/// (`buyback_take`), and the same transaction must hand back GTS for it (`buyback_keep` closes the
+/// receipt). The GTS bought is not burned: it stays in the game for good (`bought_value`), and no
+/// function can take it out. `BuybackKept` shows the SUI spent and the GTS kept.
+///
+/// Liquidity (v11): 1% of every losing pot is saved in the game. Only the keeper may take it
+/// (`liquidity_take`); in the same transaction it buys GTS with about half, adds both halves to the
+/// Cetus GTS/SUI pool as a new position, and `liquidity_lock` closes the receipt: the position (a Cetus
+/// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
+/// balance and GTS not used joins the bought GTS. No function can take a position out.
 ///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
-/// cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
+/// cap, the buyback (2%), the liquidity share (1%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
 /// deposits.
 #[allow(lint(self_transfer))]
 module gtstar::game;
@@ -42,6 +49,8 @@ use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
 use sui::dynamic_field as df;
+use sui::dynamic_object_field as dof;
+use std::type_name;
 use sui::event;
 use sui::random::{Self, Random};
 use sui::sui::SUI;
@@ -63,9 +72,16 @@ const DEFAULT_FULL_REWARD_DEPLOY: u64 = 1_000_000_000; // full reward from 1 SUI
 const DEV_BPS: u64 = 100;
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
+/// Buyback: 2% of the losing pot, fixed (v11). The GTS bought stays in the game.
+const BUYBACK_BPS: u64 = 200;
+/// Liquidity: 1% of the losing pot, fixed (v11). Added to the Cetus GTS/SUI pool and locked in the game.
+const LIQ_BPS: u64 = 100;
+/// The only object type `liquidity_lock` accepts: a Cetus CLMM position.
+const CETUS_POSITION: vector<u8> = b"1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
+
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 0;          // no reserve (v9)
-const DEFAULT_BUYBACK_BPS: u64 = 0;        // buyback off until set (v7)
+const DEFAULT_BUYBACK_BPS: u64 = 200;      // fixed (v11)
 const DEFAULT_ML_ODDS: u64 = 1_000;        // Wealth Fund: 1 in 1000
 const DEFAULT_ML_SHARE_BPS: u64 = 1_950;   // 19.5% of a no-winner round
 const DEFAULT_REFINE_FEE_BPS: u64 = 1_000; // 10%
@@ -78,7 +94,6 @@ const MAX_REFINE_FEE_BPS: u64 = 5_000;
 const MAX_STAKE_BPS: u64 = 500;      // stakers 5%
 const MAX_FUND_BPS: u64 = 1_000;     // Wealth Fund, every round, 10%
 const MAX_ML_SHARE_BPS: u64 = 3_000; // Wealth Fund, no-winner round, 30%
-const MAX_BUYBACK_BPS: u64 = 300;    // buyback 3% (v7)
 const MIN_MIN_DEPLOY: u64 = 1_000_000;      // 0.001 SUI
 const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
 const MIN_ROUND_MS: u64 = 30_000;
@@ -96,11 +111,12 @@ const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94f
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
 /// Shield bot: no Wealth Fund tickets either.
 const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
-/// Keeper: the only address that may spend the buyback SUI, and only on GTS that is then burned (v7).
+/// Keeper: the only address that may spend the buyback SUI (only on GTS kept in the game) and the
+/// liquidity SUI (only on a Cetus position locked in the game).
 const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
 /// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's Wealth
-/// Fund share, then its buyback share (v9; before, the reserve share first), so the draw pays its gas.
+/// Fund share, then its buyback share, then its liquidity share, so the draw pays its gas.
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Precision of the per-GTS withdraw-fee accumulator.
@@ -110,7 +126,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 10;
+const VERSION: u64 = 11;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -129,7 +145,6 @@ const EOneMinerPerRound: u64 = 15;
 const EBadParams: u64 = 18;
 const EPaused: u64 = 19;
 const ENothingToWithdraw: u64 = 20;
-const EBuybackOpen: u64 = 21;
 const ENoStaking: u64 = 22;
 const EBuybackOff: u64 = 23;
 const EUseWithdrawV6: u64 = 24;
@@ -138,6 +153,9 @@ const ENoBuyback: u64 = 26;
 const ENothingBought: u64 = 27;
 const ENoReserve: u64 = 28;
 const ETooManyTiles: u64 = 29;
+const EUseBuybackKeep: u64 = 30;
+const ENoLiquidity: u64 = 31;
+const ENotPosition: u64 = 32;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -228,6 +246,15 @@ public struct RefineClockKey has copy, drop, store { player: address }
 /// Dynamic field on the Board (v6): time of the first round settled by v6 (ms).
 public struct RefineFromKey has copy, drop, store {}
 
+/// Dynamic field on the Board (v11): SUI saved for liquidity, waiting for the keeper.
+public struct LiquidityKey has copy, drop, store {}
+/// Dynamic field on the Board (v11): GTS bought back, kept in the game for good.
+public struct BoughtKey has copy, drop, store {}
+/// Dynamic object fields on the Board (v11): the Cetus positions locked for good, `i` from 0.
+public struct LpKey has copy, drop, store { i: u64 }
+/// Dynamic field on the Board (v11): how many positions are locked.
+public struct LpCountKey has copy, drop, store {}
+
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
@@ -235,8 +262,10 @@ public struct StakeBpsKey has copy, drop, store {}
 /// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
 
-/// Hot potato from `buyback_take`: the transaction only succeeds once `buyback_burn` burns GTS for it.
+/// Hot potato from `buyback_take`: the transaction only succeeds once `buyback_keep` takes GTS for it.
 public struct BuybackReceipt { sui: u64 }
+/// Hot potato from `liquidity_take`: the transaction only succeeds once `liquidity_lock` locks a position.
+public struct LiquidityReceipt { sui: u64 }
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
@@ -303,7 +332,11 @@ public struct BuybackDone has copy, drop { sui_spent: u64, gts_burned: u64 }
 public struct StakingChanged has copy, drop { stake_bps: u64 }
 public struct FundBpsChanged has copy, drop { fund_bps: u64 }
 public struct MaxTilesChanged has copy, drop { max_tiles: u64 }
-/// SUI paid to whoever settled a round, out of its Wealth Fund share, then its buyback share.
+/// Buyback SUI spent on GTS, and the GTS kept in the game (v11). `gts_total`: all GTS kept so far.
+public struct BuybackKept has copy, drop { sui_spent: u64, gts_kept: u64, gts_total: u64 }
+/// Liquidity SUI added to the Cetus pool as a position locked in the game (v11).
+public struct LiquidityLocked has copy, drop { sui_spent: u64, gts_left: u64, position: ID, positions: u64 }
+/// SUI paid to whoever settled a round, out of its Wealth Fund share, then buyback, then liquidity.
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
@@ -367,8 +400,18 @@ fun is_bot(a: address): bool {
 /// No Wealth Fund tickets for house bots.
 fun no_tickets(a: address): bool { is_bot(a) || a == SHIELD_ADDR }
 
-/// Fees taken from the losing pot, in bps: creator + buyback + stakers + Wealth Fund (+ reserve, 0 from v9).
-fun fee_bps(board: &Board): u64 { DEV_BPS + board.vault_bps + board.buyback_bps + stake_bps(board) + fund_bps(board) }
+/// Fees taken from the losing pot, in bps: creator + buyback + liquidity + stakers + Wealth Fund (+ reserve, 0).
+fun fee_bps(board: &Board): u64 { DEV_BPS + board.vault_bps + BUYBACK_BPS + LIQ_BPS + stake_bps(board) + fund_bps(board) }
+
+fun liquidity_mut(board: &mut Board): &mut Balance<SUI> {
+    if (!df::exists(&board.id, LiquidityKey {})) { df::add(&mut board.id, LiquidityKey {}, balance::zero<SUI>()) };
+    df::borrow_mut<LiquidityKey, Balance<SUI>>(&mut board.id, LiquidityKey {})
+}
+
+fun bought_mut(board: &mut Board): &mut Balance<GTS> {
+    if (!df::exists(&board.id, BoughtKey {})) { df::add(&mut board.id, BoughtKey {}, balance::zero<GTS>()) };
+    df::borrow_mut<BoughtKey, Balance<GTS>>(&mut board.id, BoughtKey {})
+}
 
 fun tickets_mut(board: &mut Board): &mut Tickets {
     if (!df::exists(&board.id, TicketsKey {})) {
@@ -434,7 +477,7 @@ fun v8_from(board: &Board): u64 {
 
 // ===== Admin =====
 
-/// Change the settings at once. Fee changes apply from the next settle.
+/// Change the settings at once. Fee changes apply from the next settle. `buyback_bps` must be 200 (fixed).
 public fun set_params(
     _: &AdminCap,
     board: &mut Board,
@@ -450,10 +493,10 @@ public fun set_params(
 ) {
     check_version(board);
     assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
-    assert!(buyback_bps <= MAX_BUYBACK_BPS, EBadParams);
+    assert!(buyback_bps == BUYBACK_BPS, EBadParams); // fixed (v11)
     assert!(vault_bps == 0, ENoReserve);
     assert!(ml_share_bps <= MAX_ML_SHARE_BPS, EBadParams);
-    assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) + fund_bps(board) <= 10_000, EBadParams);
+    assert!(DEV_BPS + vault_bps + BUYBACK_BPS + LIQ_BPS + ml_share_bps + stake_bps(board) + fund_bps(board) <= 10_000, EBadParams);
     assert!(refine_fee_bps <= MAX_REFINE_FEE_BPS, EBadParams);
     assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
     assert!(round_ms >= MIN_ROUND_MS && round_ms <= MAX_ROUND_MS && freeze_ms <= round_ms / 2, EBadParams);
@@ -492,9 +535,9 @@ public fun set_emission(
     event::emit(EmissionChanged { reward, step_rounds, decay_ppm, step_count, full_reward_deploy });
 }
 
-/// Give up the AdminCap for good: settings are frozen as they are. The buyback must be off and empty.
-public fun renounce(cap: AdminCap, board: &Board) {
-    assert!(board.buyback_bps == 0 && balance::value(&board.buyback) == 0, EBuybackOpen);
+/// Give up the AdminCap for good: settings are frozen as they are. The buyback and the liquidity share
+/// are fixed and keep running (v11).
+public fun renounce(cap: AdminCap, _board: &Board) {
     let AdminCap { id } = cap;
     object::delete(id);
     event::emit(Renounced {});
@@ -513,7 +556,7 @@ public fun reserve_to_fund(_: &AdminCap, board: &mut Board, treasury: &mut Treas
 public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxContext) {
     check_version(board);
     assert!(bps <= MAX_STAKE_BPS, EBadParams);
-    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + bps + fund_bps(board) <= 10_000, EBadParams);
+    assert!(DEV_BPS + board.vault_bps + BUYBACK_BPS + LIQ_BPS + board.ml_share_bps + bps + fund_bps(board) <= 10_000, EBadParams);
     if (!df::exists(&board.id, StakeKey {})) {
         df::add(&mut board.id, StakeKey {}, staking::new(ctx));
         df::add(&mut board.id, StakeBpsKey {}, 0u64);
@@ -526,7 +569,7 @@ public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxCo
 public fun set_fund_bps(_: &AdminCap, board: &mut Board, bps: u64) {
     check_version(board);
     assert!(bps <= MAX_FUND_BPS, EBadParams);
-    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + stake_bps(board) + bps <= 10_000, EBadParams);
+    assert!(DEV_BPS + board.vault_bps + BUYBACK_BPS + LIQ_BPS + board.ml_share_bps + stake_bps(board) + bps <= 10_000, EBadParams);
     if (df::exists(&board.id, FundBpsKey {})) { *df::borrow_mut<FundBpsKey, u64>(&mut board.id, FundBpsKey {}) = bps }
     else { df::add(&mut board.id, FundBpsKey {}, bps) };
     event::emit(FundBpsChanged { fund_bps: bps });
@@ -695,19 +738,24 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
 
     let vault_full = mul_div(losing_pot, board.vault_bps, 10_000);
     let dev_part = mul_div(losing_pot, DEV_BPS, 10_000);
-    let buyback_full = mul_div(losing_pot, board.buyback_bps, 10_000);
+    board.buyback_bps = BUYBACK_BPS;
+    let buyback_full = mul_div(losing_pot, BUYBACK_BPS, 10_000);
+    let liq_full = mul_div(losing_pot, LIQ_BPS, 10_000);
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
     // No reserve (v9): any reserve share goes to the Wealth Fund with its own share. The drawer is paid
-    // from that first, then from the buyback share.
+    // from that first, then from the buyback share, then from the liquidity share.
     let fund_full = vault_full + fund_part;
     let from_fund = if (fund_full < DRAW_REWARD_MAX) { fund_full } else { DRAW_REWARD_MAX };
     let rest = DRAW_REWARD_MAX - from_fund;
     let from_buyback = if (buyback_full < rest) { buyback_full } else { rest };
-    let draw_reward = from_buyback + from_fund;
+    let rest = rest - from_buyback;
+    let from_liq = if (liq_full < rest) { liq_full } else { rest };
+    let draw_reward = from_buyback + from_fund + from_liq;
     let buyback_part = buyback_full - from_buyback;
+    let liq_part = liq_full - from_liq;
     let mut fund_in = fund_full - from_fund;
-    let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - stake_part - fund_part;
+    let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - liq_full - stake_part - fund_part;
 
     // Stakers' share: split among everyone staked now, or to the Wealth Fund when nobody is.
     if (stake_part > 0) {
@@ -719,6 +767,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     };
     if (dev_part > 0) { balance::join(&mut board.dev_fees, balance::split(&mut board.pot, dev_part)); };
     if (buyback_part > 0) { balance::join(&mut board.buyback, balance::split(&mut board.pot, buyback_part)); };
+    if (liq_part > 0) { let b = balance::split(&mut board.pot, liq_part); balance::join(liquidity_mut(board), b); };
     if (draw_reward > 0) {
         let settler = tx_context::sender(ctx);
         transfer::public_transfer(coin::from_balance(balance::split(&mut board.pot, draw_reward), ctx), settler);
@@ -981,17 +1030,60 @@ public fun buyback_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, Buy
     (coin::from_balance(balance::withdraw_all(&mut board.buyback), ctx), BuybackReceipt { sui })
 }
 
-/// Buyback, step 2: burn the GTS bought and return any SUI not spent. Closes the receipt.
-public fun buyback_burn(board: &mut Board, treasury: &mut Treasury, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>) {
+/// Closed (v11): the GTS bought is kept, not burned; see `buyback_keep`.
+public fun buyback_burn(_board: &mut Board, _treasury: &mut Treasury, receipt: BuybackReceipt, _gts: Coin<GTS>, _left: Coin<SUI>) {
+    let BuybackReceipt { sui: _ } = receipt;
+    abort EUseBuybackKeep
+}
+
+/// Buyback, step 2: keep the GTS bought in the game for good and return any SUI not spent. Closes the receipt.
+public fun buyback_keep(board: &mut Board, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>) {
     check_version(board);
     let BuybackReceipt { sui } = receipt;
     let back = coin::value(&left);
     assert!(back <= sui, EAmountMismatch);
-    let gts_burned = coin::value(&gts);
-    assert!(gts_burned > 0, ENothingBought);
+    let gts_kept = coin::value(&gts);
+    assert!(gts_kept > 0, ENothingBought);
     balance::join(&mut board.buyback, coin::into_balance(left));
-    gts::burn(treasury, gts);
-    event::emit(BuybackDone { sui_spent: sui - back, gts_burned });
+    let bought = bought_mut(board);
+    balance::join(bought, coin::into_balance(gts));
+    let gts_total = balance::value(bought);
+    event::emit(BuybackKept { sui_spent: sui - back, gts_kept, gts_total });
+}
+
+/// Liquidity, step 1 (keeper only): take all the saved liquidity SUI to add to the Cetus pool in the
+/// same transaction.
+public fun liquidity_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, LiquidityReceipt) {
+    check_version(board);
+    assert!(tx_context::sender(ctx) == BUYER_ADDR, ENotBuyer);
+    let liq = liquidity_mut(board);
+    let sui = balance::value(liq);
+    assert!(sui > 0, ENoLiquidity);
+    (coin::from_balance(balance::withdraw_all(liq), ctx), LiquidityReceipt { sui })
+}
+
+/// Liquidity, step 2: lock the new Cetus position in the game for good. SUI not used goes back to the
+/// liquidity balance, GTS not used joins the bought GTS. Closes the receipt.
+public fun liquidity_lock<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
+    check_version(board);
+    let LiquidityReceipt { sui } = receipt;
+    assert!(type_name::with_defining_ids<P>().into_string().into_bytes() == CETUS_POSITION, ENotPosition);
+    lock_position(board, sui, position, left_sui, left_gts)
+}
+
+/// Store `position` for good; `sui` was taken, `left_sui` of it comes back (some must have been used).
+fun lock_position<P: key + store>(board: &mut Board, sui: u64, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
+    let back = coin::value(&left_sui);
+    assert!(back < sui, EAmountMismatch);
+    let gts_left = coin::value(&left_gts);
+    balance::join(liquidity_mut(board), coin::into_balance(left_sui));
+    balance::join(bought_mut(board), coin::into_balance(left_gts));
+    if (!df::exists(&board.id, LpCountKey {})) { df::add(&mut board.id, LpCountKey {}, 0u64) };
+    let n = *df::borrow<LpCountKey, u64>(&board.id, LpCountKey {});
+    let id = object::id(&position);
+    dof::add(&mut board.id, LpKey { i: n }, position);
+    *df::borrow_mut<LpCountKey, u64>(&mut board.id, LpCountKey {}) = n + 1;
+    event::emit(LiquidityLocked { sui_spent: sui - back, gts_left, position: id, positions: n + 1 });
 }
 
 /// Burn GTS: anyone may burn their own GTS, and supply falls for good.
@@ -1016,8 +1108,24 @@ public fun motherlode_paid(board: &Board, round_id: u64): u64 {
 }
 /// (Wealth Fund odds, Wealth Fund share, reserve, buyback, creator, withdraw fee) in bps except odds, and paused.
 public fun current_params(board: &Board): (u64, u64, u64, u64, u64, u64, bool) {
-    (board.ml_odds, board.ml_share_bps, board.vault_bps, board.buyback_bps, DEV_BPS, board.refine_fee_bps, board.paused)
+    (board.ml_odds, board.ml_share_bps, board.vault_bps, BUYBACK_BPS, DEV_BPS, board.refine_fee_bps, board.paused)
 }
+/// Liquidity share of the losing pot in bps (fixed, v11).
+public fun liquidity_bps(): u64 { LIQ_BPS }
+/// SUI saved for liquidity, waiting for the keeper.
+public fun liquidity_value(board: &Board): u64 {
+    if (df::exists(&board.id, LiquidityKey {})) { balance::value(df::borrow<LiquidityKey, Balance<SUI>>(&board.id, LiquidityKey {})) } else { 0 }
+}
+/// GTS bought back and kept in the game.
+public fun bought_value(board: &Board): u64 {
+    if (df::exists(&board.id, BoughtKey {})) { balance::value(df::borrow<BoughtKey, Balance<GTS>>(&board.id, BoughtKey {})) } else { 0 }
+}
+/// How many Cetus positions are locked in the game.
+public fun lp_positions(board: &Board): u64 {
+    if (df::exists(&board.id, LpCountKey {})) { *df::borrow<LpCountKey, u64>(&board.id, LpCountKey {}) } else { 0 }
+}
+/// ID of locked position `i` (from 0).
+public fun lp_position_id(board: &Board, i: u64): ID { *dof::id(&board.id, LpKey { i }).borrow() }
 /// (step reward, rounds per step, decay ppm, rounds into the step, full-reward deposit, GTS committed).
 public fun emission(board: &Board): (u64, u64, u64, u64, u64, u64) {
     (board.reward, board.step_rounds, board.decay_ppm, board.step_count, board.full_reward_deploy, board.committed)
@@ -1085,6 +1193,13 @@ public fun winning_square_for_testing(board: &Board, round_id: u64): u64 {
 public fun ticket_holder_for_testing(board: &Board, r: u64): address {
     let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
     ticket_holder(board, t.epoch, t.count, r)
+}
+
+/// `liquidity_lock` without the Cetus type check, for tests.
+#[test_only]
+public fun liquidity_lock_for_testing<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
+    let LiquidityReceipt { sui } = receipt;
+    lock_position(board, sui, position, left_sui, left_gts)
 }
 
 #[test_only]

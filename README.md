@@ -18,7 +18,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Max supply | 1,000,000 GTS, hard cap in the contract |
 | Premine / team / presale | None |
 | Emission | 1 GTS per round, shared by SUI deployed, win or lose (full reward from 1 SUI in the round, less for smaller rounds: 0.25 SUI mines 0.25 GTS). Every 15,658 rounds the reward drops 1.425%. The cut follows rounds, not GTS mined, so the 1,000,000 cap is a ceiling: full rounds every time would mint about 1,099,000, and rounds below 1 SUI mint less, so the final supply can end below 1,000,000. Counted by rounds played, not by date |
-| Losing pot | 90% winners · 4% Wealth Fund · 3% buyback (GTS bought on Cetus and burned) · 2% stakers · 1% creator. Winners split it by their stake on the winning tile and keep all of it, no cut. At most 5 tiles per wallet per round (one miner per wallet per round) |
+| Losing pot | 90% winners · 4% Wealth Fund · 2% buyback (GTS bought on Cetus, kept in the game for good) · 1% liquidity (half buys GTS, both halves added to the Cetus GTS/SUI pool, the position locked in the game for good) · 2% stakers · 1% creator. Winners split it by their stake on the winning tile and keep all of it, no cut. At most 5 tiles per wallet per round (one miner per wallet per round) |
 | Wealth Fund | 4% of every losing pot, and the whole pot less fees when no one is on the winning tile. Every round has a 1 in 250 chance to pay the whole fund to one ticket holder. Tickets = the fees a player paid on SUI they lost since the last payout (10% of it), so extra wallets give no extra tickets; bots get none |
 | Unrefined GTS | Mined GTS waits in your unrefined balance. Withdrawing is free 7 days after your last withdrawal; before that the fee falls from 10% to 0 and is burned |
 | Staking | Stake GTS, earn SUI (2% of every losing pot). Withdraw any time. Nothing is minted. With nobody staked, the stakers' share goes to the Wealth Fund |
@@ -36,7 +36,7 @@ One package, [`contracts/gtstar`](contracts/gtstar):
 | `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances |
 | `staking` | GTS staking with SUI yield |
 
-During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract, each fee share has its own cap, and the buyback SUI can only be spent by the keeper in a transaction that burns the GTS it bought (`buyback_take` / `buyback_burn`). The `UpgradeCap` (policy 0, no timelock) can publish any new code, including code that moves SUI held by the game or the Wealth Fund. Fixed: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
+During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract, each fee share it can set has its own cap, and the buyback (2%) and liquidity (1%) shares are fixed. The buyback SUI can only be spent by the keeper in a transaction that hands the GTS it bought back to the game for good (`buyback_take` / `buyback_keep`), and the liquidity SUI only in one that hands back a Cetus position, locked in the game for good (`liquidity_take` / `liquidity_lock`). The `UpgradeCap` (policy 0, no timelock) can publish any new code, including code that moves SUI held by the game or the Wealth Fund. Fixed: the 1% creator fee, the 2% buyback, the 1% liquidity share, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
 
 Deployed addresses and every upgrade transaction are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 
@@ -69,7 +69,7 @@ node serve.js             # http://localhost:4173
 
 ```sh
 node scripts/admin2.mjs show
-node scripts/admin2.mjs set odds=1000 buyback=100
+node scripts/admin2.mjs set odds=1000
 ```
 
 ## Keeper
