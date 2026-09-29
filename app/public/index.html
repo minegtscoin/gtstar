@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>GTStar</title>
-<meta name="description" content="GTStar is a fair mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="description" content="GTStar is a fair mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta name="theme-color" content="#09090d" />
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -13,14 +13,14 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="GTStar" />
 <meta property="og:title" content="GTStar: Mine GTS. Backed by SUI." />
-<meta property="og:description" content="A 60-second mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta property="og:description" content="A 60-second mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta property="og:url" content="https://minegts.fun/" />
 <meta property="og:image" content="https://minegts.fun/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="GTStar: Mine GTS. Backed by SUI." />
-<meta name="twitter:description" content="A 60-second mining game on Sui. Every participant mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="twitter:description" content="A 60-second mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta name="twitter:image" content="https://minegts.fun/og.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -85,7 +85,7 @@
       <div class="hero-copy">
         <div class="eyebrow">Live on Sui</div>
         <h1 class="hero-h">Mine GTS.<br>Backed by SUI.</h1>
-        <p class="hero-p">Everyone mines GTS every round, win or lose. A 60-second game on a 5×5 board: winners split the pot, and every token is backed by SUI in an on-chain reserve.</p>
+        <p class="hero-p">Every SUI you lose mines GTS. A 60-second game on a 5×5 board: winners split the pot, and every token is backed by SUI in an on-chain reserve.</p>
         <div class="hero-cta">
           <a class="btn-lg" href="#mine">Start mining</a>
           <a class="btn-lg ghost" href="#explorer">Explore data</a>
@@ -110,7 +110,7 @@
       <div class="feed-live" id="feed"></div>
     </div>
       <div class="board-col">
-        <div class="ml-bar" title="2% of every pot goes into the Wealth Fund, plus 19.5% when no one is on the winning tile. Every round has a 1 in 100 chance to pay all of it to one ticket holder. Your tickets are the fees you paid on SUI you lost since the last payout.">
+        <div class="ml-bar" title="2% of every losing pot goes into the Wealth Fund, plus 19.5% when no one is on the winning tile. Every round has a 1 in 100 chance to pay all of it to one ticket holder. Your tickets are the fees you paid on SUI you lost since the last payout.">
           <span class="ml-l">Wealth Fund</span><b id="sMotherlode">—</b><span class="ml-odds" id="sMlOdds"></span>
         </div>
         <div class="round-bar">
@@ -121,7 +121,7 @@
           <div class="prog" aria-hidden="true"><i id="sProg"></i></div>
         </div>
         <div class="result" id="result" role="status" aria-live="polite" hidden></div>
-        <p class="board-hint" id="boardHint">Tap one or more tiles, set your amount, then press Deploy. Everyone mines GTS every round, win or lose.</p>
+        <p class="board-hint" id="boardHint">Tap one or more tiles, set your amount, then press Deploy. Every SUI you lose mines GTS.</p>
         <div class="board-wrap">
           <div class="board" id="board" role="grid" aria-label="Game board"></div>
         </div>
@@ -319,7 +319,7 @@
           <li><b>0% team, 0% presale</b><span>Every GTS is mined by players.</span></li>
           <li><b>Hard cap</b><span>1,000,000 GTS at most. Rounds below 1 SUI mint less, so the final supply can end below it.</span></li>
           <li><b>Backed by SUI</b><span>Burn GTS anytime and get the floor price from the reserve.</span></li>
-          <li><b>Reserve grows every round</b><span>At least 4% of every pot goes into it.</span></li>
+          <li><b>Reserve grows with play</b><span>4% of every losing pot (less a small draw fee), 74.5% when no one is on the winning tile.</span></li>
           <li><b>No halving shock</b><span>The reward falls a little every 15,658 rounds instead of halving.</span></li>
         </ul>
       </div>
@@ -366,7 +366,7 @@
         <div><dt>Total staked</dt><dd id="sStaked">—</dd></div>
         <div><dt>Paid to stakers</dt><dd id="sPaid">—</dd></div>
       </dl>
-      <p class="note-sm" id="stakeNote">Stakers share 2% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR is based on the last 7 days of rounds and changes with how much is played.</p>
+      <p class="note-sm" id="stakeNote">Stakers share 2% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR shows once the game has 7 days of rounds.</p>
     </div>
   </section>
 
@@ -379,16 +379,16 @@
         <li><b>Pick tiles</b><span>Choose one or more of the 25 tiles and put SUI on them. Minimum 0.01 SUI per tile.</span></li>
         <li><b>Wait 60 seconds</b><span>The round runs for one minute. Deposits close 5 seconds before the end.</span></li>
         <li><b>One tile wins</b><span>Sui's on-chain randomness draws the winning tile. No one can see or change it in advance.</span></li>
-        <li><b>Claim</b><span>Winners get SUI. Everyone who played gets GTS, win or lose.</span></li>
+        <li><b>Claim</b><span>Winners get SUI. Every SUI lost in the round mines GTS.</span></li>
       </ol>
       <h2>What you win</h2>
       <ul class="learn-list">
-        <li><b>On the winning tile:</b> you get your SUI back plus a share of the SUI on the other 24 tiles, based on how much you put in.</li>
-        <li><b>On any tile:</b> you mine GTS. More SUI in the round means more GTS for you.</li>
-        <li><b>Tip:</b> spreading SUI over many tiles wins more often but keeps a smaller part of the pot. One or a few tiles is the way to win big.</li>
+        <li><b>On the winning tile:</b> you get that SUI back plus a share of 90% of the SUI on the other 24 tiles, based on how much you put on the winning tile.</li>
+        <li><b>On the other tiles:</b> that SUI is lost, and it mines GTS for you.</li>
+        <li><b>Tip:</b> spreading SUI over many tiles wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</li>
       </ul>
       <h2>Wealth Fund</h2>
-      <p>Part of every pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
+      <p>Part of every losing pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
         <li><b>Hold:</b> every GTS is backed by SUI in an on-chain reserve, so it always has a floor price.</li>

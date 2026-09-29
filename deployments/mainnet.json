@@ -27,15 +27,15 @@
       "H7arfu6ks6SNf8fH7gWopFgacKRLzSABL6smXEsX3fn"
     ],
     [
-      "Game upgraded: Wealth Fund pays one ticket holder (tickets = fees paid on SUI lost), 2% of every pot goes to it",
+      "Game upgraded: Wealth Fund pays one ticket holder (tickets = fees paid on SUI lost), 2% of every losing pot goes to it",
       "2yhDBi5HpssYs8cVFnMVJMDs3QTTkbpiayVXGtAEz5bQ"
     ],
     [
-      "Game upgraded: withdrawing mined GTS is free after 7 days, the fee before that falls from 10% to 0 and is burned; plus v5 fair-mining rules",
+      "Game upgraded: withdrawing mined GTS is free after 7 days, the fee before that falls from 10% to 0 and is burned; plus GTS mined by SUI lost, and winners keep their full share",
       "76xSmczftGPrLsdbuqdPVAKSe7p4hr6cMG9egMcWWSBT"
     ],
     [
-      "Game upgraded (v7): 1% of every losing pot buys GTS on the market and burns it (keeper only, burned in the same transaction)",
+      "Game upgraded: 1% of every losing pot buys GTS on the market and burns it (keeper only, burned in the same transaction)",
       "FWZ7UP7HmzAMXMUBZmXYXZCYVA2waFTFty7WvYjBozzX"
     ]
   ],

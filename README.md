@@ -2,7 +2,7 @@
 
 **Mine GTS. Backed by SUI.**
 
-GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and **every** participant mines GTS by their share of the round. A slice of every pot flows into an on-chain SUI reserve that backs every GTS.
+GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and every SUI lost in the round mines GTS. A slice of every pot flows into an on-chain SUI reserve that backs every GTS.
 
 - App: https://minegts.fun
 - Docs: https://minegts.fun/docs.html
@@ -17,8 +17,8 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 |---|---|
 | Max supply | 1,000,000 GTS, hard cap in the contract |
 | Premine / team / presale | None |
-| Emission | 1 GTS per round, shared by everyone in the round by SUI deployed (full reward from 1 SUI in the round, less for smaller rounds). Every 15,658 rounds the reward drops 1.425%. The cut follows rounds, not GTS mined, so the 1,000,000 cap is a ceiling: full rounds every time would mint about 1,099,000, and rounds below 1 SUI mint less, so the final supply can end below 1,000,000. Counted by rounds played, not by date |
-| Losing pot | Up to 90% winners · 4% reserve · 2% stakers · 2% Wealth Fund · 1% buyback (GTS bought on Cetus and burned) · 1% creator. A winner keeps the part of their own round deposit that sat on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round |
+| Emission | 1 GTS per round, shared by the SUI lost in the round (full reward from 1 SUI in the round, less for smaller rounds; never more than the round's reserve SUI buys at the floor). Every 15,658 rounds the reward drops 1.425%. The cut follows rounds, not GTS mined, so the 1,000,000 cap is a ceiling: full rounds every time would mint about 1,099,000, and rounds below 1 SUI mint less, so the final supply can end below 1,000,000. Counted by rounds played, not by date |
+| Losing pot | 90% winners · 4% reserve · 2% stakers · 2% Wealth Fund · 1% buyback (GTS bought on Cetus and burned) · 1% creator. Winners split it by their stake on the winning tile. One miner per wallet per round |
 | Wealth Fund | 2% of every losing pot, plus 19.5% when no one is on the winning tile. Every round has a 1 in 100 chance to pay the whole fund to one ticket holder. Tickets = the fees a player paid on SUI they lost since the last payout (10% of it), so extra wallets give no extra tickets; bots get none |
 | Unrefined GTS | Mined GTS waits in your unrefined balance. Withdrawing is free 7 days after your last withdrawal; before that the fee falls from 10% to 0 and is burned |
 | Staking | Stake GTS, earn SUI (3% of every losing pot). Flexible 1x or 7-day lock 1.5x. Nothing is minted |

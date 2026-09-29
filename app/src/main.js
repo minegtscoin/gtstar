@@ -110,8 +110,16 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // SUI a settled round added to the reserve: the event's vault_fee (a no-winner round's rest included),
 // plus what winners did not keep at claim (the fair split).
 const vaulted = r => r.vault + (r.split?.reserve || 0);
-// Every round of the relaunch game uses the fair split.
-const FAIR_FROM = 1;
+// Rounds 1-20 used the fair split (a spread deposit kept only part of its share). From round 21 (the first
+// round settled by the v5 rules, V5FromKey on the Board) winners keep their full share and GTS goes by SUI lost.
+const FAIR_FROM = 1, V5_FROM = 21;
+// Relaunch game published (deployments/mainnet.json publishedAt).
+const GAME_LAUNCH = Date.parse("2026-09-29T10:20:50Z");
+const isFair = n => n >= FAIR_FROM && n < V5_FROM;
+// GTS a player mined in settled round r: by SUI lost from V5_FROM, by SUI deployed before.
+const gtsOf = (r, onWin, tot) => r.round >= V5_FROM
+  ? (r.total > r.winners ? r.reward * (tot - onWin) / (r.total - r.winners) : 0)
+  : (r.total ? r.reward * tot / r.total : 0);
 // What a player gets from settled round r, exactly as game::claim computes it: `onWin` on the winning
 // tile out of `tot` deployed in the round. back = SUI paid out (stake included); reserve / fund = the
 // part of the share not kept (the share scales with onWin / tot; House bots keep no Wealth Fund SUI).
@@ -121,7 +129,7 @@ function payoutOf(r, onWin, tot, player) {
   const md = (a, b, c) => Number((BigInt(a) * BigInt(b)) / BigInt(c));
   const share = md(r.payout, onWin, r.winners);
   const jackpot = r.ml?.paid > 0 && !r.ml.winner ? md(r.ml.paid, onWin, r.winners) : 0;
-  const potShare = share - jackpot, fair = r.round >= FAIR_FROM && tot > 0;
+  const potShare = share - jackpot, fair = isFair(r.round) && tot > 0;
   const potKept = fair ? md(potShare, onWin, tot) : potShare;
   const jpKept = player === HOUSE || BOTS.has(player) ? 0 : fair ? md(jackpot, onWin, tot) : jackpot;
   return { back: onWin + potKept + jpKept, reserve: potShare - potKept, fund: jackpot - jpKept };
@@ -132,9 +140,9 @@ function playersOf(r, list) {
   list.forEach(d => { const a = agg.get(d.player) || { onWin: 0, total: 0 }; a.onWin += d.amounts[r.tile] || 0; a.total += d.total; agg.set(d.player, a); });
   return agg;
 }
-// v7 rounds: SUI winners kept from the other tiles, and what went back to the reserve and the fund.
+// Fair-split rounds: SUI winners kept from the other tiles, and what went back to the reserve and the fund.
 function splitOf(r, list) {
-  if (!(r.round >= FAIR_FROM) || !r.winners) return null;
+  if (!isFair(r.round) || !r.winners) return null;
   const s = { kept: 0, reserve: 0, fund: 0 };
   playersOf(r, list).forEach((a, p) => { const x = payoutOf(r, a.onWin, a.total, p); if (x.back) { s.kept += x.back - a.onWin; s.reserve += x.reserve; s.fund += x.fund; } });
   return s;
@@ -964,14 +972,14 @@ function renderResult() {
   const players = roundPlayers(L.round);
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
-  const won = L.round >= FAIR_FROM ? winners.reduce((a, x) => a + profitOf(x.p, L), 0) : L.payout;
+  const won = isFair(L.round) ? winners.reduce((a, x) => a + profitOf(x.p, L), 0) : L.payout;
   const toFund = L.ml?.added > 0 && L.total > 0 ? `${fmt(L.ml.added / L.total * 100, 1)}% of the pot` : "Part of the pot";
   let sub = L.winners === 0 ? (L.ml ? `No one was on this tile. ${toFund} went into the Wealth Fund, the rest to the reserve.` : "No one was on this tile. The pot went to the reserve.")
     : L.ml?.paid > 0 && !L.ml.winner ? `Wealth Fund paid out! ${sui(L.ml.paid, 4)} SUI landed on this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI`
     : won > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
   if (L.ml?.winner) sub = `Wealth Fund paid ${sui(L.ml.paid, 4)} SUI to ticket holder ${acctLink(L.ml.winner)} · ` + sub;
-  const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
+  const top = winners[0], topProfit = top ? top.won - top.p.total : 0;
   if (top && topProfit > 0) sub += ` · Top <span${nameOf(top.p.player) ? "" : ' class="mono"'}>${esc(top.p.player === account?.address ? "You" : label(top.p.player))}</span> +${sui(topProfit, 4)} SUI`;
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
@@ -1022,7 +1030,7 @@ function renderFeed() {
     const key = `${round}:${p.player}:${p.total}`;
     const isNew = feedKeys.size > 0 && !feedKeys.has(key);
     let res = "";
-    if (r) { const w = winOf(p, r); res = w ? `<span class="res won">+${sui(w, 4)} SUI</span>` : `<span class="res">No win</span>`; }
+    if (r) { const w = winOf(p, r), net = w - p.total; res = !w ? `<span class="res">No win</span>` : net > 0 ? `<span class="res won">+${sui(net, 4)} SUI</span>` : `<span class="res">${sui(w, 4)} SUI back</span>`; }
     return { key, html: `<div class="fr${isNew ? " new" : ""}${you ? " you" : ""}" data-tiles="${idx.join(",")}">
       <span class="av" style="--h:${hue(p.player)}"></span>
       <span class="who">${you ? "You" : `<a${nameOf(p.player) ? "" : ' class="mono"'} href="${SCAN}/account/${p.player}" target="_blank" rel="noopener">${esc(label(p.player))}</a>`}</span>
@@ -1057,7 +1065,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = round >= FAIR_FROM;
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = isFair(round);
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
@@ -1083,8 +1091,8 @@ function rewards() {
     out.ready = true;
     const r = (STATE.recent || []).find(x => x.round === m.round_id) || HIST?.rounds.find(x => x.round === m.round_id);
     if (r) {
-      out.gts = r.total ? Math.floor(r.reward * m.total / r.total) : 0;
       const w = m.deployed[r.tile] || 0;
+      out.gts = Math.floor(gtsOf(r, w, m.total));
       out.sui = payoutOf(r, w, m.total, account?.address).back;
     }
   }
@@ -1193,7 +1201,7 @@ function renderMine() {
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }
-  let hint = `Minimum ${min} SUI per tile. Every participant mines GTS.`;
+  let hint = `Minimum ${min} SUI per tile. Every SUI you lose mines GTS.`;
   if (claimable && (p === "open" || p === "live")) {
     const R = rewards();
     hint = `${per * selected.size > 0 ? `You pay ${fmt(per * selected.size, 4)} SUI. ` : ""}Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
@@ -1257,7 +1265,7 @@ function renderActivity() {
   if (actTab === "rounds") {
     $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
     const rows = HIST.rounds.slice(0, actShown);
-    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">Wealth Fund</th><th class="r">GTS</th><th class="r">Time</th></tr></thead>`;
+    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Vaulted</th><th class="r">Won from others</th><th class="r">Wealth Fund</th><th class="r">GTS mined</th><th class="r">Time</th></tr></thead>`;
     const body = rows.map(r => {
       const w = winnersOf(r);
       const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
@@ -1296,16 +1304,16 @@ function minersHtml(r) {
   if (!list.length) return `<span class="muted">No deploy events found for this round.</span>`;
   const agg = playersOf(r, list);
   return `<div class="miners">` + [...agg.entries()].sort((x, y) => y[1].total - x[1].total).map(([p, a]) => {
-    const won = Math.max(0, payoutOf(r, a.onWin, a.total, p).back - a.onWin);
-    const gts = r.total ? r.reward * a.total / r.total : 0;
+    const back = payoutOf(r, a.onWin, a.total, p).back, net = back - a.total;
+    const gts = gtsOf(r, a.onWin, a.total);
     return `<div class="m">${acctLink(p)}<span>${sui(a.total, 3)} SUI deployed · ${sui(gts, 4)} GTS mined</span>
-      <span class="${won ? "won" : "muted"}">${won ? `Won +${sui(won, 4)} SUI` : a.onWin > 0 && r.winners > 0 ? "Stake returned" : "No SUI win"}</span></div>`;
+      <span class="${net > 0 ? "won" : "muted"}">${net > 0 ? `Won +${sui(net, 4)} SUI` : back > 0 ? `${sui(back, 4)} SUI back` : "No SUI win"}</span></div>`;
   }).join("") + `</div>`;
 }
 function renderRevenue() {
   const cfg = {
     reserve: { v: vaulted, unit: "SUI", share: "Reserve fee, plus the rest when no one wins", label: "Added to the GTS reserve" },
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Part of every pot, more when no one wins", label: "Added to the Wealth Fund" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "2% of every losing pot, more when no one wins", label: "Added to the Wealth Fund" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);
@@ -1313,7 +1321,7 @@ function renderRevenue() {
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
   $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 ? "Fee plus pot (no miner on winning tile)" : r.split?.reserve > 0 ? "Fee plus winnings not kept (spread stakes)" : "Fee from losing pot"}</td>
+    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${revTab === "supernova" ? "No miner on the winning tile" : r.winners === 0 ? "Fee plus pot (no miner on winning tile)" : r.split?.reserve > 0 ? "Fee plus winnings not kept (spread stakes, rounds 1-20)" : "Fee from losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
       || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
   $("moreRev").hidden = rows.length <= revShown;
@@ -1414,13 +1422,15 @@ function renderStake() {
   $("sPending").textContent = USER ? `${sui(Number(pending), 6)} SUI` : "—";
   // APR: yearly SUI per weight unit, over the value of the GTS behind it.
   const px = gtsSui();
-  const aprFlex = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
-  const aprTxt = a => (a == null ? "—" : `${fmt(a, a < 10 ? 2 : 0)}%`);
+  // No APR until the game has 7 days of rounds: a few hours scaled to a year says nothing.
+  const aprReady = Date.now() - GAME_LAUNCH >= 7 * 86_400_000;
+  const aprFlex = aprReady && S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
+  const aprTxt = a => (!aprReady ? "After 7 days" : a == null ? "—" : `${fmt(a, a < 10 ? 2 : 0)}%`);
   $("sAprFlex").textContent = aprTxt(aprFlex);
   $("sAprLock").textContent = aprTxt(aprFlex == null ? null : aprFlex * 1.5);
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
   $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 3}% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR is based on the last 7 days of rounds and changes with how much is played.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 3}% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. ${aprReady ? "APR is based on the last 7 days of rounds and changes with how much is played." : "APR shows once the game has 7 days of rounds."}`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   document.querySelectorAll("#stakeKind button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === stakeKind)));
   const pos = myPos();
@@ -1450,13 +1460,14 @@ const okPrice = sui => (sui > 0 && isFinite(sui) ? { sui } : null);
 const getJson = (url, ms = 8000) => within(fetch(url).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }), ms);
 async function loadPrice() {
   let p = null;
+  // Binance, then Coinbase: both allow browser calls (CoinGecko's free API was blocked by CORS).
   try {
-    const j = await getJson("https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd");
-    p = okPrice(+j.sui?.usd);
+    const j = await getJson("https://api.binance.com/api/v3/ticker/price?symbol=SUIUSDT");
+    p = okPrice(+j.price);
   } catch {}
   if (!p) try {
-    const j = await getJson("https://api.binance.com/api/v3/ticker/24hr?symbol=SUIUSDT");
-    p = okPrice(+j.lastPrice);
+    const j = await getJson("https://api.coinbase.com/v2/prices/SUI-USD/spot");
+    p = okPrice(+j.data?.amount);
   } catch {}
   if (p) PRICE = p;
   render();
