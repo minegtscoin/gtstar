@@ -794,7 +794,6 @@ function renderHome() {
   $("hFloor").textContent = STATE ? N.floorUsd() || `${N.floor()} SUI` : "—";
   $("hFloor").title = STATE ? `${N.floor()} SUI per GTS` : "";
   $("hSupply").textContent = STATE ? N.supply() : "—";
-  $("hVolume").textContent = HIST ? N.volume() : "—";
 }
 
 // ---------- render: mine ----------
