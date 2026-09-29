@@ -1422,7 +1422,8 @@ function render() {
 // load independently so one slow or failed read never holds back the other.
 // The last protocol state is kept in the browser and shown the moment the page opens, so the numbers
 // are never blank while Sui answers; the live read replaces it within a second.
-const SNAP_KEY = "gtstar.state";
+// One snapshot per game board: a snapshot of another game (the first one) must never be shown or kept.
+const SNAP_KEY = `gtstar.state.${IDS.board}`;
 function saveSnap(g) { try { localStorage.setItem(SNAP_KEY, JSON.stringify({ at: Date.now(), g }, (k, v) => typeof v === "bigint" ? { $b: String(v) } : v)); } catch {} }
 function loadSnap() {
   try {
