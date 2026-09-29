@@ -36,6 +36,10 @@ const EV_STAKE_REWARD = STK_PKG ? `${STK_PKG}::staking::StakeRewarded` : "";
 // drawn by weight; a ticket is one mist of fee paid on SUI lost since the last payout.
 const WF_PKG = IDS.wf;
 const EV_WF_WON = WF_PKG ? `${WF_PKG}::game::WealthFundWon` : "";
+// Withdraw clock (game v6): free once 7 days have passed since the last withdrawal (or first mining);
+// before that the fee falls linearly from the full fee to 0 and is burned.
+const V6_PKG = IDS.v6;
+const REFINE_WINDOW_MS = 7 * 86_400_000;
 
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
@@ -234,11 +238,14 @@ async function loadUser(addr) {
   const ep = STATE?.tickets?.epoch;
   const epBcs = ep == null ? "" : btoa(String.fromCharCode(...Array.from({ length: 8 }, (_, i) => Number((BigInt(ep) >> BigInt(8 * i)) & 255n)), ...atob(addrBcs).split("").map(c => c.charCodeAt(0))));
   const tkQ = WF_PKG && epBcs ? ` t:dynamicField(name:{type:"${WF_PKG}::game::PlayerTicketsKey",bcs:"${epBcs}"}){value{... on MoveValue{json}}}` : "";
-  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}}`;
+  const ckQ = V6_PKG ? ` ck:dynamicField(name:{type:"${V6_PKG}::game::RefineClockKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}} cf:dynamicField(name:{type:"${V6_PKG}::game::RefineFromKey",bcs:"AA=="}){value{... on MoveValue{json}}}` : "";
+  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}${ckQ}}`;
   const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
     ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)}} ${refQ}}`);
   const uj = d.rf?.u?.value?.json, acc = BigInt(d.rf?.asMoveObject?.contents?.json?.acc || 0);
   const unrefined = uj ? { amount: num(uj.amount), bonus: Number(BigInt(uj.bonus) + BigInt(uj.amount) * (acc - BigInt(uj.snap)) / REFINE_SCALE) } : { amount: 0, bonus: 0 };
+  // When the 7-day withdraw clock started (ms): own clock, else the v6 start, else 0 (full fee).
+  unrefined.start = num(d.rf?.ck?.value?.json) || num(d.rf?.cf?.value?.json) || 0;
   const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
   const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c");
   // Read every page of each list: mining leaves many small GTS coins, and a missed coin
@@ -546,10 +553,17 @@ function claimInto(tx, minerArg) {
   const args = [tx.object(IDS.board), minerArg, tx.object(IDS.treasury)];
   tx.transferObjects([tx.moveCall({ target: C("game::claim_sui"), arguments: args })[0]], account.address);
 }
-// Take the whole unrefined balance out (the withdraw fee goes to the players still holding, plus the bonus earned).
+// Withdraw fee as a fraction right now: the full fee at the clock's start, 0 after 7 days.
+function withdrawFee(U, now = Date.now()) {
+  if (!U?.start) return STATE.refineFee;
+  const left = Math.max(0, U.start + REFINE_WINDOW_MS - now);
+  return STATE.refineFee * Math.min(left, REFINE_WINDOW_MS) / REFINE_WINDOW_MS;
+}
+const dhm = ms => { const m = Math.ceil(ms / 60_000), d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}m` : `${m}m`; };
+// Take the whole unrefined balance out (the fee, if any, is burned; the 7-day clock restarts).
 const withdrawGts = () => exec("Withdraw", "btnWithdraw", tx => {
   if (!(USER?.unrefined?.amount > 0)) throw new Error("Nothing to withdraw.");
-  const [g] = tx.moveCall({ target: C("game::withdraw_gts"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury)] });
+  const [g] = tx.moveCall({ target: C("game::withdraw_gts_v6"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object("0x6")] });
   tx.transferObjects([g], account.address);
 });
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
@@ -1055,8 +1069,7 @@ function renderEstimate(per, p) {
   const e = estimate(per, p), el = $("estLine");
   el.hidden = !e;
   if (!e) return;
-  // Mined GTS is withdrawn with a fee, so its dollar value is shown net of it.
-  const v = e.gts * gtsSui() * (1 - STATE.refineFee) * (PRICE.sui || 0);
+  const v = e.gts * gtsSui() * (PRICE.sui || 0);
   const win = e.lo === e.hi ? fmt(e.hi, 4) : `${fmt(e.lo, 4)}–${fmt(e.hi, 4)}`;
   el.innerHTML = `If the round ended now: mine <b>~${fmt(e.gts, 4)} GTS</b>${PRICE.sui && v > 0 ? ` (${usd(v)})` : ""}. `
     + `If ${selected.size === 1 ? "your tile" : "one of your tiles"} wins (${selected.size} in 25): <b>${win} SUI</b> back for ${fmt(e.cost, 4)} SUI in. `
@@ -1089,18 +1102,21 @@ function renderRewards() {
     $("btnClaimAll").textContent = account ? "Claim all" : "Sign in";
     $("btnClaimAll").disabled = !!account && !R.any;
   }
-  // Unrefined GTS: what waits, the bonus from other players' fees, and what a withdrawal pays now.
-  const U = USER?.unrefined || { amount: 0, bonus: 0 };
+  // Unrefined GTS: what waits, any holder bonus from before v6, and the 7-day withdraw countdown.
+  const U = USER?.unrefined || { amount: 0, bonus: 0, start: 0 };
   $("refine").hidden = !USER;
   if (USER && STATE) {
-    const fee = STATE.refineFee, pct = `${fmt(fee * 100, 2)}%`;
+    const now = Date.now(), fee = withdrawFee(U, now), full = `${fmt(STATE.refineFee * 100, 2)}%`;
     const out = U.amount - Math.floor(U.amount * fee) + U.bonus;
+    const left = U.start ? U.start + REFINE_WINDOW_MS - now : REFINE_WINDOW_MS;
     $("rfAmt").textContent = sui(U.amount, 4);
     $("rfBonus").textContent = `+${sui(U.bonus, 4)}`;
     $("rfBonus").classList.toggle("won", U.bonus > 0);
-    $("rfHint").textContent = U.amount > 0
-      ? `Withdrawing now pays ${sui(out, 4)} GTS. The ${pct} fee goes to the players who keep theirs; keep yours to earn from others' fees.`
-      : `Mined GTS waits here. Withdrawing costs ${pct}, paid to the players who keep theirs.`;
+    $("rfBonusRow").hidden = !(U.bonus > 0);
+    $("rfHint").textContent = !(U.amount > 0)
+      ? `Mined GTS waits here. Withdrawing is free 7 days after your last withdrawal; before that the fee falls from ${full} to 0, and it is burned.`
+      : left <= 0 ? `Free to withdraw: no fee.`
+      : `Free withdrawal in ${dhm(left)}. Now: ${fmt(fee * 100, 2)}% fee, burned. Withdrawing now pays ${sui(out, 4)} GTS.`;
     if (!busy) { $("btnWithdraw").disabled = !(U.amount > 0); $("btnWithdraw").textContent = U.amount > 0 ? `Withdraw ${sui(out, 4)} GTS` : "Withdraw"; }
     else if (busy !== "btnWithdraw") $("btnWithdraw").disabled = true;
   }

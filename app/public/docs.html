@@ -173,9 +173,9 @@ payout     = my_stake + my_share * my_stake / my_round_deposits
 round_reward = step_reward * min(round_total, 1 SUI) / 1 SUI
 my_gts       = round_reward * my_deposits / round_total</span>
     <h3>Unrefined GTS</h3>
-    <p>Mined GTS does not go straight to your wallet. It waits in your <strong>unrefined balance</strong>, and you withdraw it whenever you want. Withdrawing costs 10%, and that 10% is shared among every player still holding unrefined GTS, in proportion to their balance. Players who sell at once pay the players who wait. If no one else is holding, the fee is burned and its reserve share stays in the reserve, so the floor price rises. GTStar bots get their GTS at claim. They never pay the fee and never receive any of it.</p>
-    <span class="code">withdraw = my_unrefined * 90% + my_bonus
-my_bonus += fee * my_unrefined / all_unrefined   (each time another player withdraws)</span>
+    <p>Mined GTS does not go straight to your wallet. It waits in your <strong>unrefined balance</strong>, and you withdraw it whenever you want. Each wallet has a 7-day clock that starts when it first mines and restarts at every withdrawal. After 7 days, withdrawing is free. Before that, the fee falls evenly from 10% to 0 over the 7 days. Mining more does not restart the clock. The fee is burned: total supply falls while the reserve stays, so the floor price rises for every holder. GTStar bots get their GTS at claim and never pay the fee.</p>
+    <span class="code">fee = 10% * time_left / 7 days   (0 after 7 days)
+withdraw = my_unrefined - my_unrefined * fee   (the fee is burned)</span>
     <h3>Wealth Fund</h3>
     <p>Every round, 2% of the losing pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing. If no one deployed on the winning tile, another 19.5% goes in and the rest goes to the GTS reserve and fees. Every round has a 1 in 100 chance to pay the whole Wealth Fund to <strong>one ticket holder</strong>.</p>
     <p><strong>Tickets.</strong> When you lose SUI in a round, you pay 10% of it in fees (reserve 4%, stakers 3%, Wealth Fund 2%, creator 1%), and those fees are your tickets. Tickets add up from the last payout. When the fund pays, one ticket is drawn at random, so more tickets mean a better chance. Tickets are added when your round is claimed, and all tickets reset after each payout. Nobody gets fees back, so every ticket costs real SUI: splitting SUI across several wallets gives no extra tickets. GTStar bots get no tickets.</p>
@@ -247,14 +247,14 @@ floor_price   = reserve / total_supply</span>
       <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the reserve or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
       <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. The fee shares are capped only in total (with the 1% creator fee and the Wealth Fund share, at most 100%), not one by one. The buyback share is paid to the owner by <code>take_buyback</code>, and the contract does not require that SUI to buy and burn GTS. So the owner could raise the buyback share and take most of each losing pot. Wealth Fund odds can be set anywhere from 1 in 2 to 1 in 1,000,000.</li>
     </ul>
-    <p>Current settings on-chain: reserve 4%, buyback 0%, stakers 3%, creator 1%, Wealth Fund 2% of every round plus 19.5% of a round with no one on the winning tile, odds 1 in 100, withdraw fee 10%. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Current settings on-chain: reserve 4%, buyback 0%, stakers 3%, creator 1%, Wealth Fund 2% of every round plus 19.5% of a round with no one on the winning tile, odds 1 in 100, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
     <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
       <li>The spread rule and the one-miner rule are per wallet. Many wallets, one per tile, cover the board and keep full wins. They get no extra Wealth Fund tickets from it: tickets come only from fees, which they pay like everyone else.</li>
       <li>GTStar bots are exempt from the withdraw fee in the contract. That they burn the GTS they mine is done by our off-chain bot code, not enforced on-chain.</li>
       <li>GTS is minted when a player claims. While rounds are unclaimed, someone who redeems early gets slightly more than their fair share of the reserve.</li>
-      <li>If no one holds unrefined GTS and the reserve is empty, a withdraw fee stays in the contract with no owner. A fix is planned for the next upgrade.</li>
+      
     </ul>
     <p>Addresses on <strong id="netName">Sui</strong>:</p>
     <div class="addr" id="addrList"></div>

@@ -442,10 +442,12 @@ fun test_wealth_fund_pays() {
     ts::end(sc);
 }
 
-/// Withdrawing unrefined GTS costs 10%, shared with the players still holding; the last one out has
-/// the fee burned for the reserve.
+const DAY: u64 = 86_400_000;
+
+/// Right after mining the withdraw fee is 10% and burned (supply falls, nobody else gets it); it falls
+/// linearly to 5% at 3.5 days and 0 at 7 days from the player's own clock.
 #[test]
-fun test_withdraw_fee_shared() {
+fun test_withdraw_fee_decays_and_burns() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     ts::next_tx(&mut sc, BOB);
@@ -458,24 +460,87 @@ fun test_withdraw_fee_shared() {
     ts::next_tx(&mut sc, ALICE);
     let mut ma = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut ma, 100_000_000);
-    // Both hold 1 GTS unrefined. Bob withdraws: pays 0.1, Alice earns it.
+    let (b_start, window, b_fee) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(b_start > 0 && window == 7 * DAY && b_fee > 990 && b_fee <= 1_000, 1);
+    // Bob withdraws at once: ~10% burned, Alice gets nothing from it.
     ts::next_tx(&mut sc, BOB);
-    let gb = game::withdraw_gts(&mut board, &mut treasury, ts::ctx(&mut sc));
-    assert!(coin::value(&gb) == GTS1 * 9 / 10, 1);
+    let supply0 = gts::total_supply(&treasury);
+    let fee_now = { let (_, _, f) = game::withdraw_clock(&board, BOB, &clk); f };
+    let gb = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    let burned = GTS1 * fee_now / 10_000;
+    assert!(coin::value(&gb) == GTS1 - burned, 2);
+    assert!(gts::total_supply(&treasury) == supply0 - burned + 0, 3);
     let (a_amt, a_bonus) = game::unrefined_of(&board, ALICE);
-    assert!(a_amt == GTS1 && a_bonus == GTS1 / 10, 2);
-    // Alice withdraws last: pays 0.1 (burned), gets 0.9 + 0.1 bonus.
+    assert!(a_amt == GTS1 && a_bonus == 0, 4);
+    // Alice at 3.5 days after her clock: 5%.
+    let (a_start, _, _) = game::withdraw_clock(&board, ALICE, &clk);
+    clock::set_for_testing(&mut clk, a_start + 7 * DAY / 2);
+    let (_, _, a_fee) = game::withdraw_clock(&board, ALICE, &clk);
+    assert!(a_fee == 500, 5);
+    // And 0 at 7 days.
+    clock::set_for_testing(&mut clk, a_start + 7 * DAY);
+    let (_, _, a_fee) = game::withdraw_clock(&board, ALICE, &clk);
+    assert!(a_fee == 0, 6);
     ts::next_tx(&mut sc, ALICE);
-    let supply_before = gts::total_supply(&treasury);
-    let ga = game::withdraw_gts(&mut board, &mut treasury, ts::ctx(&mut sc));
-    assert!(coin::value(&ga) == GTS1, 3);
-    assert!(gts::total_supply(&treasury) == supply_before - GTS1 / 10, 4);
-    assert!(game::unrefined_total(&board) == 0, 5);
+    let supply1 = gts::total_supply(&treasury);
+    let ga = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&ga) == GTS1, 7);
+    assert!(gts::total_supply(&treasury) == supply1, 8);
+    assert!(game::unrefined_total(&board) == 0, 9);
     coin::burn_for_testing(gb); coin::burn_for_testing(ga);
     transfer::public_transfer(mb, BOB); transfer::public_transfer(ma, ALICE);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
+}
+
+/// The clock restarts on a withdrawal, not on new mining: mining more during the 7 days keeps the
+/// countdown, and the next withdrawal after 7 days is free for everything mined meanwhile.
+#[test]
+fun test_withdraw_clock_restarts_on_withdraw_only() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut mb = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
+    let (s0, _, _) = game::withdraw_clock(&board, BOB, &clk);
+    clock::set_for_testing(&mut clk, s0 + 7 * DAY);
+    let g1 = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g1) == GTS1, 1);
+    let t1 = s0 + 7 * DAY;
+    let (s1, _, f1) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s1 == t1 && f1 == 1_000, 2);
+    // Mine again 3 days later: the clock stays at the withdrawal.
+    clock::set_for_testing(&mut clk, t1 + 3 * DAY);
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
+    let (s2, _, _) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s2 == t1, 3);
+    let (mined, _) = game::unrefined_of(&board, BOB);
+    clock::set_for_testing(&mut clk, t1 + 7 * DAY);
+    let g2 = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g2) == mined && mined > 0, 4);
+    coin::burn_for_testing(g1); coin::burn_for_testing(g2);
+    transfer::public_transfer(mb, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// The old withdraw (no clock) is closed.
+#[test, expected_failure(abort_code = game::EUseWithdrawV6)]
+fun test_old_withdraw_closed() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let g = game::withdraw_gts(&mut board, &mut treasury, ts::ctx(&mut sc));
+    coin::burn_for_testing(g);
+    abort 0
 }
 
 /// Settings change at once with the AdminCap.
@@ -617,7 +682,7 @@ fun test_redeem() {
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
-    let g = game::withdraw_gts(&mut board, &mut treasury, ts::ctx(&mut sc)); // last out: fee burned
+    let g = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc)); // fee burned
     let vault = gts::vault_value(&treasury);
     let supply = gts::total_supply(&treasury);
     let amt = coin::value(&g);

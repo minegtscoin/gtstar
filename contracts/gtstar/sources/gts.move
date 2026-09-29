@@ -57,6 +57,11 @@ public(package) fun mint(t: &mut Treasury, amount: u64, ctx: &mut TxContext): Co
     if (a == 0) { coin::zero<GTS>(ctx) } else { coin::mint(&mut t.cap, a, ctx) }
 }
 
+/// Burn GTS without touching the reserve (the floor rises). Game only.
+public(package) fun burn(t: &mut Treasury, gts: Coin<GTS>) {
+    coin::burn(&mut t.cap, gts);
+}
+
 /// Add SUI to the reserve. Anyone may add; nobody can withdraw except via `redeem`.
 public fun vault_add(t: &mut Treasury, b: Balance<SUI>) {
     balance::join(&mut t.vault, b);

@@ -18,8 +18,9 @@
 /// `decay_ppm` (1.425%). Mining stops for good once 1,000,000 GTS have been assigned to rounds.
 /// No staker or other mint: the round reward is the only source of GTS.
 ///
-/// Mined GTS waits in the player's unrefined balance; withdrawing it costs `refine_fee_bps`, shared
-/// among everyone still holding (burned for the reserve when nobody is).
+/// Mined GTS waits in the player's unrefined balance. From v6 withdrawing it is free once 7 days have
+/// passed since the player's last withdrawal (or first mining); before that the fee falls linearly from
+/// `refine_fee_bps` to 0 over the 7 days, and the fee GTS is burned (supply falls, the floor rises).
 ///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap, no buyback)
 /// and the UpgradeCap. `renounce` destroys the
@@ -94,8 +95,11 @@ const DRAW_REWARD_MAX: u64 = 5_000_000;
 /// Precision of the per-GTS withdraw-fee accumulator.
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
+/// v6: the withdraw fee falls to 0 over this long after the last withdrawal (7 days).
+const REFINE_WINDOW_MS: u64 = 604_800_000;
+
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 5;
+const VERSION: u64 = 6;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -117,6 +121,7 @@ const ENothingToWithdraw: u64 = 20;
 const EBuybackOpen: u64 = 21;
 const ENoStaking: u64 = 22;
 const EBuybackOff: u64 = 23;
+const EUseWithdrawV6: u64 = 24;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -191,6 +196,12 @@ public struct FundBpsKey has copy, drop, store {}
 
 /// Dynamic field on the Board: the first round settled by v5 (GTS by SUI lost, floor cap, no spread cut).
 public struct V5FromKey has copy, drop, store {}
+
+/// Dynamic field on the Board (v6): when `player`'s 7-day withdraw clock started (ms): their last
+/// withdrawal, or when they first mined. Holders from before v6 without one use `RefineFromKey`.
+public struct RefineClockKey has copy, drop, store { player: address }
+/// Dynamic field on the Board (v6): time of the first round settled by v6 (ms).
+public struct RefineFromKey has copy, drop, store {}
 
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
@@ -604,6 +615,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
 
     if (!df::exists(&board.id, V5FromKey {})) { df::add(&mut board.id, V5FromKey {}, board.cur_id) };
+    if (!df::exists(&board.id, RefineFromKey {})) { df::add(&mut board.id, RefineFromKey {}, clock::timestamp_ms(clock)) };
     // Floor before the round, for the GTS cap below.
     let v0 = gts::vault_value(treasury);
     let s0 = floor_supply(board, treasury);
@@ -736,12 +748,19 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
 
 fun earned(amount: u64, acc: u256, snap: u256): u64 { (((amount as u256) * (acc - snap)) / REFINE_SCALE) as u64 }
 
-fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>) {
+fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>, ctx: &TxContext) {
     let amount = balance::value(&gts);
     let acc = board.acc;
     let key = UnrefinedKey { player };
     if (!df::exists(&board.id, key)) {
         df::add(&mut board.id, key, Unrefined { amount: 0, bonus: 0, snap: acc });
+    };
+    // Start the 7-day clock the first time (the end of the last round is "now" enough here).
+    let ck = RefineClockKey { player };
+    if (!df::exists(&board.id, ck)) {
+        let now = tx_context::epoch_timestamp_ms(ctx);
+        let t = if (board.cur_end_ms > now) { board.cur_end_ms } else { now };
+        df::add(&mut board.id, ck, t);
     };
     let u = df::borrow_mut<UnrefinedKey, Unrefined>(&mut board.id, key);
     u.bonus = u.bonus + earned(u.amount, acc, u.snap);
@@ -778,7 +797,7 @@ public fun claim(
     let mined = gts::mint(treasury, gts_amt, ctx);
     let mined_amt = coin::value(&mined);
     let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
-        add_unrefined(board, player, coin::into_balance(mined));
+        add_unrefined(board, player, coin::into_balance(mined), ctx);
         coin::zero<GTS>(ctx)
     };
 
@@ -833,29 +852,49 @@ public fun claim_sui(board: &mut Board, miner: &mut Miner, treasury: &mut Treasu
     s
 }
 
-/// Withdraw the whole unrefined balance: it minus the withdraw fee, plus the bonus earned from other
-/// players' fees. The fee is shared among everyone still holding, or burned for the reserve if nobody is.
-public fun withdraw_gts(board: &mut Board, treasury: &mut Treasury, ctx: &mut TxContext): Coin<GTS> {
+/// Replaced by `withdraw_gts_v6` (the fee depends on the time).
+public fun withdraw_gts(_board: &mut Board, _treasury: &mut Treasury, _ctx: &mut TxContext): Coin<GTS> {
+    abort EUseWithdrawV6
+}
+
+/// When `player`'s 7-day withdraw clock started (ms); 0 if it has not started.
+fun refine_start(board: &Board, player: address): u64 {
+    let ck = RefineClockKey { player };
+    if (df::exists(&board.id, ck)) { *df::borrow<RefineClockKey, u64>(&board.id, ck) }
+    else if (df::exists(&board.id, RefineFromKey {})) { *df::borrow<RefineFromKey, u64>(&board.id, RefineFromKey {}) }
+    else { 0 }
+}
+
+/// Withdraw fee in bps at `now`: `refine_fee_bps` right after the clock starts, falling linearly to 0
+/// after 7 days. The full fee while no clock has started.
+fun fee_bps_at(board: &Board, player: address, now: u64): u64 {
+    let start = refine_start(board, player);
+    if (start == 0) { return board.refine_fee_bps };
+    let end = start + REFINE_WINDOW_MS;
+    if (now >= end) { return 0 };
+    let left = if (now > start) { end - now } else { REFINE_WINDOW_MS };
+    mul_div(board.refine_fee_bps, left, REFINE_WINDOW_MS)
+}
+
+/// Withdraw the whole unrefined balance plus any holder bonus earned before v6. The fee (see
+/// `fee_bps_at`) is burned; the 7-day clock restarts now.
+public fun withdraw_gts_v6(board: &mut Board, treasury: &mut Treasury, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
     let player = tx_context::sender(ctx);
     let key = UnrefinedKey { player };
     assert!(df::exists(&board.id, key), ENothingToWithdraw);
+    let now = clock::timestamp_ms(clock);
+    let fee_bps = fee_bps_at(board, player, now);
     let Unrefined { amount, bonus, snap } = df::remove(&mut board.id, key);
     let bonus = bonus + earned(amount, board.acc, snap);
-    let fee = mul_div(amount, board.refine_fee_bps, 10_000);
+    let fee = mul_div(amount, fee_bps, 10_000);
     board.unrefined_total = board.unrefined_total - amount;
     let out = balance::split(&mut board.unrefined, amount - fee + bonus);
-    let mut burned = 0;
-    if (fee > 0) {
-        if (board.unrefined_total > 0) {
-            board.acc = board.acc + (fee as u256) * REFINE_SCALE / (board.unrefined_total as u256);
-        } else if (gts::vault_value(treasury) > 0) {
-            let sui_out = gts::redeem(treasury, coin::from_balance(balance::split(&mut board.unrefined, fee), ctx), ctx);
-            gts::vault_add(treasury, coin::into_balance(sui_out));
-            burned = fee;
-        };
-    };
-    event::emit(GtsWithdrawn { player, amount, fee, bonus, paid: amount - fee + bonus, burned });
+    if (fee > 0) { gts::burn(treasury, coin::from_balance(balance::split(&mut board.unrefined, fee), ctx)) };
+    let ck = RefineClockKey { player };
+    if (df::exists(&board.id, ck)) { *df::borrow_mut<RefineClockKey, u64>(&mut board.id, ck) = now }
+    else { df::add(&mut board.id, ck, now) };
+    event::emit(GtsWithdrawn { player, amount, fee, bonus, paid: amount - fee + bonus, burned: fee });
     coin::from_balance(out, ctx)
 }
 
@@ -911,6 +950,10 @@ public fun unrefined_of(board: &Board, player: address): (u64, u64) {
     (u.amount, u.bonus + earned(u.amount, board.acc, u.snap))
 }
 public fun unrefined_total(board: &Board): u64 { board.unrefined_total }
+/// v6: (when `player`'s 7-day withdraw clock started in ms (0 = not yet), window ms, fee in bps now).
+public fun withdraw_clock(board: &Board, player: address, clock: &Clock): (u64, u64, u64) {
+    (refine_start(board, player), REFINE_WINDOW_MS, fee_bps_at(board, player, clock::timestamp_ms(clock)))
+}
 /// Wealth Fund draw: (epoch, total tickets).
 public fun wealth_tickets(board: &Board): (u64, u64) {
     if (!df::exists(&board.id, TicketsKey {})) { return (0, 0) };
