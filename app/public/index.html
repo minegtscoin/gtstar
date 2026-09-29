@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>GTStar</title>
-<meta name="description" content="GTStar is a fair mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="description" content="GTStar is a fair mining game on Sui. Every SUI deployed in a round mines GTS, win or lose, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta name="theme-color" content="#09090d" />
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -13,14 +13,14 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="GTStar" />
 <meta property="og:title" content="GTStar: Mine GTS. Backed by SUI." />
-<meta property="og:description" content="A 60-second mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta property="og:description" content="A 60-second mining game on Sui. Every SUI deployed in a round mines GTS, win or lose, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta property="og:url" content="https://minegts.fun/" />
 <meta property="og:image" content="https://minegts.fun/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="GTStar: Mine GTS. Backed by SUI." />
-<meta name="twitter:description" content="A 60-second mining game on Sui. Every SUI lost in a round mines GTS, and every GTS is backed by SUI held in an on-chain reserve." />
+<meta name="twitter:description" content="A 60-second mining game on Sui. Every SUI deployed in a round mines GTS, win or lose, and every GTS is backed by SUI held in an on-chain reserve." />
 <meta name="twitter:image" content="https://minegts.fun/og.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -85,7 +85,7 @@
       <div class="hero-copy">
         <div class="eyebrow">Live on Sui</div>
         <h1 class="hero-h">Mine GTS.<br>Backed by SUI.</h1>
-        <p class="hero-p">Every SUI you lose mines GTS. A 60-second game on a 5×5 board: winners split the pot, and every token is backed by SUI in an on-chain reserve.</p>
+        <p class="hero-p">Every SUI you deploy mines GTS, win or lose. A 60-second game on a 5×5 board: winners split the pot, and every token is backed by SUI in an on-chain reserve.</p>
         <div class="hero-cta">
           <a class="btn-lg" href="#mine">Start mining</a>
           <a class="btn-lg ghost" href="#explorer">Explore data</a>
@@ -121,7 +121,7 @@
           <div class="prog" aria-hidden="true"><i id="sProg"></i></div>
         </div>
         <div class="result" id="result" role="status" aria-live="polite" hidden></div>
-        <p class="board-hint" id="boardHint">Tap one or more tiles, set your amount, then press Deploy. Every SUI you lose mines GTS.</p>
+        <p class="board-hint" id="boardHint">Tap one or more tiles, set your amount, then press Deploy. Everyone mines GTS every round, win or lose.</p>
         <div class="board-wrap">
           <div class="board" id="board" role="grid" aria-label="Game board"></div>
         </div>
@@ -379,12 +379,12 @@
         <li><b>Pick tiles</b><span>Choose one or more of the 25 tiles and put SUI on them. Minimum 0.01 SUI per tile.</span></li>
         <li><b>Wait 60 seconds</b><span>The round runs for one minute. Deposits close 5 seconds before the end.</span></li>
         <li><b>One tile wins</b><span>Sui's on-chain randomness draws the winning tile. No one can see or change it in advance.</span></li>
-        <li><b>Claim</b><span>Winners get SUI. Every SUI lost in the round mines GTS.</span></li>
+        <li><b>Claim</b><span>Winners get SUI. Every SUI deployed mines GTS, win or lose.</span></li>
       </ol>
       <h2>What you win</h2>
       <ul class="learn-list">
         <li><b>On the winning tile:</b> you get that SUI back plus a share of 90% of the SUI on the other 24 tiles, based on how much you put on the winning tile.</li>
-        <li><b>On the other tiles:</b> that SUI is lost, and it mines GTS for you.</li>
+        <li><b>On the other tiles:</b> that SUI is lost, but it still mines GTS for you.</li>
         <li><b>Tip:</b> spreading SUI over many tiles wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</li>
       </ul>
       <h2>Wealth Fund</h2>

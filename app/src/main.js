@@ -111,13 +111,14 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // plus what winners did not keep at claim (the fair split).
 const vaulted = r => r.vault + (r.split?.reserve || 0);
 // Rounds 1-20 used the fair split (a spread deposit kept only part of its share). From round 21 (the first
-// round settled by the v5 rules, V5FromKey on the Board) winners keep their full share and GTS goes by SUI lost.
-const FAIR_FROM = 1, V5_FROM = 21;
+// round settled by the v5 rules, V5FromKey on the Board) winners keep their full share, and rounds 21-30 split
+// GTS by SUI lost. From round 31 (V8FromKey) GTS goes by SUI deployed again, win or lose.
+const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31;
 // Relaunch game published (deployments/mainnet.json publishedAt).
 const GAME_LAUNCH = Date.parse("2026-09-29T10:20:50Z");
 const isFair = n => n >= FAIR_FROM && n < V5_FROM;
-// GTS a player mined in settled round r: by SUI lost from V5_FROM, by SUI deployed before.
-const gtsOf = (r, onWin, tot) => r.round >= V5_FROM
+// GTS a player mined in settled round r: by SUI lost in rounds V5_FROM..V8_FROM-1, by SUI deployed otherwise.
+const gtsOf = (r, onWin, tot) => r.round >= V5_FROM && r.round < V8_FROM
   ? (r.total > r.winners ? r.reward * (tot - onWin) / (r.total - r.winners) : 0)
   : (r.total ? r.reward * tot / r.total : 0);
 // What a player gets from settled round r, exactly as game::claim computes it: `onWin` on the winning
@@ -1201,7 +1202,7 @@ function renderMine() {
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }
-  let hint = `Minimum ${min} SUI per tile. Every SUI you lose mines GTS.`;
+  let hint = `Minimum ${min} SUI per tile. Every SUI you deploy mines GTS, win or lose.`;
   if (claimable && (p === "open" || p === "live")) {
     const R = rewards();
     hint = `${per * selected.size > 0 ? `You pay ${fmt(per * selected.size, 4)} SUI. ` : ""}Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;

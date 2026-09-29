@@ -145,7 +145,7 @@
       <li><strong>Fair launch.</strong> Zero GTS existed before the first round. Every token in circulation was earned by a player.</li>
       <li><strong>Capped supply.</strong> At most 1,000,000 GTS will ever exist. The cap is enforced by the token contract, mining stops for good when it is reached, and burned GTS is never minted again.</li>
       <li><strong>Provably random.</strong> Winners are drawn with Sui's on-chain randomness. No server, operator or player can see or steer the result.</li>
-      <li><strong>Losing still mines.</strong> Every SUI you lose in a round mines GTS, so a losing round still earns you tokens.</li>
+      <li><strong>Every SUI mines.</strong> Every SUI you deploy in a round mines GTS, win or lose.</li>
       <li><strong>Backed by SUI.</strong> Any holder can burn GTS at any time for a share of the SUI reserve.</li>
       <li><strong>Non-custodial.</strong> The app holds no keys and no funds. Every action is signed in your own wallet.</li>
     </ul>
@@ -156,7 +156,7 @@
       <div><b>Deploy</b>SUI on any of the 25 tiles</div>
       <div><b>Wait</b>60 seconds per round</div>
       <div><b>Draw</b>One winning tile, drawn on-chain</div>
-      <div><b>Claim</b>SUI for winners, GTS for SUI lost</div>
+      <div><b>Claim</b>SUI for winners, GTS for everyone</div>
     </div>
     <h3>Rounds</h3>
     <ul>
@@ -166,12 +166,12 @@
       <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>Rewards</h3>
-    <p><strong>Winners</strong> get their stake on the winning tile back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. The SUI you put on the other tiles is lost, so a win can still return less than you deposited in the round: 0.01 SUI on each of the 25 tiles always wins, and always loses 10% of the other 24 tiles. Each wallet plays a round with one miner, so all of its deposits count together. <strong>GTS</strong> is mined by the SUI you lose: the round's GTS is split among the SUI on the losing tiles, so SUI on the winning tile mines nothing.</p>
+    <p><strong>Winners</strong> get their stake on the winning tile back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. The SUI you put on the other tiles is lost, so a win can still return less than you deposited in the round: 0.01 SUI on each of the 25 tiles always wins, and always loses 10% of the other 24 tiles. Each wallet plays a round with one miner, so all of its deposits count together. <strong>GTS</strong> is mined by the SUI you deploy, win or lose: the round's GTS is split by what each player deployed. Up to 1 SUI in a round, every 0.01 SUI mines 0.01 GTS (0.25 SUI mines 0.25 GTS).</p>
     <span class="code">losing_pot = total_deposits - winning_tile_total
 my_share   = losing_pot * 90% * my_stake / winning_tile_total
 payout     = my_stake + my_share
-round_reward = min(step_reward * min(round_total, 1 SUI) / 1 SUI,  GTS the round's reserve SUI buys at the floor)
-my_gts       = round_reward * my_lost / losing_pot</span>
+round_reward = step_reward * min(round_total, 1 SUI) / 1 SUI
+my_gts       = round_reward * my_deposit / round_total</span>
     <h3>Unrefined GTS</h3>
     <p>Mined GTS does not go straight to your wallet. It waits in your <strong>unrefined balance</strong>, and you withdraw it whenever you want. Each wallet has a 7-day clock that starts when it first mines and restarts at every withdrawal. After 7 days, withdrawing is free. Before that, the fee falls evenly from 10% to 0 over the 7 days. Mining more does not restart the clock. The fee is burned: total supply falls while the reserve stays, so the floor price rises for every holder. GTStar bots get their GTS at claim and never pay the fee.</p>
     <span class="code">fee = 10% * time_left / 7 days   (0 after 7 days)
@@ -195,7 +195,7 @@ my_chance  = my_tickets / all_tickets                          (when the fund pa
     <h2 id="tokenomics">Tokenomics</h2>
     <p class="sub">1,000,000 GTS, a gentle decay, and a SUI floor.</p>
     <h3>Supply</h3>
-    <p>Each round mints up to 1 GTS, shared by the SUI lost in the round. The full reward needs 1 SUI deployed in the round; a smaller round mints a matching part (0.25 SUI gives 0.25 GTS). A round also never mints more GTS than the SUI it adds to the reserve buys at the floor price, so mining never lowers the floor; when most of the pot goes back to a winner, the round mints much less. There is no halving: every 15,658 rounds the reward drops by 1.425%. The cut follows rounds played, not GTS mined, and what a round below 1 SUI does not mint is never minted later. If every round were full the schedule would mint about 1,099,000 GTS, so the 1,000,000 cap is only reached if rounds average above about 91% of 1 SUI. Otherwise the final supply ends below 1,000,000. There is no other source of GTS: no premine, no team tokens, no staking mint.</p>
+    <p>Each round mints up to 1 GTS, shared by everyone in the round by SUI deployed, win or lose. The full reward needs 1 SUI deployed in the round; a smaller round mints a matching part (0.25 SUI gives 0.25 GTS). There is no halving: every 15,658 rounds the reward drops by 1.425%. The cut follows rounds played, not GTS mined, and what a round below 1 SUI does not mint is never minted later. If every round were full the schedule would mint about 1,099,000 GTS, so the 1,000,000 cap is only reached if rounds average above about 91% of 1 SUI. Otherwise the final supply ends below 1,000,000. There is no other source of GTS: no premine, no team tokens, no staking mint.</p>
     <span class="code">reward = 1 GTS * 0.98575 ^ floor(rounds_played / 15,658)
 total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when rounds are below 1 SUI</span>
     <div class="tbl"><table>
@@ -253,7 +253,7 @@ floor_price   = reserve / total_supply</span>
     <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
-      <li>The one-miner rule is per wallet. Many wallets gain nothing from it: GTS goes by SUI lost and Wealth Fund tickets come only from fees, which they pay like everyone else.</li>
+      <li>The one-miner rule is per wallet. Many wallets gain nothing from it: GTS goes by SUI deployed and Wealth Fund tickets come only from fees, which they pay like everyone else.</li>
       <li>GTStar bots are exempt from the withdraw fee in the contract. That they burn the GTS they mine is done by our off-chain bot code, not enforced on-chain.</li>
       <li>GTS is minted when a player claims. While rounds are unclaimed, someone who redeems early gets slightly more than their fair share of the reserve.</li>
       

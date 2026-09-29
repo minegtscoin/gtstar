@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0xfcdbf8db98a54abd6674b3d4b7f50acebb8d410fdd46fbed4861f555a62e27a0",
+  "latest": "0xee1cfb2d0a6a491a023196da91c6b7616677817cc586335e02c18cea5bf725ba",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -37,6 +37,10 @@
     [
       "Game upgraded: 1% of every losing pot buys GTS on the market and burns it (keeper only, burned in the same transaction)",
       "FWZ7UP7HmzAMXMUBZmXYXZCYVA2waFTFty7WvYjBozzX"
+    ],
+    [
+      "Game upgraded: GTS is mined by SUI deployed again, win or lose (0.25 SUI alone mines 0.25 GTS), no floor cap",
+      "Fom1nU6RzV2K56NwYKqjaYN1qCYwR6JrSzQHo4rmkySY"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
