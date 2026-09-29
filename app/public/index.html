@@ -38,6 +38,7 @@
     <nav class="tabs" aria-label="Main">
       <a href="#mine" data-view="mine">Mine</a>
       <a href="#trade" data-view="trade">Trade</a>
+      <a href="#stake" data-view="stake">Stake</a>
       <div class="more" id="more">
         <button type="button" class="more-btn" id="moreBtn" aria-label="More" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <div class="more-menu" id="moreMenu" hidden>
@@ -334,6 +335,50 @@
     </div>
   </section>
 
+  <!-- STAKE -->
+  <section class="view" id="view-stake" hidden>
+    <div class="ore-card">
+      <div class="ore-head"><h1>Stake</h1><p class="sub">Earn SUI from every round. Nothing is minted.</p></div>
+      <div class="pilltabs" id="stakeKind" role="tablist" aria-label="Stake type">
+        <button type="button" role="tab" data-kind="flex" aria-selected="true">Flexible 1x</button>
+        <button type="button" role="tab" data-kind="lock" aria-selected="false">Locked 7 days 1.5x</button>
+      </div>
+      <div class="pilltabs" id="stakeSeg" role="tablist" aria-label="Stake action">
+        <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
+        <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
+      </div>
+      <div class="amount big">
+        <input id="stakeAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount of GTS" autocomplete="off" />
+        <span class="unit" id="stakeBal">0 GTS</span>
+      </div>
+      <div class="quick">
+        <button type="button" data-pct="25">25%</button>
+        <button type="button" data-pct="50">50%</button>
+        <button type="button" data-pct="75">75%</button>
+        <button type="button" data-pct="100">MAX</button>
+      </div>
+      <button class="primary" id="btnStake" type="button">Deposit</button>
+      <p class="hint" id="stakeHint"></p>
+
+      <h2 class="sum-h">Account</h2>
+      <dl class="dl">
+        <div><dt>Flexible</dt><dd id="sFlex">—</dd></div>
+        <div><dt>Locked</dt><dd id="sLock">—</dd></div>
+        <div><dt>Yield</dt><dd id="sPending" class="gold">—</dd></div>
+      </dl>
+      <button class="gold-btn" id="btnStakeClaim" type="button">Claim SUI</button>
+
+      <h2 class="sum-h">Summary</h2>
+      <dl class="dl">
+        <div><dt>APR flexible</dt><dd id="sAprFlex">—</dd></div>
+        <div><dt>APR locked</dt><dd id="sAprLock">—</dd></div>
+        <div><dt>Total staked</dt><dd id="sStaked">—</dd></div>
+        <div><dt>Paid to stakers</dt><dd id="sPaid">—</dd></div>
+      </dl>
+      <p class="note-sm" id="stakeNote">Stakers share 3% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR is based on the last 7 days of rounds and changes with how much is played.</p>
+    </div>
+  </section>
+
   <!-- LEARN -->
   <section class="view" id="view-learn" hidden>
     <div class="learn">
@@ -356,6 +401,7 @@
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
         <li><b>Hold:</b> every GTS is backed by SUI in an on-chain reserve, so it always has a floor price.</li>
+        <li><b>Stake:</b> earn SUI from every round. Flexible, or locked for 7 days at 1.5x.</li>
         <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
       </ul>
       <h2>Getting started</h2>

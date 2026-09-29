@@ -26,5 +26,6 @@
       "Game upgraded: GTS staking with SUI yield (flexible 1x, 7-day lock 1.5x)",
       "H7arfu6ks6SNf8fH7gWopFgacKRLzSABL6smXEsX3fn"
     ]
-  ]
+  ],
+  "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d"
 }

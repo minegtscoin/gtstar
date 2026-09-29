@@ -101,6 +101,7 @@
     <nav class="tabs" aria-label="Main">
       <a href="index.html#mine">Mine</a>
       <a href="index.html#trade">Trade</a>
+      <a href="index.html#stake">Stake</a>
       <div class="more" id="more">
         <button type="button" class="more-btn" id="moreBtn" aria-label="More" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <div class="more-menu" id="moreMenu" hidden>
@@ -209,11 +210,15 @@ total  = 1,000,000 GTS, then mining stops</span>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td>Winners</td><td class="n">up to 90%</td><td>Split across the winning tile by stake; the part a spread deposit does not keep goes to the reserve</td></tr>
-        <tr><td>Buyback</td><td class="n">5%</td><td>Buys GTS on the market and burns it</td></tr>
-        <tr><td>Reserve</td><td class="n">4%</td><td>Backs every GTS</td></tr>
+        <tr><td>Reserve</td><td class="n">6%</td><td>Backs every GTS (4%, plus the 2% buyback share until a GTS/SUI pool exists)</td></tr>
+        <tr><td>Stakers</td><td class="n">3%</td><td>Paid in SUI to GTS stakers</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td></td></tr>
       </tbody>
     </table></div>
+    <p>Whoever draws a round is paid up to 0.005 SUI of it from the reserve share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds.</p>
+    <h3>Staking</h3>
+    <p>Stake GTS and earn SUI: stakers share 3% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Choose <strong>flexible</strong> (1x, withdraw any time) or <strong>locked for 7 days</strong> (1.5x). Adding to a locked stake restarts its 7 days; when a lock ends it counts 1x again. With nobody staked, the stakers' share goes to the reserve.</p>
+    <span class="code">my_yield = round_share * my_weight / all_weight     // weight = GTS x 1 (flexible) or x 1.5 (locked)</span>
     <h3>Reserve</h3>
     <p>The reserve is SUI held by the token contract. Any holder can burn GTS for a proportional share, and SUI can leave the reserve in no other way.</p>
     <span class="code">redeem(x GTS) = reserve * x / total_supply     // x GTS is burned

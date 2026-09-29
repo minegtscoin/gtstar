@@ -53,8 +53,28 @@ export default async () => {
     await client.waitForTransaction({ digest: res.digest });
   }
 
+  // Ended 7-day locks go back to 1x: poke every locked stake whose lock has passed but still counts 1.5x.
+  async function pokeLocks() {
+    if (!CFG.stakePkg) return;
+    const q = `{b:object(address:"${CFG.board}"){dynamicField(name:{type:"${CFG.stakePkg}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
+      e:events(filter:{type:"${CFG.stakePkg}::staking::Staked"},last:50){nodes{contents{json}}}}`;
+    const d = (await client.query({ query: q })).data;
+    const table = d.b?.dynamicField?.value?.json?.positions?.id;
+    if (!table) return;
+    const now = Date.now(), due = new Set();
+    for (const n of d.e?.nodes || []) { const j = n.contents.json; if (j.locked && +j.locked_until < now) due.add(j.player); }
+    for (const player of due) {
+      const key = Buffer.from(player.slice(2).padStart(64, "0") + "01", "hex").toString("base64");
+      const r = (await client.query({ query: `{object(address:"${table}"){dynamicField(name:{type:"${CFG.stakePkg}::staking::PosKey",bcs:"${key}"}){value{... on MoveValue{json}}}}}` })).data;
+      const pos = r.object?.dynamicField?.value?.json;
+      if (!pos || BigInt(pos.weight) <= BigInt(pos.amount) * 10n || +pos.locked_until > now) continue;
+      await run(`poke ${player.slice(0, 8)}`, tx => tx.moveCall({ target: T("game::poke"), arguments: [tx.object(CFG.board), tx.pure.address(player), tx.object.clock()] }));
+    }
+  }
+
   let b;
   try {
+    await pokeLocks();
     b = await board();
     const now = new Date();
     if (now.getUTCHours() === 0 && now.getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {

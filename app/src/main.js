@@ -27,7 +27,11 @@ const REFINE_FEE = 0.1;                           // withdraw fee at launch; the
 const REFINE_SCALE = 10n ** 18n;
 const HOUSE = "0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a"; // never keeps Wealth Fund SUI
 const EV = { ml: `${ML_PKG}::game::MotherlodeUpdate`, settled: T("game::RoundSettled"), deployed: T("game::Deployed"), redeemed: TK("gts::Redeemed") };
-const VIEWS = ["home", "mine", "trade", "explorer", "tokenomics", "learn"];
+const VIEWS = ["home", "mine", "trade", "stake", "explorer", "tokenomics", "learn"];
+// Staking (game v3): its types were introduced by that version.
+const STK_PKG = IDS.stake;
+const STAKE_SCALE = 10n ** 18n;
+const EV_STAKE_REWARD = STK_PKG ? `${STK_PKG}::staking::StakeRewarded` : "";
 
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
@@ -130,7 +134,9 @@ async function loadGlobal() {
   const d = await gql(`{${objQ("b", IDS.board)} ${objQ("t", IDS.treasury)}${IDS.market ? " " + objQ("m", IDS.market) : ""}
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
-    mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}}`);
+    mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}
+    ${STK_PKG ? `sk:object(address:"${IDS.board}"){p:dynamicField(name:{type:"${STK_PKG}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}} bp:dynamicField(name:{type:"${STK_PKG}::game::StakeBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
+    sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}}`);
   const b = pick(d, "b"), t = pick(d, "t"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
   const sq = num(m.current_sqrt_price) / 2 ** 64;
@@ -148,8 +154,24 @@ async function loadGlobal() {
     motherlode: num(b.motherlode), mlOdds: num(b.ml_odds) || 1000,
     refineFee: b.refine_fee_bps != null ? num(b.refine_fee_bps) / 10_000 : REFINE_FEE,
     em: emOf(b),
+    stake: stakeOf(d),
     last: recent[0] || null, recent, deploys,
     board,
+  };
+}
+// Staking pool (a dynamic field of the Board) and the SUI it earned over the last 7 days of rounds.
+function stakeOf(d) {
+  const p = d.sk?.p?.value?.json;
+  if (!p) return null;
+  const now = Date.now(), week = 7 * 86_400_000;
+  const ev = (d.sr?.nodes || []).map(n => ({ t: new Date(n.timestamp).getTime(), a: num(n.contents?.json?.amount) }));
+  const recent = ev.filter(e => now - e.t < week);
+  // 50 events can cover less than a week: then scale by the time they span.
+  const span = ev.length >= 50 && recent.length === ev.length ? Math.max(3600_000, now - Math.min(...ev.map(e => e.t))) : week;
+  const yearly = recent.reduce((a, e) => a + e.a, 0) * (365.25 * 86_400_000 / span);
+  return {
+    bps: num(d.sk?.bp?.value?.json), amount: num(p.total_amount), weight: num(p.total_weight), paid: num(p.paid_total),
+    acc: BigInt(p.acc || 0), table: p.positions?.id, yearly,
   };
 }
 // Emission state on the Board: the full reward of a round in this step, the step length, the cut at its
@@ -215,6 +237,7 @@ async function loadUser(addr) {
       pi = more?.pageInfo;
     }
   }
+  const stake = await loadStake(addr).catch(() => null);
   userAt = Date.now();
   // With several Miners, use the one in the newest round: since v7 a round accepts one Miner per address.
   const miner = miners.reduce((a, m) => (!a || num(m.f.round_id) > num(a.f.round_id) ? m : a), null);
@@ -222,8 +245,21 @@ async function loadUser(addr) {
     sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance), unrefined,
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
+    stake,
   };
 }
+
+// The player's two staking positions (flexible, locked), read from the pool's table.
+async function loadStake(addr) {
+  const tbl = STATE?.stake?.table;
+  if (!tbl) return null;
+  const key = locked => btoa(String.fromCharCode(...addr.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16)), locked ? 1 : 0));
+  const q = alias => `${alias}:dynamicField(name:{type:"${STK_PKG}::staking::PosKey",bcs:"${key(alias === "l")}"}){value{... on MoveValue{json}}}`;
+  const d = await gql(`{object(address:"${tbl}"){${q("f")} ${q("l")}}}`);
+  const pos = j => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0) } : null;
+  return { flex: pos(d.object?.f?.value?.json), lock: pos(d.object?.l?.value?.json) };
+}
+const posYield = p => (p && STATE?.stake ? p.pending + p.weight * (STATE.stake.acc - p.snap) / STAKE_SCALE : 0n);
 
 // Event history (newest first). Capped per type; the UI states the scope when capped.
 const PAGE = 50, MAX_PAGES = 20;
@@ -421,14 +457,15 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw." },
+  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw." },
   gts: { 1: "Amount must be greater than zero.", 2: "Reserve is empty." },
+  staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
 };
 function friendlyError(e) {
   const m = String(e?.message || e);
   // e.g. "MoveAbort in 1st command, abort code: 9, in '0x…::game::settle'" or "MoveAbort(…::game::…, 9)"
   const a1 = m.match(/abort code:\s*(\d+)[^']*'0x[0-9a-f]+::(\w+)::/i);
-  const a2 = m.match(/::(game|gts)::[^,]*?,\s*(\d+)\)/);
+  const a2 = m.match(/::(game|gts|staking)::[^,]*?,\s*(\d+)\)/);
   const mod = a1 ? a1[2] : a2 && a2[1], code = a1 ? +a1[1] : a2 && +a2[2];
   if (mod && ERRORS[mod]?.[code]) return ERRORS[mod][code];
   if (/reject|cancel/i.test(m)) return "Transaction cancelled.";
@@ -564,6 +601,21 @@ const SETTLE_GAS = 20_000_000; // ~0.011 SUI gross for a settle, more when the W
 const settle = () => exec("Draw", "btnPlay", tx => {
   tx.setGasBudget(SETTLE_GAS);
   tx.moveCall({ target: C("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object.random(), tx.object.clock()] });
+});
+let stakeMode = "deposit", stakeKind = "flex";
+const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
+  const amt = toMist($("stakeAmt").value), locked = stakeKind === "lock";
+  if (amt <= 0) throw new Error("Enter an amount.");
+  if (stakeMode === "deposit") {
+    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(locked), tx.object.clock()] });
+  } else {
+    const [g] = tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(amt), tx.pure.bool(locked), tx.object.clock()] });
+    tx.transferObjects([g], account.address);
+  }
+}).then(r => { if (r) $("stakeAmt").value = ""; });
+const claimYield = () => exec("Yield claim", "btnStakeClaim", tx => {
+  const [c] = tx.moveCall({ target: C("game::claim_yield"), arguments: [tx.object(IDS.board)] });
+  tx.transferObjects([c], account.address);
 });
 // Pool<GTS, SUI> on Cetus: selling GTS is a2b, buying GTS is b2a.
 // Selling takes whichever pays more for the exact amount: the pool, or the reserve (burn at the floor).
@@ -1335,6 +1387,48 @@ function drawChart(played) {
   chartSize = W;
 }
 
+// ---------- render: stake ----------
+const myPos = () => USER?.stake?.[stakeKind] || null;
+function renderStake() {
+  if (!STATE) return;
+  const S = STATE.stake, U = USER?.stake, now = Date.now();
+  const f = U?.flex, l = U?.lock;
+  $("sFlex").textContent = USER ? `${sui(f?.amount || 0, 4)} GTS` : "—";
+  const lockLeft = l && l.until > now ? Math.ceil((l.until - now) / 3600_000) : 0;
+  $("sLock").textContent = USER ? `${sui(l?.amount || 0, 4)} GTS${l?.amount ? lockLeft ? ` · unlocks in ${lockLeft >= 24 ? `${Math.ceil(lockLeft / 24)}d` : `${lockLeft}h`}` : " · unlocked" : ""}` : "—";
+  const pending = posYield(f) + posYield(l);
+  $("sPending").textContent = USER ? `${sui(Number(pending), 6)} SUI` : "—";
+  // APR: yearly SUI per weight unit, over the value of the GTS behind it.
+  const px = gtsSui();
+  const aprFlex = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
+  const aprTxt = a => (a == null ? "—" : `${fmt(a, a < 10 ? 2 : 0)}%`);
+  $("sAprFlex").textContent = aprTxt(aprFlex);
+  $("sAprLock").textContent = aprTxt(aprFlex == null ? null : aprFlex * 1.5);
+  $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
+  $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI` : "—";
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 3}% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR is based on the last 7 days of rounds and changes with how much is played.`;
+  document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
+  document.querySelectorAll("#stakeKind button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === stakeKind)));
+  const pos = myPos();
+  const avail = stakeMode === "deposit" ? (USER?.gts || 0) : (pos?.amount || 0);
+  $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "staked"}`;
+  const lockedNow = stakeKind === "lock" && pos && pos.until > now;
+  $("stakeHint").textContent = stakeKind === "lock"
+    ? (stakeMode === "deposit" ? "Locked for 7 days at 1.5x. Adding more restarts the 7 days for the whole locked stake." : lockedNow ? "Locked stakes can be withdrawn once their 7 days have passed." : "Your lock has ended: withdraw any time.")
+    : "Flexible: withdraw any time.";
+  if (!busy) {
+    const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
+    let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;
+    if (!account) label = "Sign in";
+    else if (!S) { label = "Staking opens soon"; dis = true; }
+    else if (stakeMode === "withdraw" && lockedNow) { label = "Locked"; dis = true; }
+    else if (amt <= 0) dis = true;
+    else if (amt > avail) { label = stakeMode === "deposit" ? "Insufficient GTS" : "Exceeds your stake"; dis = true; }
+    btn.textContent = label; btn.disabled = dis;
+    $("btnStakeClaim").disabled = !account || pending <= 0n;
+  }
+}
+
 // ---------- prices + trade ----------
 let PRICE = { sui: null };
 // A failed or rate-limited source never overwrites the last good price.
@@ -1420,6 +1514,7 @@ function render() {
   if (view === "trade") renderTrade();
   if (view === "explorer") renderExplorer();
   if (view === "tokenomics") renderTokenomics();
+  if (view === "stake") renderStake();
 }
 // Refreshes overlap (poll, wallet change, after a transaction). A reply only counts if nothing newer has
 // been shown yet and, for the wallet view, the same wallet is still signed in; the board and the wallet
@@ -1670,6 +1765,17 @@ document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
   const max = swapMax(), v = +b.dataset.pct === 100 ? max : Math.floor(max * +b.dataset.pct / 100);
   $("swIn").value = String(v / MIST); swInput();
 }));
+$("btnStake").onclick = () => (account ? stakeTx() : openWalletModal());
+$("btnStakeClaim").onclick = () => (account ? claimYield() : openWalletModal());
+document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));
+document.querySelectorAll("#stakeKind button").forEach(b => (b.onclick = () => { stakeKind = b.dataset.kind; $("stakeAmt").value = ""; renderStake(); }));
+document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = () => {
+  if (!USER) return openWalletModal();
+  const avail = stakeMode === "deposit" ? USER.gts : (myPos()?.amount || 0);
+  const v = +b.dataset.pct === 100 ? avail : Math.floor(avail * +b.dataset.pct / 100);
+  $("stakeAmt").value = String(v / MIST); renderStake();
+}));
+$("stakeAmt").addEventListener("input", renderStake);
 document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button").forEach(b => (b.onclick = () => {
   const set = ts.dataset.set, t = b.dataset.t;
   if (set === "act") { actTab = t; actShown = ROWS; } else if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }

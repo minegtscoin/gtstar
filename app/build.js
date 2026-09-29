@@ -25,12 +25,12 @@ for (const f of fs.readdirSync(path.join(__dirname, "public"))) {
   else fs.copyFileSync(src, path.join(out, f));
 }
 fs.writeFileSync(path.join(out, "version.json"), JSON.stringify({ v: V }));
-const config = { network, relaunch: !!dep.relaunch, ids: { package: dep.package, latest: dep.latest || dep.package, token: dep.token || dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool, market: dep.market, motherlode: dep.motherlodePkg, fair: dep.fairPkg, refine: dep.refinePkg }, accounts: { dev: dep.dev, keeper: dep.keeper, upgradeCap: dep.upgradeCap, timelock: dep.timelock, timelockPkg: dep.timelockPkg, lpBurn: dep.lpBurnProof }, proof: dep.siteProof || dep.proof || [] };
+const config = { network, relaunch: !!dep.relaunch, ids: { package: dep.package, latest: dep.latest || dep.package, token: dep.token || dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool, market: dep.market, motherlode: dep.motherlodePkg, fair: dep.fairPkg, refine: dep.refinePkg, stake: dep.stakePkg }, accounts: { dev: dep.dev, keeper: dep.keeper, upgradeCap: dep.upgradeCap, timelock: dep.timelock, timelockPkg: dep.timelockPkg, lpBurn: dep.lpBurnProof }, proof: dep.siteProof || dep.proof || [] };
 fs.writeFileSync(path.join(out, "config.js"), `window.GTSTAR_VERSION = "${V}";\nwindow.GTSTAR_CONFIG = ${JSON.stringify(config, null, 2)};\n`);
 
 // Contract IDs for the keeper.
 fs.writeFileSync(path.join(__dirname, "keeper", "keeper-config.json"),
-  JSON.stringify({ network, relaunch: !!dep.relaunch, package: dep.latest || dep.package, origin: dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, null, 2));
+  JSON.stringify({ network, relaunch: !!dep.relaunch, stakePkg: dep.stakePkg, package: dep.latest || dep.package, origin: dep.package, board: dep.board, treasury: dep.treasury, pool: dep.pool }, null, 2));
 
 esbuild.buildSync({
   entryPoints: [path.join(__dirname, "src", "main.js")],
