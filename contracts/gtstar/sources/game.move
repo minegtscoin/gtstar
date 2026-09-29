@@ -1,12 +1,12 @@
 /// GTStar game (relaunch): a 5x5 grid, 60s rounds, on Sui.
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
-/// losing pot pays: creator DEV_BPS (1%, fixed), reserve `vault_bps`, buyback `buyback_bps`, and the
-/// rest to the winners, each keeping the part of their round deposit that sat on the winning square
+/// losing pot pays: creator DEV_BPS (1%, fixed), reserve `vault_bps`, buyback `buyback_bps`, Wealth
+/// Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners, each keeping the part of their round deposit that sat on the winning square
 /// (the rest goes to the reserve). With no one on the winning square the rest is split between the
 /// Wealth Fund (`ml_share_bps` of the losing pot) and the reserve. Every round has a 1 in `ml_odds`
 /// chance to pay the whole Wealth Fund to one ticket, drawn by weight. Tickets: every mist of fee a
-/// player paid (creator + reserve + buyback + stakers, on the SUI they lost) since the last payout is
+/// player paid (creator + reserve + buyback + stakers + Wealth Fund, on the SUI they lost) since the last payout is
 /// one ticket, added when the round is claimed. Fees cannot be won back through a second wallet, so
 /// tickets always cost real SUI. House bots get no tickets. Tickets reset after each payout.
 ///
@@ -177,6 +177,9 @@ public struct TicketEntry has store, drop { player: address, end: u64 }
 /// Dynamic field on the Board: one player's tickets in `epoch` (for display).
 public struct PlayerTicketsKey has copy, drop, store { epoch: u64, player: address }
 
+/// Dynamic field on the Board: the Wealth Fund's share of every round's losing pot, in bps.
+public struct FundBpsKey has copy, drop, store {}
+
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
@@ -245,6 +248,7 @@ public struct BuybackTaken has copy, drop { amount: u64 }
 /// GTS bought back and burned.
 public struct BuybackBurned has copy, drop { amount: u64 }
 public struct StakingChanged has copy, drop { stake_bps: u64 }
+public struct FundBpsChanged has copy, drop { fund_bps: u64 }
 /// SUI paid to whoever settled a round, out of its buyback share.
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 
@@ -307,8 +311,8 @@ fun is_bot(a: address): bool {
 /// No Wealth Fund tickets for house bots.
 fun no_tickets(a: address): bool { is_bot(a) || a == SHIELD_ADDR }
 
-/// Fees taken from the losing pot, in bps: creator + reserve + buyback + stakers.
-fun fee_bps(board: &Board): u64 { DEV_BPS + board.vault_bps + board.buyback_bps + stake_bps(board) }
+/// Fees taken from the losing pot, in bps: creator + reserve + buyback + stakers + Wealth Fund.
+fun fee_bps(board: &Board): u64 { DEV_BPS + board.vault_bps + board.buyback_bps + stake_bps(board) + fund_bps(board) }
 
 fun tickets_mut(board: &mut Board): &mut Tickets {
     if (!df::exists(&board.id, TicketsKey {})) {
@@ -370,7 +374,7 @@ public fun set_params(
 ) {
     check_version(board);
     assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
-    assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) <= 10_000, EBadParams);
+    assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) + fund_bps(board) <= 10_000, EBadParams);
     assert!(refine_fee_bps <= MAX_REFINE_FEE_BPS, EBadParams);
     assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
     assert!(round_ms >= MIN_ROUND_MS && round_ms <= MAX_ROUND_MS && freeze_ms <= round_ms / 2, EBadParams);
@@ -420,13 +424,26 @@ public fun renounce(cap: AdminCap, board: &Board) {
 /// Set the stakers' share of the losing pot (bps), creating the staking pool the first time.
 public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxContext) {
     check_version(board);
-    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + bps <= 10_000, EBadParams);
+    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + bps + fund_bps(board) <= 10_000, EBadParams);
     if (!df::exists(&board.id, StakeKey {})) {
         df::add(&mut board.id, StakeKey {}, staking::new(ctx));
         df::add(&mut board.id, StakeBpsKey {}, 0u64);
     };
     *df::borrow_mut<StakeBpsKey, u64>(&mut board.id, StakeBpsKey {}) = bps;
     event::emit(StakingChanged { stake_bps: bps });
+}
+
+/// Set the Wealth Fund's share of every round's losing pot (bps), on top of the no-winner share.
+public fun set_fund_bps(_: &AdminCap, board: &mut Board, bps: u64) {
+    check_version(board);
+    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + stake_bps(board) + bps <= 10_000, EBadParams);
+    if (df::exists(&board.id, FundBpsKey {})) { *df::borrow_mut<FundBpsKey, u64>(&mut board.id, FundBpsKey {}) = bps }
+    else { df::add(&mut board.id, FundBpsKey {}, bps) };
+    event::emit(FundBpsChanged { fund_bps: bps });
+}
+
+fun fund_bps(board: &Board): u64 {
+    if (df::exists(&board.id, FundBpsKey {})) { *df::borrow<FundBpsKey, u64>(&board.id, FundBpsKey {}) } else { 0 }
 }
 
 fun stake_bps(board: &Board): u64 {
@@ -568,6 +585,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let dev_part = mul_div(losing_pot, DEV_BPS, 10_000);
     let buyback_full = mul_div(losing_pot, board.buyback_bps, 10_000);
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
+    let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
     // The drawer is paid from the buyback share first, then from the reserve share.
     let from_buyback = if (buyback_full < DRAW_REWARD_MAX) { buyback_full } else { DRAW_REWARD_MAX };
     let rest = DRAW_REWARD_MAX - from_buyback;
@@ -575,7 +593,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let draw_reward = from_buyback + from_vault;
     let buyback_part = buyback_full - from_buyback;
     let mut vault_part = vault_full - from_vault;
-    let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - stake_part;
+    let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - stake_part - fund_part;
 
     // Stakers' share: split among everyone staked now, or to the reserve when nobody is.
     if (stake_part > 0) {
@@ -596,14 +614,17 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
 
     // Wealth Fund: with no one on the winning square the rest is split between it and the reserve.
     // Then, in any round, a 1 in `odds` chance it is paid to the holder of the drawn ticket.
-    let mut ml_added = 0;
+    // Every round first adds its `fund_bps` share.
+    let mut ml_added = fund_part;
     let mut ml_paid = 0;
+    if (fund_part > 0) { balance::join(&mut board.motherlode, balance::split(&mut board.pot, fund_part)); };
     if (winners_total == 0) {
         if (losing_after_fee > 0) {
             // set_params keeps this within losing_after_fee.
-            ml_added = mul_div(losing_pot, board.ml_share_bps, 10_000);
-            let to_vault = losing_after_fee - ml_added;
-            if (ml_added > 0) { balance::join(&mut board.motherlode, balance::split(&mut board.pot, ml_added)); };
+            let no_winner_part = mul_div(losing_pot, board.ml_share_bps, 10_000);
+            ml_added = ml_added + no_winner_part;
+            let to_vault = losing_after_fee - no_winner_part;
+            if (no_winner_part > 0) { balance::join(&mut board.motherlode, balance::split(&mut board.pot, no_winner_part)); };
             if (to_vault > 0) {
                 gts::vault_add(treasury, balance::split(&mut board.pot, to_vault));
                 vault_part = vault_part + to_vault;
@@ -854,6 +875,8 @@ public fun tickets_of(board: &Board, player: address): u64 {
     let pk = PlayerTicketsKey { epoch, player };
     if (df::exists(&board.id, pk)) { *df::borrow<PlayerTicketsKey, u64>(&board.id, pk) } else { 0 }
 }
+/// Wealth Fund's share of every round's losing pot in bps.
+public fun wealth_fund_bps(board: &Board): u64 { fund_bps(board) }
 /// Stakers' share of the losing pot in bps (0 before staking is set up).
 public fun staking_bps(board: &Board): u64 { stake_bps(board) }
 /// (GTS staked, total weight in tenths, SUI paid to stakers so far, SUI waiting to be claimed).

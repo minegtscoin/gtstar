@@ -745,3 +745,75 @@ fun test_staking_bounds() {
     game::set_staking(&admin, &mut board, 7_500, ts::ctx(&mut sc));
     abort 0
 }
+
+/// Wealth Fund 2% of every round (buyback 3% in this test). A round with a winner (all tiles covered)
+/// adds 2% of its losing pot to the fund, and the player's tickets still equal the 10% fee paid.
+#[test]
+fun test_fund_share_every_round() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    game::set_params(&admin, &mut board, 100, 1_950, 400, 300, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_fund_bps(&admin, &mut board, 200);
+    assert!(game::wealth_fund_bps(&board) == 200, 1);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let per = 100_000_000;
+    let vault_before = gts::vault_value(&treasury);
+    round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1_000_000);
+    let losing = per * 24;
+    assert!(game::motherlode_value(&board) == losing * 2 / 100, 2);
+    assert!(game::buyback_value(&board) == losing * 3 / 100 - 5_000_000, 3); // minus the drawer's 0.005
+    assert!(game::dev_fees_value(&board) == losing / 100, 4);
+    assert!(game::tickets_of(&board, BOB) == losing / 10, 5);
+    assert!(gts::vault_value(&treasury) > vault_before, 6);
+    assert!(game::pot_value(&board) == 0, 7);
+    ts::return_to_address(OWNER, admin);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// A round with no winner adds both shares: 2% every round plus 19.5% of a no-winner round.
+#[test]
+fun test_fund_share_no_winner() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    game::set_params(&admin, &mut board, 100, 1_950, 400, 300, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_fund_bps(&admin, &mut board, 200);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut done = false;
+    while (!done) {
+        let before = game::motherlode_value(&board);
+        round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
+        let round = game::current_round(&board) - 1;
+        if (game::winning_square_for_testing(&board, round) != 0) {
+            assert!(game::motherlode_value(&board) - before == SUI1 * 2 / 100 + SUI1 * 1_950 / 10_000, 1);
+            done = true;
+        };
+    };
+    assert!(game::pot_value(&board) == 0, 2);
+    ts::return_to_address(OWNER, admin);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+#[test, expected_failure(abort_code = game::EBadParams)]
+fun test_fund_bps_bounds() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    // 1 + 4 + 5 + 19.5 = 29.5%: a fund share over 70.5% would pass 100%.
+    game::set_fund_bps(&admin, &mut board, 7_051);
+    ts::return_to_sender(&sc, admin);
+    ts::return_shared(board);
+    ts::end(sc);
+}
