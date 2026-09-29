@@ -290,9 +290,9 @@ Lucky number, birthday, or pure chaos?`,
 Every one is backed by SUI in the reserve, and you can burn it for that SUI any time.
 
 Link in bio.`,
-  `When nobody is on the winning tile, part of the pot rolls into the Wealth Fund.
+  `Part of every pot rolls into the Wealth Fund.
 
-It keeps growing until a winning tile hits it and takes the whole thing.
+Every round it can pay the whole thing to one player, and every round you lose earns you tickets.
 
 Link in bio.`,
   `Things that take 60 seconds:

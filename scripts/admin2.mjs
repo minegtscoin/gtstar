@@ -4,6 +4,7 @@
 //   node scripts/admin2.mjs emission reward=1 step=15658   change the emission, keep the rest
 //   node scripts/admin2.mjs staking 300                    stakers' share of the losing pot, bps (creates the pool once)
 //   node scripts/admin2.mjs buyback-to-reserve             move the buyback SUI held on the Board into the reserve
+//   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
 // set keys: odds (Wealth Fund 1 in N), fund (fund share of a no-winner pot, bps), reserve (bps),
 //   buyback (bps), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
@@ -83,6 +84,13 @@ if (mode === "staking") {
   const bps = Number(args[0]);
   if (!(bps >= 0)) throw new Error("usage: staking <bps>");
   await run((tx, cap) => tx.moveCall({ target: `${G}::set_staking`, arguments: [cap, tx.object(dep.board), tx.pure.u64(bps)] }));
+  console.log(await current());
+  process.exit(0);
+}
+if (mode === "wealth") {
+  const bps = Number(args[0]);
+  if (!(bps >= 0)) throw new Error("usage: wealth <bps>");
+  await run((tx, cap) => tx.moveCall({ target: `${G}::set_fund_bps`, arguments: [cap, tx.object(dep.board), tx.pure.u64(bps)] }));
   console.log(await current());
   process.exit(0);
 }

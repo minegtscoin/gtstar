@@ -32,6 +32,10 @@ const VIEWS = ["home", "mine", "trade", "stake", "explorer", "tokenomics", "lear
 const STK_PKG = IDS.stake;
 const STAKE_SCALE = 10n ** 18n;
 const EV_STAKE_REWARD = STK_PKG ? `${STK_PKG}::staking::StakeRewarded` : "";
+// Wealth Fund tickets (game v4): its types were introduced by that version. The fund pays one ticket,
+// drawn by weight; a ticket is one mist of fee paid on SUI lost since the last payout.
+const WF_PKG = IDS.wf;
+const EV_WF_WON = WF_PKG ? `${WF_PKG}::game::WealthFundWon` : "";
 
 const $ = id => document.getElementById(id);
 const num = x => Number(x || 0);
@@ -95,7 +99,9 @@ const settledRow = (j, ts) => ({
   vault: num(j.vault_fee), dev: num(j.dev_fee), players: num(j.players), ts,
 });
 // Motherlode events by round: SUI a round rolled into it (added) or received from it (paid).
-const mlRows = nodes => new Map(nodes.map(j => [num(j.round_id), { added: num(j.added), paid: num(j.paid), balance: num(j.balance) }]));
+// `winner`: the ticket holder it was paid to (game v4); before v4 it went to the winning tile.
+const mlRows = (nodes, won = new Map()) => new Map(nodes.map(j => [num(j.round_id), { added: num(j.added), paid: num(j.paid), balance: num(j.balance), winner: won.get(num(j.round_id)) || null }]));
+const wonRows = nodes => new Map(nodes.map(j => [num(j.round_id), j.winner]));
 const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // SUI a settled round added to the reserve: the event's vault_fee (a no-winner round's rest included),
 // plus what winners did not keep at claim (the fair split).
@@ -110,7 +116,7 @@ function payoutOf(r, onWin, tot, player) {
   if (!(onWin > 0 && r.winners > 0)) return out;
   const md = (a, b, c) => Number((BigInt(a) * BigInt(b)) / BigInt(c));
   const share = md(r.payout, onWin, r.winners);
-  const jackpot = r.ml?.paid > 0 ? md(r.ml.paid, onWin, r.winners) : 0;
+  const jackpot = r.ml?.paid > 0 && !r.ml.winner ? md(r.ml.paid, onWin, r.winners) : 0;
   const potShare = share - jackpot, fair = r.round >= FAIR_FROM && tot > 0;
   const potKept = fair ? md(potShare, onWin, tot) : potShare;
   const jpKept = player === HOUSE || BOTS.has(player) ? 0 : fair ? md(jackpot, onWin, tot) : jackpot;
@@ -136,13 +142,16 @@ async function loadGlobal() {
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
     mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}
     ${STK_PKG ? `sk:object(address:"${IDS.board}"){p:dynamicField(name:{type:"${STK_PKG}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}} bp:dynamicField(name:{type:"${STK_PKG}::game::StakeBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
-    sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}}`);
+    sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}
+    ${WF_PKG ? `wf:object(address:"${IDS.board}"){fb:dynamicField(name:{type:"${WF_PKG}::game::FundBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}} tk:dynamicField(name:{type:"${WF_PKG}::game::TicketsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
+    ww:events(filter:{type:"${EV_WF_WON}"},last:12){nodes{contents{json}}}` : ""}}`);
   const b = pick(d, "b"), t = pick(d, "t"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
   const sq = num(m.current_sqrt_price) / 2 ** 64;
   const supply = num(t.cap?.total_supply?.value), vault = num(t.vault);
   const minted = num(t.minted), tGenesis = 0;
-  const ml = mlRows((d.mu?.nodes || []).map(n => n.contents?.json || {}));
+  const ml = mlRows((d.mu?.nodes || []).map(n => n.contents?.json || {}), wonRows((d.ww?.nodes || []).map(n => n.contents?.json || {})));
+  const tk = d.wf?.tk?.value?.json;
   const recent = (d.st?.nodes || []).map(n => withMl(settledRow(n.contents?.json || {}, n.timestamp), ml)).reverse();
   const deploys = (d.dp?.nodes || []).map(n => {
     const j = n.contents?.json || {};
@@ -152,6 +161,7 @@ async function loadGlobal() {
   return {
     supply, vault, minted, floor: supply > 0 ? vault / supply : 0, market: sq > 0 ? sq * sq : 0,
     motherlode: num(b.motherlode), mlOdds: num(b.ml_odds) || 1000,
+    fundBps: num(d.wf?.fb?.value?.json), tickets: tk ? { epoch: num(tk.epoch), total: num(tk.total) } : null,
     refineFee: b.refine_fee_bps != null ? num(b.refine_fee_bps) / 10_000 : REFINE_FEE,
     em: emOf(b),
     stake: stakeOf(d),
@@ -220,7 +230,11 @@ async function loadUser(addr) {
   const T_COIN = `0x2::coin::Coin<${T_GTS}>`;
   // The player's unrefined GTS (a dynamic field on the Board) and the Board's fee accumulator.
   const addrBcs = btoa(String.fromCharCode(...addr.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16))));
-  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}}`;
+  // The player's Wealth Fund tickets in the current draw: PlayerTicketsKey { epoch (u64 LE), player }.
+  const ep = STATE?.tickets?.epoch;
+  const epBcs = ep == null ? "" : btoa(String.fromCharCode(...Array.from({ length: 8 }, (_, i) => Number((BigInt(ep) >> BigInt(8 * i)) & 255n)), ...atob(addrBcs).split("").map(c => c.charCodeAt(0))));
+  const tkQ = WF_PKG && epBcs ? ` t:dynamicField(name:{type:"${WF_PKG}::game::PlayerTicketsKey",bcs:"${epBcs}"}){value{... on MoveValue{json}}}` : "";
+  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}}`;
   const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
     ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)}} ${refQ}}`);
   const uj = d.rf?.u?.value?.json, acc = BigInt(d.rf?.asMoveObject?.contents?.json?.acc || 0);
@@ -243,6 +257,7 @@ async function loadUser(addr) {
   const miner = miners.reduce((a, m) => (!a || num(m.f.round_id) > num(a.f.round_id) ? m : a), null);
   return {
     sui: num(bal.address?.s?.totalBalance), gts: num(bal.address?.g?.totalBalance), gtsAB: num(bal.address?.g?.addressBalance), unrefined,
+    tickets: num(d.rf?.t?.value?.json),
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
     stake,
@@ -301,7 +316,8 @@ async function topUp(lists) {
 async function loadHistory() {
   const [settled, deployed, redeemed, mlEv] = await cachedEvents().catch(() =>
     Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.ml)]));
-  const ml = mlRows(mlEv.list.map(e => e.j));
+  const wonEv = WF_PKG ? await allEvents(EV_WF_WON).catch(() => ({ list: [] })) : { list: [] };
+  const ml = mlRows(mlEv.list.map(e => e.j), wonRows(wonEv.list.map(e => e.j)));
   const byRound = new Map();
   deployed.list.forEach(e => {
     const r = num(e.j.round_id);
@@ -936,10 +952,12 @@ function renderResult() {
   const winners = players.map(p => ({ p, won: winOf(p, L) })).filter(x => x.won > 0).sort((x, y) => y.won - x.won);
   const n = winners.length;
   const won = L.round >= FAIR_FROM ? winners.reduce((a, x) => a + profitOf(x.p, L), 0) : L.payout;
-  let sub = L.winners === 0 ? (L.ml ? (L.round >= FAIR_FROM ? "No one was on this tile. 19.5% of the pot went into the Wealth Fund, the rest to the reserve." : L.vault > 5 * L.dev ? "No one was on this tile. Half the pot went into the Wealth Fund, half went to the reserve." : "No one was on this tile. The pot went into the Wealth Fund.") : "No one was on this tile. The pot went to the reserve.")
-    : L.ml?.paid > 0 ? `Wealth Fund paid out! ${sui(L.ml.paid, 4)} SUI landed on this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI`
+  const toFund = L.ml?.added > 0 && L.total > 0 ? `${fmt(L.ml.added / L.total * 100, 1)}% of the pot` : "Part of the pot";
+  let sub = L.winners === 0 ? (L.ml ? `No one was on this tile. ${toFund} went into the Wealth Fund, the rest to the reserve.` : "No one was on this tile. The pot went to the reserve.")
+    : L.ml?.paid > 0 && !L.ml.winner ? `Wealth Fund paid out! ${sui(L.ml.paid, 4)} SUI landed on this tile. ${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI`
     : won > 0 ? `${n === 1 ? "The winner takes" : `${n || "The"} winners split`} ${sui(won, 4)} SUI from the other tiles`
     : "Only this tile was played. Stakes returned.";
+  if (L.ml?.winner) sub = `Wealth Fund paid ${sui(L.ml.paid, 4)} SUI to ticket holder ${acctLink(L.ml.winner)} · ` + sub;
   const top = winners[0], topProfit = top ? profitOf(top.p, L) : 0;
   if (top && topProfit > 0) sub += ` · Top <span${nameOf(top.p.player) ? "" : ' class="mono"'}>${esc(top.p.player === account?.address ? "You" : label(top.p.player))}</span> +${sui(topProfit, 4)} SUI`;
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
@@ -1026,7 +1044,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0)) / 10_000, fair = round >= FAIR_FROM;
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = round >= FAIR_FROM;
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
@@ -1091,15 +1109,19 @@ function renderRewards() {
   if (R.any) hc.textContent = R.sui > 0 ? `Claim ${sui(R.sui, 3)} SUI` : "Claim";
 }
 
-// Wealth Fund line: odds, then the last payout with the winning wallets, or the rounds since it started filling.
+// Wealth Fund line: odds, the player's share of the tickets, then the last payout and who got it, or
+// the rounds since it started filling.
 function mlOddsText() {
   if (!STATE) return "";
-  let t = `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`;
+  const v4 = !!STATE.tickets || !!WF_PKG;
+  let t = v4 ? `1 in ${fmt(STATE.mlOdds, 0)} chance each round` : `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`;
+  const total = STATE.tickets?.total || 0, mine = USER?.tickets || 0;
+  if (v4 && account) t += mine > 0 && total > 0 ? ` · you hold ${fmt(mine / total * 100, mine / total < 0.01 ? 2 : 1)}% of the tickets` : " · you hold no tickets yet";
   if (HIST?.rounds.length) {
     const hit = HIST.rounds.find(r => r.ml?.paid > 0), start = HIST.rounds.filter(r => r.ml).pop();
     const since = hit ? HIST.rounds.filter(r => r.round > hit.round).length : start ? HIST.rounds.filter(r => r.round >= start.round).length : 0;
     if (hit) {
-      const who = [...playersOf(hit, HIST.byRound.get(hit.round) || [])].filter(([, a]) => a.onWin > 0).map(([p]) => acctLink(p));
+      const who = hit.ml.winner ? [acctLink(hit.ml.winner)] : [...playersOf(hit, HIST.byRound.get(hit.round) || [])].filter(([, a]) => a.onWin > 0).map(([p]) => acctLink(p));
       t = esc(t) + ` · Last paid ${sui(hit.ml.paid, 4)} SUI in round #${fmt(hit.round, 0)} to ${who.length ? who.join(", ") : "the winners"} · ${fmt(since, 0)} rounds ago`;
       return t;
     }
@@ -1195,7 +1217,7 @@ function renderExplorer() {
   $("gReserve").textContent = `${N.reserve()} SUI`;
   $("gMarket").textContent = marketText();
   $("gSupernova").textContent = `${N.fund()} SUI`;
-  $("gMlOdds").textContent = `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner`;
+  $("gMlOdds").textContent = WF_PKG ? `1 in ${fmt(STATE.mlOdds, 0)} per round, to one ticket` : `1 in ${fmt(STATE.mlOdds, 0)} per round with a winner`;
   $("gSnPaid").textContent = t ? `${sui(t.snPaid, 4)} SUI` : "—";
   $("gDeployed").textContent = `${sui(STATE.board.cur_total, 3)} SUI`;
   $("gRounds").textContent = t ? fmt(t.rounds, 0) : "—";
@@ -1268,7 +1290,7 @@ function minersHtml(r) {
 function renderRevenue() {
   const cfg = {
     reserve: { v: vaulted, unit: "SUI", share: "Reserve fee, plus the rest when no one wins", label: "Added to the GTS reserve" },
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Part of the pot when no one wins", label: "Added to the Wealth Fund" },
+    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "Part of every pot, more when no one wins", label: "Added to the Wealth Fund" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);

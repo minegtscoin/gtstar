@@ -1,6 +1,6 @@
 // GTStar Shield: a temporary bot wallet against 0xf375...bac4, which covers all 25 tiles with 1 SUI a round
 // straight through the contract. Until game v8 (the fair split) the whole winning share goes to whoever sits
-// on the winning tile, so covering the board takes most of the GTS emission and the Wealth Fund.
+// on the winning tile, so covering the board takes most of the GTS emission.
 // The Shield joins only rounds that wallet is in, on every tile (see BREAK below), so it takes most of
 // both instead. It claims its previous round in the same transaction and redeems the GTS at the floor
 // (burned, SUI back), so the same SUI rolls round after round.
