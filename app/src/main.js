@@ -183,17 +183,14 @@ async function loadGlobal() {
     board,
   };
 }
-// Staking pool (a dynamic field of the Board) and the SUI it earned over the last 7 days of rounds.
+// Staking pool (a dynamic field of the Board) and the SUI it earned in the last hour.
 function stakeOf(d) {
   const p = d.sk?.p?.value?.json;
   if (!p) return null;
-  const now = Date.now(), week = 7 * 86_400_000;
-  const ev = (d.sr?.nodes || []).map(n => ({ t: new Date(n.timestamp).getTime(), a: num(n.contents?.json?.amount) }));
-  const recent = ev.filter(e => now - e.t < week);
-  // 50 events can cover less than a week: then scale by the time they span.
-  const span = ev.length >= 50 && recent.length === ev.length ? Math.max(3600_000, now - Math.min(...ev.map(e => e.t)))
-    : Math.max(3600_000, Math.min(week, now - GAME_LAUNCH));
-  const yearly = recent.reduce((a, e) => a + e.a, 0) * (365.25 * 86_400_000 / span);
+  // APR right now: the SUI paid to stakers in the last hour, scaled to a year. No rounds in the last hour = 0.
+  const hour = 3600_000, now = Date.now();
+  const lastHour = (d.sr?.nodes || []).filter(n => now - new Date(n.timestamp).getTime() < hour).reduce((a, n) => a + num(n.contents?.json?.amount), 0);
+  const yearly = lastHour * (365.25 * 86_400_000 / hour);
   return {
     bps: num(d.sk?.bp?.value?.json), amount: num(p.total_amount), weight: num(p.total_weight), paid: num(p.paid_total),
     acc: BigInt(p.acc || 0), table: p.positions?.id, yearly,
@@ -1445,9 +1442,12 @@ function renderStake() {
   // APR: yearly SUI per staked GTS (weight is GTS x 10), over the GTS price in SUI.
   const px = gtsSui();
   const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
-  $("sAprFlex").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
+  $("sAprFlex").textContent = apr == null ? "—" : apr === 0 ? "0% · no rounds in the last hour" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
+  // Your part of every round's staker share, from your weight in the pool now.
+  const myW = Number((f?.weight || 0n) + (l?.weight || 0n));
+  $("sShare").textContent = !USER ? "—" : S && S.weight > 0 && myW > 0 ? `${fmt(myW / S.weight * 100, myW / S.weight < 0.1 ? 2 : 1)}% of every round's staker share` : "Stake to get a share";
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. Your yield grows with every round played. APR is based on the rounds played so far and changes with how much is played and staked.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. Your yield grows with every round played. APR shows the last hour of rounds, so it rises when the game is busy and falls to 0 when no one plays.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
