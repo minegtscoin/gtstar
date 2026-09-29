@@ -31,6 +31,7 @@ use sui::random::{Self, Random};
 use sui::sui::SUI;
 use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
+use gtstar::staking::{Self, Pool as StakePool};
 
 // ===== Constants =====
 const GRID: u64 = 25;
@@ -74,14 +75,14 @@ const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94f
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
 
 /// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's buyback
-/// share, so the draw pays for its own gas. Rounds without a buyback share pay nothing.
+/// share, then its reserve share, so the draw pays for its own gas.
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Precision of the per-GTS withdraw-fee accumulator.
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -101,6 +102,7 @@ const EBadParams: u64 = 18;
 const EPaused: u64 = 19;
 const ENothingToWithdraw: u64 = 20;
 const EBuybackOpen: u64 = 21;
+const ENoStaking: u64 = 22;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -160,6 +162,10 @@ public struct SeatKey has copy, drop, store { round_id: u64, player: address }
 /// Dynamic field on the Board: one player's unrefined balance. Removed when it is withdrawn.
 public struct UnrefinedKey has copy, drop, store { player: address }
 public struct Unrefined has store, drop { amount: u64, bonus: u64, snap: u256 }
+
+/// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
+public struct StakeKey has copy, drop, store {}
+public struct StakeBpsKey has copy, drop, store {}
 
 /// Right to change the settings and take the buyback SUI.
 public struct AdminCap has key, store { id: UID }
@@ -221,6 +227,7 @@ public struct Claimed has copy, drop { round_id: u64, player: address, gts: u64,
 public struct BuybackTaken has copy, drop { amount: u64 }
 /// GTS bought back and burned.
 public struct BuybackBurned has copy, drop { amount: u64 }
+public struct StakingChanged has copy, drop { stake_bps: u64 }
 /// SUI paid to whoever settled a round, out of its buyback share.
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 
@@ -304,7 +311,7 @@ public fun set_params(
 ) {
     check_version(board);
     assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
-    assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps <= 10_000, EBadParams);
+    assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) <= 10_000, EBadParams);
     assert!(refine_fee_bps <= MAX_REFINE_FEE_BPS, EBadParams);
     assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
     assert!(round_ms >= MIN_ROUND_MS && round_ms <= MAX_ROUND_MS && freeze_ms <= round_ms / 2, EBadParams);
@@ -349,6 +356,53 @@ public fun renounce(cap: AdminCap, board: &Board) {
     let AdminCap { id } = cap;
     object::delete(id);
     event::emit(Renounced {});
+}
+
+/// Set the stakers' share of the losing pot (bps), creating the staking pool the first time.
+public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxContext) {
+    check_version(board);
+    assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + bps <= 10_000, EBadParams);
+    if (!df::exists(&board.id, StakeKey {})) {
+        df::add(&mut board.id, StakeKey {}, staking::new(ctx));
+        df::add(&mut board.id, StakeBpsKey {}, 0u64);
+    };
+    *df::borrow_mut<StakeBpsKey, u64>(&mut board.id, StakeBpsKey {}) = bps;
+    event::emit(StakingChanged { stake_bps: bps });
+}
+
+fun stake_bps(board: &Board): u64 {
+    if (df::exists(&board.id, StakeBpsKey {})) { *df::borrow<StakeBpsKey, u64>(&board.id, StakeBpsKey {}) } else { 0 }
+}
+
+fun pool_mut(board: &mut Board): &mut StakePool {
+    assert!(df::exists(&board.id, StakeKey {}), ENoStaking);
+    df::borrow_mut<StakeKey, StakePool>(&mut board.id, StakeKey {})
+}
+
+// ===== Staking (see `staking`) =====
+
+/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). Yield is paid in SUI from every round.
+public fun stake(board: &mut Board, gts: Coin<GTS>, locked: bool, clock: &Clock, ctx: &mut TxContext) {
+    check_version(board);
+    staking::stake(pool_mut(board), gts, locked, clock, ctx)
+}
+
+/// Take staked GTS out: flexible any time, locked once its 7 days have passed.
+public fun unstake(board: &mut Board, amount: u64, locked: bool, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
+    check_version(board);
+    staking::unstake(pool_mut(board), amount, locked, clock, ctx)
+}
+
+/// Claim all SUI yield of the sender.
+public fun claim_yield(board: &mut Board, ctx: &mut TxContext): Coin<SUI> {
+    check_version(board);
+    staking::claim(pool_mut(board), ctx)
+}
+
+/// Drop `player`'s ended lock back to 1x. Anyone may call it.
+public fun poke(board: &mut Board, player: address, clock: &Clock) {
+    check_version(board);
+    staking::poke(pool_mut(board), player, clock)
 }
 
 // ===== Play =====
@@ -446,13 +500,27 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let winners_total = *vector::borrow(&board.cur_deployed, (winning as u64));
     let losing_pot = board.cur_total - winners_total;
 
-    let mut vault_part = mul_div(losing_pot, board.vault_bps, 10_000);
+    let vault_full = mul_div(losing_pot, board.vault_bps, 10_000);
     let dev_part = mul_div(losing_pot, DEV_BPS, 10_000);
     let buyback_full = mul_div(losing_pot, board.buyback_bps, 10_000);
-    let draw_reward = if (buyback_full < DRAW_REWARD_MAX) { buyback_full } else { DRAW_REWARD_MAX };
-    let buyback_part = buyback_full - draw_reward;
-    let mut losing_after_fee = losing_pot - vault_part - dev_part - buyback_full;
+    let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
+    // The drawer is paid from the buyback share first, then from the reserve share.
+    let from_buyback = if (buyback_full < DRAW_REWARD_MAX) { buyback_full } else { DRAW_REWARD_MAX };
+    let rest = DRAW_REWARD_MAX - from_buyback;
+    let from_vault = if (vault_full < rest) { vault_full } else { rest };
+    let draw_reward = from_buyback + from_vault;
+    let buyback_part = buyback_full - from_buyback;
+    let mut vault_part = vault_full - from_vault;
+    let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - stake_part;
 
+    // Stakers' share: split among everyone staked now, or to the reserve when nobody is.
+    if (stake_part > 0) {
+        let part = balance::split(&mut board.pot, stake_part);
+        let round_id = board.cur_id;
+        let pool = df::borrow_mut<StakeKey, StakePool>(&mut board.id, StakeKey {});
+        if (staking::has_stakers(pool)) { staking::reward(pool, round_id, part) }
+        else { balance::join(&mut board.pot, part); vault_part = vault_part + stake_part; };
+    };
     if (vault_part > 0) { gts::vault_add(treasury, balance::split(&mut board.pot, vault_part)); };
     if (dev_part > 0) { balance::join(&mut board.dev_fees, balance::split(&mut board.pot, dev_part)); };
     if (buyback_part > 0) { balance::join(&mut board.buyback, balance::split(&mut board.pot, buyback_part)); };
@@ -700,6 +768,18 @@ public fun unrefined_of(board: &Board, player: address): (u64, u64) {
     (u.amount, u.bonus + earned(u.amount, board.acc, u.snap))
 }
 public fun unrefined_total(board: &Board): u64 { board.unrefined_total }
+/// Stakers' share of the losing pot in bps (0 before staking is set up).
+public fun staking_bps(board: &Board): u64 { stake_bps(board) }
+/// (GTS staked, total weight in tenths, SUI paid to stakers so far, SUI waiting to be claimed).
+public fun staking_totals(board: &Board): (u64, u128, u64, u64) {
+    if (!df::exists(&board.id, StakeKey {})) { return (0, 0, 0, 0) };
+    staking::totals(df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}))
+}
+/// (GTS staked, locked until (ms, 0 if flexible), SUI claimable) of one of `player`'s positions.
+public fun staking_position(board: &Board, player: address, locked: bool): (u64, u64, u64) {
+    if (!df::exists(&board.id, StakeKey {})) { return (0, 0, 0) };
+    staking::position(df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}), player, locked)
+}
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) { init(ctx) }

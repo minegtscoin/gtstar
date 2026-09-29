@@ -2,6 +2,8 @@
 //   node scripts/admin2.mjs show                           current settings and emission
 //   node scripts/admin2.mjs set odds=1000 reserve=400      change some settings, keep the rest
 //   node scripts/admin2.mjs emission reward=1 step=15658   change the emission, keep the rest
+//   node scripts/admin2.mjs staking 300                    stakers' share of the losing pot, bps (creates the pool once)
+//   node scripts/admin2.mjs buyback-to-reserve             move the buyback SUI held on the Board into the reserve
 // set keys: odds (Wealth Fund 1 in N), fund (fund share of a no-winner pot, bps), reserve (bps),
 //   buyback (bps), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
@@ -77,6 +79,22 @@ function apply(obj, args) {
 }
 
 const [mode, ...args] = process.argv.slice(2);
+if (mode === "staking") {
+  const bps = Number(args[0]);
+  if (!(bps >= 0)) throw new Error("usage: staking <bps>");
+  await run((tx, cap) => tx.moveCall({ target: `${G}::set_staking`, arguments: [cap, tx.object(dep.board), tx.pure.u64(bps)] }));
+  console.log(await current());
+  process.exit(0);
+}
+if (mode === "buyback-to-reserve") {
+  await run((tx, cap) => {
+    const [c] = tx.moveCall({ target: `${G}::take_buyback`, arguments: [cap, tx.object(dep.board)] });
+    const bal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: ["0x2::sui::SUI"], arguments: [c] });
+    tx.moveCall({ target: `${dep.latest}::gts::vault_add`, arguments: [tx.object(dep.treasury), bal] });
+  });
+  console.log(await current());
+  process.exit(0);
+}
 if (mode === "show") console.log(await current());
 else if (mode === "set") {
   const s = (await current()).params;

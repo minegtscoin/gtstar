@@ -455,3 +455,146 @@ fun test_draw_reward() {
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
 }
+
+const CAROL: address = @0xCA501;
+
+/// Staking set up as planned: reserve 6%, buyback 0, stakers 3%.
+fun setup_staking(sc: &mut Scenario) {
+    setup(sc);
+    let admin = ts::take_from_sender<AdminCap>(sc);
+    let mut board = ts::take_shared<Board>(sc);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 600, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_staking(&admin, &mut board, 300, ts::ctx(sc));
+    ts::return_to_sender(sc, admin);
+    ts::return_shared(board);
+}
+
+fun stake_as(sc: &mut Scenario, who: address, amt: u64, locked: bool, now: u64) {
+    ts::next_tx(sc, who);
+    let mut board = ts::take_shared<Board>(sc);
+    let mut clk = clock::create_for_testing(ts::ctx(sc));
+    clock::set_for_testing(&mut clk, now);
+    game::stake(&mut board, coin::mint_for_testing<gtstar::gts::GTS>(amt, ts::ctx(sc)), locked, &clk, ts::ctx(sc));
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+}
+
+/// Carol plays 0.1 SUI on every tile at `now`: 2.4 SUI losing pot, 3% of it (0.072) to stakers.
+fun carol_round(sc: &mut Scenario, now: u64) {
+    ts::next_tx(sc, CAROL);
+    let mut board = ts::take_shared<Board>(sc);
+    let mut treasury = ts::take_shared<Treasury>(sc);
+    let rs = ts::take_shared<Random>(sc);
+    let mut clk = clock::create_for_testing(ts::ctx(sc));
+    clock::set_for_testing(&mut clk, now);
+    let mut m = game::new_miner(ts::ctx(sc));
+    play_round(sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    transfer::public_transfer(m, CAROL);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+}
+
+fun claim_yield_as(sc: &mut Scenario, who: address): u64 {
+    ts::next_tx(sc, who);
+    let mut board = ts::take_shared<Board>(sc);
+    let c = game::claim_yield(&mut board, ts::ctx(sc));
+    let v = coin::value(&c);
+    coin::burn_for_testing(c);
+    ts::return_shared(board);
+    v
+}
+
+/// Flexible (1x) and locked (1.5x) share the stakers' 3% by weight: 40% / 60%.
+#[test]
+fun test_staking_yield_split() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    carol_round(&mut sc, 10);
+    let pot = 72_000_000; // 3% of 2.4 SUI
+    assert!(claim_yield_as(&mut sc, ALICE) == pot * 2 / 5, 1);
+    assert!(claim_yield_as(&mut sc, BOB) == pot * 3 / 5, 2);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (amount, weight, paid, waiting) = game::staking_totals(&board);
+    assert!(amount == 2 * GTS1 && weight == (25 * GTS1 as u128) && paid == pot && waiting == 0, 3);
+    assert!(game::pot_value(&board) == 0, 4);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// With nobody staked, the stakers' share goes to the reserve; the drawer is paid from the reserve share.
+#[test]
+fun test_no_stakers_to_reserve() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    carol_round(&mut sc, 10);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let treasury = ts::take_shared<Treasury>(&sc);
+    let losing = 2_400_000_000;
+    let share = losing * 90 / 100;
+    let kept = share / 25;
+    // reserve 6% + stakers 3% + winnings not kept, minus 0.005 to the drawer (Carol).
+    assert!(gts::vault_value(&treasury) == losing * 9 / 100 - 5_000_000 + (share - kept), 1);
+    assert!(game::buyback_value(&board) == 0 && game::pot_value(&board) == 0, 2);
+    ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// A locked stake cannot leave before 7 days.
+#[test, expected_failure(abort_code = gtstar::staking::ELocked)]
+fun test_lock_holds() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 6 * 86_400_000);
+    let g = game::unstake(&mut board, GTS1, true, &clk, ts::ctx(&mut sc));
+    coin::burn_for_testing(g);
+    abort 0
+}
+
+/// After 7 days: poke drops the lock to 1x, and the GTS can leave.
+#[test]
+fun test_lock_ends() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    let week = 7 * 86_400_000 + 2;
+    ts::next_tx(&mut sc, CAROL);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, week);
+    game::poke(&mut board, BOB, &clk);
+    let (_, weight, _, _) = game::staking_totals(&board);
+    assert!(weight == (20 * GTS1 as u128), 1);
+    ts::return_shared(board);
+    carol_round(&mut sc, week);
+    // Equal weights now: equal yield.
+    assert!(claim_yield_as(&mut sc, ALICE) == claim_yield_as(&mut sc, BOB), 2);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let g = game::unstake(&mut board, GTS1, true, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == GTS1, 3);
+    coin::burn_for_testing(g);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// Fees can never pass 100% with the stakers' share included.
+#[test, expected_failure(abort_code = game::EBadParams)]
+fun test_staking_bounds() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    ts::next_tx(&mut sc, OWNER);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_staking(&admin, &mut board, 7_500, ts::ctx(&mut sc));
+    abort 0
+}
