@@ -112,6 +112,8 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // (V8FromKey) GTS goes by SUI deployed, win or lose. From V9_FROM (V9FromKey) there is no reserve: what a
 // spread deposit does not keep goes to the Wealth Fund.
 const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31, V9_FROM = 33;
+// SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
+const RESERVE_MOVED = 12_288_264_223;
 // Relaunch game published (deployments/mainnet.json publishedAt).
 const GAME_LAUNCH = Date.parse("2026-09-29T10:20:50Z");
 const isFair = n => (n >= FAIR_FROM && n < V5_FROM) || n >= V9_FROM;
@@ -787,6 +789,7 @@ const N = {
 };
 function renderHome() {
   $("hMotherlode").textContent = STATE ? N.fund() : "—";
+  $("hBuyback").textContent = STATE ? `${fmt(STATE.board.buyback_bps / 100, 2)}%` : "—";
   // GTS market price (Cetus pool) in dollars; SUI until the SUI price loads.
   $("hPrice").textContent = STATE && gtsSui() ? N.price() : "—";
   $("hSupply").textContent = STATE ? N.supply() : "—";
@@ -1315,13 +1318,15 @@ function minersHtml(r) {
 }
 function renderRevenue() {
   const cfg = {
-    supernova: { v: r => r.ml?.added || 0, unit: "SUI", share: "6% of every losing pot, all of it when no one wins", label: "Added to the Wealth Fund" },
+    // Settle adds the round's share; a spread deposit's forfeit is added at claim (the split).
+    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `${fmt((STATE.fundBps || 0) / 100, 2)}% of every losing pot, all of it less fees when no one wins, plus what spread deposits do not keep. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);
   const day = Date.now() - 86_400_000;
   const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
-  $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
+  // The old reserve's SUI moved into the fund once, outside any round (tx A3pyW6Mp..., 2026-09-29).
+  $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total + RESERVE_MOVED, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
   $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
     (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${r.winners === 0 ? "No miner on the winning tile" : "Share of the losing pot"}</td>
       <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")

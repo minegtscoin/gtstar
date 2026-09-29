@@ -146,7 +146,7 @@
       <li><strong>Capped supply.</strong> At most 1,000,000 GTS will ever exist. The cap is enforced by the token contract, mining stops for good when it is reached, and burned GTS is never minted again.</li>
       <li><strong>Provably random.</strong> Winners are drawn with Sui's on-chain randomness. No server, operator or player can see or steer the result.</li>
       <li><strong>Every SUI mines.</strong> Every SUI you deploy in a round mines GTS, win or lose.</li>
-      <li><strong>Buyback and burn.</strong> 1% of every losing pot buys GTS on the market and burns it.</li>
+      <li><strong>Buyback and burn.</strong> 3% of every losing pot buys GTS on the market and burns it.</li>
       <li><strong>Non-custodial.</strong> The app holds no keys and no funds. Every action is signed in your own wallet.</li>
     </ul>
 
@@ -177,16 +177,16 @@ my_gts       = round_reward * my_deposit / round_total</span>
     <span class="code">fee = 10% * time_left / 7 days   (0 after 7 days)
 withdraw = my_unrefined - my_unrefined * fee   (the fee is burned)</span>
     <h3>Wealth Fund</h3>
-    <p>Every round, 6% of the losing pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, plus what spread deposits do not keep from a win. If no one deployed on the winning tile, the whole pot less the other fees goes in. Every round has a 1 in 100 chance to pay the whole Wealth Fund to <strong>one ticket holder</strong>.</p>
-    <p><strong>Tickets.</strong> When you lose SUI in a round, you pay 10% of it in fees (Wealth Fund 6%, stakers 2%, buyback 1%, creator 1%), and those fees are your tickets. Tickets add up from the last payout. When the fund pays, one ticket is drawn at random, so more tickets mean a better chance. Tickets are added when your round is claimed, and all tickets reset after each payout. Nobody gets fees back, so every ticket costs real SUI: splitting SUI across several wallets gives no extra tickets. GTStar bots get no tickets.</p>
+    <p>Every round, 4% of the losing pot goes into the <strong>Wealth Fund</strong>, a jackpot that keeps growing, plus what spread deposits do not keep from a win. If no one deployed on the winning tile, the whole pot less the other fees goes in. Every round has a 1 in 100 chance to pay the whole Wealth Fund to <strong>one ticket holder</strong>.</p>
+    <p><strong>Tickets.</strong> When you lose SUI in a round, you pay 10% of it in fees (Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%), and those fees are your tickets. Tickets add up from the last payout. When the fund pays, one ticket is drawn at random, so more tickets mean a better chance. Tickets are added when your round is claimed, and all tickets reset after each payout. Nobody gets fees back, so every ticket costs real SUI: splitting SUI across several wallets gives no extra tickets. GTStar bots get no tickets.</p>
     <span class="code">my_tickets = fees I paid on SUI I lost since the last payout   (10% of what I lost)
 my_chance  = my_tickets / all_tickets                          (when the fund pays)</span>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
-        <tr><td>Wealth Fund</td><td class="n">96%</td></tr>
+        <tr><td>Wealth Fund</td><td class="n">94%</td></tr>
+        <tr><td>Buyback</td><td class="n">3%</td></tr>
         <tr><td>Stakers</td><td class="n">2%</td></tr>
-        <tr><td>Buyback</td><td class="n">1%</td></tr>
         <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
     </table></div>
@@ -217,14 +217,14 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
       <tbody>
         <tr><td>Winners</td><td class="n">90%</td><td>Split across the winning tile by stake</td></tr>
         <tr><td>Stakers</td><td class="n">2%</td><td>Paid in SUI to GTS stakers</td></tr>
-        <tr><td>Wealth Fund</td><td class="n">6%</td><td>Paid to one ticket holder when it hits</td></tr>
-        <tr><td>Buyback</td><td class="n">1%</td><td>Buys GTS on the market and burns it</td></tr>
+        <tr><td>Wealth Fund</td><td class="n">4%</td><td>Paid to one ticket holder when it hits</td></tr>
+        <tr><td>Buyback</td><td class="n">3%</td><td>Buys GTS on the market and burns it</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td></td></tr>
       </tbody>
     </table></div>
-    <p>Whoever draws a round is paid up to 0.005 SUI of it from the Wealth Fund share, then the buyback share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds, so this is usually paid to the keeper. In a round whose losing pot is under about 0.083 SUI, the whole Wealth Fund share goes to the drawer.</p>
+    <p>Whoever draws a round is paid up to 0.005 SUI of it from the Wealth Fund share, then the buyback share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds, so this is usually paid to the keeper. In a round whose losing pot is under 0.125 SUI, the whole Wealth Fund share goes to the drawer.</p>
     <h3>Where lost SUI goes</h3>
-    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 4% leaves the game (2% to GTS stakers, 1% buyback, 1% creator), and 6% goes to the Wealth Fund, which pays it to one player when it hits. Spreading over many tiles wins more often, but the SUI on the other tiles is lost every time and a spread deposit keeps only part of its winnings, so a win can return much less than you put in.</p>
+    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (3% buyback, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund, which pays it to one player when it hits. Spreading over many tiles wins more often, but the SUI on the other tiles is lost every time and a spread deposit keeps only part of its winnings, so a win can return much less than you put in.</p>
     <h3>Staking</h3>
     <p>Stake GTS and earn SUI: stakers share 2% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Choose <strong>flexible</strong> (1x, withdraw any time) or <strong>locked for 7 days</strong> (1.5x). Adding to a locked stake restarts its 7 days; when a lock ends it counts 1x again. With nobody staked, the stakers' share goes to the Wealth Fund.</p>
     <span class="code">my_yield = round_share * my_weight / all_weight     // weight = GTS x 1 (flexible) or x 1.5 (locked)</span>
@@ -240,7 +240,7 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
       <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the game or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
       <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share has its own cap (stakers 5%, Wealth Fund 10%, buyback 3%), and the old reserve share is fixed at 0. The buyback SUI stays in the game until the keeper spends it, and the same transaction must burn GTS for it (<code>buyback_take</code> / <code>buyback_burn</code>); every buy emits <code>BuybackDone</code> with the SUI spent and the GTS burned, so the price paid can be checked. The owner cannot take it. Wealth Fund odds can be set anywhere from 1 in 100 to 1 in 1,000,000.</li>
     </ul>
-    <p>Current settings on-chain: Wealth Fund 6%, stakers 2%, buyback 1%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 100, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Current settings on-chain: Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 100, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
     <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
