@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
+  "latest": "0x7c1288891489591765402a61bee62df34a68de25ffb0459d6e83c020f4ae5c42",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -25,7 +25,12 @@
     [
       "Game upgraded: GTS staking with SUI yield (flexible 1x, 7-day lock 1.5x)",
       "H7arfu6ks6SNf8fH7gWopFgacKRLzSABL6smXEsX3fn"
+    ],
+    [
+      "Game upgraded: Wealth Fund pays one ticket holder (tickets = fees paid on SUI lost), 2% of every pot goes to it",
+      "2yhDBi5HpssYs8cVFnMVJMDs3QTTkbpiayVXGtAEz5bQ"
     ]
   ],
-  "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d"
+  "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
+  "wfPkg": "0x7c1288891489591765402a61bee62df34a68de25ffb0459d6e83c020f4ae5c42"
 }
