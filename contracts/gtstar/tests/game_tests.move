@@ -24,6 +24,13 @@ fun setup(sc: &mut Scenario) {
     ts::next_tx(sc, OWNER);
     gts::init_for_testing(ts::ctx(sc));
     game::init_for_testing(ts::ctx(sc));
+    // No reserve: the 4% that went to it goes to the Wealth Fund (5% fees in all with the creator's 1%).
+    ts::next_tx(sc, OWNER);
+    let admin = ts::take_from_sender<AdminCap>(sc);
+    let mut board = ts::take_shared<Board>(sc);
+    game::set_fund_bps(&admin, &mut board, 400);
+    ts::return_to_sender(sc, admin);
+    ts::return_shared(board);
     ts::next_tx(sc, OWNER);
 }
 
@@ -68,9 +75,9 @@ fun test_launch_emission() {
     ts::end(sc);
 }
 
-/// A round with a winner: creator 1%, reserve 4% (0.005 of it to the drawer), no buyback, winners 95%,
-/// kept whole even when spread over every tile. 1 GTS mined into the unrefined balance, all for the SUI
-/// lost. Every mist is accounted for.
+/// A round with a winner: creator 1%, Wealth Fund 4% (0.005 of it to the drawer), no buyback, winners
+/// 95%. Spread over every tile, the winner keeps 1/25 of that share (the fair split) and the rest goes
+/// to the Wealth Fund. 1 GTS mined into the unrefined balance. No reserve. Every mist is accounted for.
 #[test]
 fun test_round_with_winner() {
     let mut sc = ts::begin(@0x0);
@@ -85,10 +92,13 @@ fun test_round_with_winner() {
     let per = 100_000_000;
     let (g, s) = play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, per);
     let losing = per * 24;
-    assert!(s == per + losing * 95 / 100, 1);
+    let share = losing * 95 / 100;
+    assert!(s == per + share / 25, 1);
     assert!(game::dev_fees_value(&board) == losing / 100, 2);
     assert!(game::buyback_value(&board) == 0, 3);
-    assert!(gts::vault_value(&treasury) == losing * 4 / 100 - 5_000_000, 4); // 0.005 SUI to the drawer
+    // Fund share minus 0.005 SUI to the drawer, plus the part of the share the spread deposit forfeits.
+    assert!(game::motherlode_value(&board) == losing * 4 / 100 - 5_000_000 + share - share / 25, 4);
+    assert!(gts::vault_value(&treasury) == 0, 9);
     assert!(game::pot_value(&board) == 0, 5);
     assert!(g == 0 && game::unrefined_total(&board) == GTS1, 6); // 2.5 SUI >= 1 SUI: full 1 GTS
     assert!(gts::minted(&treasury) == GTS1, 7);
@@ -192,8 +202,8 @@ fun test_cap_stops_mining() {
     ts::end(sc);
 }
 
-/// No one on the winning tile: creator 1%, reserve 4% (all of it to the drawer here: 0.004 < 0.005),
-/// Wealth Fund 19.5%, the rest to the reserve.
+/// No one on the winning tile: creator 1%, the Wealth Fund's 4% (all of it to the drawer here:
+/// 0.004 < 0.005), and the whole rest to the Wealth Fund. Nothing to a reserve.
 #[test]
 fun test_round_without_winner() {
     let mut sc = ts::begin(@0x0);
@@ -222,8 +232,8 @@ fun test_round_without_winner() {
         if (game::winning_square_for_testing(&board, round) != 0) {
             assert!(game::dev_fees_value(&board) - dev_before == amt / 100, 1);
             assert!(game::buyback_value(&board) - buy_before == 0, 2);
-            assert!(game::motherlode_value(&board) - fund_before == amt * 1_950 / 10_000, 3);
-            assert!(gts::vault_value(&treasury) - vault_before == amt - amt / 100 - amt * 4 / 100 - amt * 1_950 / 10_000, 4);
+            assert!(game::motherlode_value(&board) - fund_before == amt - amt / 100 - amt * 4 / 100, 3);
+            assert!(gts::vault_value(&treasury) == vault_before, 4);
             done = true;
         };
         let (g, s) = game::claim(&mut board, &mut m, &mut treasury, ts::ctx(&mut sc));
@@ -260,7 +270,7 @@ fun round_as(sc: &mut Scenario, who: address, board: &mut Board, treasury: &mut 
     sv
 }
 
-/// Tickets are the fee paid on the SUI lost: 5% (creator 1 + reserve 4) of a lost deposit,
+/// Tickets are the fee paid on the SUI lost: 5% (creator 1 + Wealth Fund 4) of a lost deposit,
 /// nothing for a round won. Odds of a million keep the fund from paying during the test.
 #[test]
 fun test_tickets_are_fee_paid() {
@@ -306,8 +316,9 @@ fun test_whale_tickets_below_loss() {
     ts::end(sc);
 }
 
-/// 25 wallets of one owner, one tile each (the cheapest way to cover the board): the winner takes the
-/// others' losses, so together they only lose the fees. Their tickets equal exactly those fees: a ticket
+/// 25 wallets of one owner, one tile each (the cheapest way to cover the board; the fair split works
+/// per wallet, so it does not apply): the winner takes the others' losses, so together they only lose
+/// the fees. Their tickets equal exactly those fees: a ticket
 /// always costs one mist of real SUI, a second wallet makes it no cheaper. GTS goes by SUI deployed:
 /// all 25 wallets share the round reward equally, the same total one wallet on every tile would mine.
 #[test]
@@ -424,10 +435,12 @@ fun test_wealth_fund_pays() {
     let fund = game::motherlode_value(&board);
     let per = 10_000_000;
     let alice_back = round_as(&mut sc, ALICE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1);
-    assert!(game::motherlode_value(&board) == 0, 1);
     ts::next_tx(&mut sc, BOB);
     let won = ts::take_from_sender<coin::Coin<SUI>>(&sc);
-    assert!(coin::value(&won) == fund, 2);
+    // The whole fund, with this round's 4% share in it (minus 0.005 to the drawer). What Alice's spread
+    // deposit forfeits at claim starts the next fund.
+    assert!(coin::value(&won) == fund + per * 24 * 4 / 100 - 5_000_000, 2);
+    assert!(game::motherlode_value(&board) < fund, 1);
     coin::burn_for_testing(won);
     assert!(alice_back < per * 25, 3); // no jackpot for the winning tile
     let (epoch, total) = game::wealth_tickets(&board);
@@ -548,24 +561,26 @@ fun test_set_params_instant() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 500, 1_000, 800, 0, 500, 5_000_000, 90_000, 10_000, true);
+    game::set_params(&admin, &mut board, 500, 1_000, 0, 0, 500, 5_000_000, 90_000, 10_000, true);
     let (odds, share, vault, buyback, dev, refine, paused) = game::current_params(&board);
-    assert!(odds == 500 && share == 1_000 && vault == 800 && buyback == 0 && dev == 100 && refine == 500 && paused, 1);
+    assert!(odds == 500 && share == 1_000 && vault == 0 && buyback == 0 && dev == 100 && refine == 500 && paused, 1);
     ts::return_to_sender(&sc, admin);
     ts::return_shared(board);
     ts::end(sc);
 }
 
-/// Each fee has its own cap: reserve 15%, no-winner Wealth Fund 30%, Wealth Fund odds at least 1 in 100.
-#[test, expected_failure(abort_code = game::EBadParams)]
-fun test_reserve_cap() {
+/// No reserve: its share must stay 0.
+#[test, expected_failure(abort_code = game::ENoReserve)]
+fun test_no_reserve_share() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 1_501, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 1, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     abort 0
 }
+
+/// Each other fee has its own cap: no-winner Wealth Fund 30%, Wealth Fund odds at least 1 in 100.
 
 #[test, expected_failure(abort_code = game::EBadParams)]
 fun test_no_winner_share_cap() {
@@ -573,7 +588,7 @@ fun test_no_winner_share_cap() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 3_001, 400, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 3_001, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     abort 0
 }
 
@@ -583,7 +598,7 @@ fun test_odds_floor() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 99, 1_950, 400, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 99, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     abort 0
 }
 
@@ -594,7 +609,7 @@ fun test_caps_at_limit() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 100, 3_000, 1_500, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 100, 3_000, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     game::set_staking(&admin, &mut board, 500, ts::ctx(&mut sc));
     game::set_fund_bps(&admin, &mut board, 1_000);
     ts::return_to_sender(&sc, admin);
@@ -609,7 +624,7 @@ fun test_buyback_cap() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 301, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 301, 1_000, 10_000_000, 60_000, 5_000, false);
     abort 0
 }
 
@@ -622,7 +637,7 @@ fun test_buyback_saved_and_burned() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 100, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 100, 1_000, 10_000_000, 60_000, 5_000, false);
     ts::return_to_sender(&sc, admin);
     ts::next_tx(&mut sc, BOB);
     let mut treasury = ts::take_shared<Treasury>(&sc);
@@ -630,7 +645,7 @@ fun test_buyback_saved_and_burned() {
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    // 24 SUI lost: 1% = 0.24 SUI saved, the drawer is paid from the reserve share.
+    // 24 SUI lost: 1% = 0.24 SUI saved, the drawer is paid from the Wealth Fund share.
     assert!(game::buyback_value(&board) == 240_000_000, 1);
 
     ts::next_tx(&mut sc, KEEPER);
@@ -669,7 +684,7 @@ fun test_buyback_needs_gts() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 100, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 100, 1_000, 10_000_000, 60_000, 5_000, false);
     ts::return_to_sender(&sc, admin);
     ts::next_tx(&mut sc, BOB);
     let mut treasury = ts::take_shared<Treasury>(&sc);
@@ -701,7 +716,7 @@ fun test_pause_stops_deposits() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 0, 1_000, 10_000_000, 60_000, 5_000, true);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, true);
     let clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(10_000_000, ts::ctx(&mut sc)), one_tile(0, 10_000_000), &clk, ts::ctx(&mut sc));
@@ -715,7 +730,7 @@ fun test_renounce() {
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     game::renounce(admin, &board);
     ts::next_tx(&mut sc, OWNER);
     assert!(!ts::has_most_recent_for_sender<AdminCap>(&sc), 1);
@@ -738,9 +753,9 @@ fun test_one_miner_per_round() {
     abort 0
 }
 
-/// Redeem pays a pro-rata share of the reserve and burns the GTS.
-#[test]
-fun test_redeem() {
+/// GTS cannot be redeemed for SUI.
+#[test, expected_failure(abort_code = gtstar::gts::ENoReserve)]
+fun test_redeem_closed() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     ts::next_tx(&mut sc, BOB);
@@ -750,21 +765,54 @@ fun test_redeem() {
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
-    let g = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc)); // fee burned
-    let vault = gts::vault_value(&treasury);
+    let g = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    let s = gts::redeem(&mut treasury, g, ts::ctx(&mut sc));
+    coin::burn_for_testing(s);
+    abort 0
+}
+
+/// The SUI left in the old reserve moves to the Wealth Fund once; the reserve is then empty.
+#[test]
+fun test_reserve_to_fund() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    gts::vault_fill_for_testing(&mut treasury, SUI1, ts::ctx(&mut sc));
+    let before = game::motherlode_value(&board);
+    game::reserve_to_fund(&admin, &mut board, &mut treasury);
+    assert!(gts::vault_value(&treasury) == 0, 1);
+    assert!(game::motherlode_value(&board) == before + SUI1, 2);
+    ts::return_to_sender(&sc, admin);
+    ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Anyone may burn their own GTS: supply falls.
+#[test]
+fun test_burn_own_gts() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    let g = game::withdraw_gts_v6(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
     let supply = gts::total_supply(&treasury);
     let amt = coin::value(&g);
-    let s = gts::redeem(&mut treasury, g, ts::ctx(&mut sc));
-    assert!(gts::total_supply(&treasury) == supply - amt, 2);
-    assert!(coin::value(&s) == (((vault as u128) * (amt as u128) / (supply as u128)) as u64), 1);
-    coin::burn_for_testing(s);
+    game::burn_bought(&mut treasury, g, ts::ctx(&mut sc));
+    assert!(gts::total_supply(&treasury) == supply - amt, 1);
     transfer::public_transfer(m, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
 }
 
-/// The drawer is paid up to 0.005 SUI out of the round's reserve share.
+/// The drawer is paid up to 0.005 SUI out of the round's Wealth Fund share.
 #[test]
 fun test_draw_reward() {
     let mut sc = ts::begin(@0x0);
@@ -796,12 +844,12 @@ fun test_draw_reward() {
 
 const CAROL: address = @0xCA501;
 
-/// Staking set up as planned: reserve 6%, buyback 0, stakers 3%.
+/// Staking set up: Wealth Fund 4% (from `setup`), buyback 0, stakers 3%.
 fun setup_staking(sc: &mut Scenario) {
     setup(sc);
     let admin = ts::take_from_sender<AdminCap>(sc);
     let mut board = ts::take_shared<Board>(sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 600, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     game::set_staking(&admin, &mut board, 300, ts::ctx(sc));
     ts::return_to_sender(sc, admin);
     ts::return_shared(board);
@@ -862,9 +910,9 @@ fun test_staking_yield_split() {
     ts::end(sc);
 }
 
-/// With nobody staked, the stakers' share goes to the reserve; the drawer is paid from the reserve share.
+/// With nobody staked, the stakers' share goes to the Wealth Fund; the drawer is paid from the fund share.
 #[test]
-fun test_no_stakers_to_reserve() {
+fun test_no_stakers_to_fund() {
     let mut sc = ts::begin(@0x0);
     setup_staking(&mut sc);
     carol_round(&mut sc, 10);
@@ -872,8 +920,10 @@ fun test_no_stakers_to_reserve() {
     let board = ts::take_shared<Board>(&sc);
     let treasury = ts::take_shared<Treasury>(&sc);
     let losing = 2_400_000_000;
-    // reserve 6% + stakers 3%, minus 0.005 to the drawer (Carol).
-    assert!(gts::vault_value(&treasury) == losing * 9 / 100 - 5_000_000, 1);
+    let share = losing * 92 / 100;
+    // Fund 4% + stakers 3%, minus 0.005 to the drawer (Carol), plus what Carol's spread deposit forfeits.
+    assert!(game::motherlode_value(&board) == losing * 7 / 100 - 5_000_000 + share - share / 25, 1);
+    assert!(gts::vault_value(&treasury) == 0, 3);
     assert!(game::buyback_value(&board) == 0 && game::pot_value(&board) == 0, 2);
     ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
@@ -936,7 +986,8 @@ fun test_staking_bounds() {
 }
 
 /// Wealth Fund 2% of every round. A round with a winner (all tiles covered) adds 2% of its losing pot
-/// to the fund, and the player's tickets equal the 7% fee paid (creator 1 + reserve 4 + fund 2).
+/// to the fund (minus 0.005 to the drawer) plus what the spread deposit forfeits, and the player's
+/// tickets equal the 3% fee paid (creator 1 + fund 2).
 #[test]
 fun test_fund_share_every_round() {
     let mut sc = ts::begin(@0x0);
@@ -945,19 +996,19 @@ fun test_fund_share_every_round() {
     let mut board = ts::take_shared<Board>(&sc);
     let mut treasury = ts::take_shared<Treasury>(&sc);
     let rs = ts::take_shared<Random>(&sc);
-    game::set_params(&admin, &mut board, 100, 1_950, 400, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 100, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     game::set_fund_bps(&admin, &mut board, 200);
     assert!(game::wealth_fund_bps(&board) == 200, 1);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let per = 100_000_000;
-    let vault_before = gts::vault_value(&treasury);
     round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1_000_000);
     let losing = per * 24;
-    assert!(game::motherlode_value(&board) == losing * 2 / 100, 2);
+    let share = losing * 97 / 100;
+    assert!(game::motherlode_value(&board) == losing * 2 / 100 - 5_000_000 + share - share / 25, 2);
     assert!(game::buyback_value(&board) == 0, 3);
     assert!(game::dev_fees_value(&board) == losing / 100, 4);
-    assert!(game::tickets_of(&board, BOB) == losing * 7 / 100, 5);
-    assert!(gts::vault_value(&treasury) > vault_before, 6);
+    assert!(game::tickets_of(&board, BOB) == losing * 3 / 100, 5);
+    assert!(gts::vault_value(&treasury) == 0, 6);
     assert!(game::pot_value(&board) == 0, 7);
     ts::return_to_address(OWNER, admin);
     clock::destroy_for_testing(clk);
@@ -965,7 +1016,7 @@ fun test_fund_share_every_round() {
     ts::end(sc);
 }
 
-/// A round with no winner adds both shares: 2% every round plus 19.5% of a no-winner round.
+/// A round with no winner: the fund's 2% (minus 0.005 to the drawer) and the whole rest go to the fund.
 #[test]
 fun test_fund_share_no_winner() {
     let mut sc = ts::begin(@0x0);
@@ -974,7 +1025,7 @@ fun test_fund_share_no_winner() {
     let mut board = ts::take_shared<Board>(&sc);
     let mut treasury = ts::take_shared<Treasury>(&sc);
     let rs = ts::take_shared<Random>(&sc);
-    game::set_params(&admin, &mut board, 100, 1_950, 400, 0, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 100, 1_950, 0, 0, 1_000, 10_000_000, 60_000, 5_000, false);
     game::set_fund_bps(&admin, &mut board, 200);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut done = false;
@@ -983,7 +1034,7 @@ fun test_fund_share_no_winner() {
         round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
         let round = game::current_round(&board) - 1;
         if (game::winning_square_for_testing(&board, round) != 0) {
-            assert!(game::motherlode_value(&board) - before == SUI1 * 2 / 100 + SUI1 * 1_950 / 10_000, 1);
+            assert!(game::motherlode_value(&board) - before == SUI1 * 99 / 100 - 5_000_000, 1);
             done = true;
         };
     };

@@ -1,16 +1,16 @@
-/// GTS token (relaunch) and its SUI reserve.
+/// GTS token (relaunch).
 ///
 ///  - Hard cap of 1,000,000 GTS. No premine: GTS is only minted by the game in this package
 ///    (`mint` is package-only), and never past the cap. Burned GTS is never re-minted.
-///  - Reserve: SUI can only leave the reserve through `redeem`, which pays each holder a
-///    pro-rata share and burns their GTS.
+///  - No reserve from v9: GTS cannot be redeemed for SUI (`redeem` and `vault_add` abort), and the SUI
+///    that was in the reserve moved to the game's Wealth Fund (`game::reserve_to_fund`). GTS trades
+///    only on the market. `vault` stays in the object (fields cannot be removed) and is empty.
 module gtstar::gts;
 
 use std::ascii;
 use std::string;
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin, CoinMetadata, TreasuryCap};
-use sui::event;
 use sui::sui::SUI;
 use sui::url;
 
@@ -20,8 +20,7 @@ public struct GTS has drop {}
 const DECIMALS: u8 = 9;
 const MAX_SUPPLY: u64 = 1_000_000 * 1_000_000_000;
 
-const ERedeemZero: u64 = 1;
-const EEmptyVault: u64 = 2;
+const ENoReserve: u64 = 3;
 
 /// Shared: mint authority, reserve and total minted.
 public struct Treasury has key {
@@ -31,6 +30,7 @@ public struct Treasury has key {
     minted: u64, // total ever minted (burns do not free up room)
 }
 
+/// Emitted by `redeem` before v9 (closed now).
 public struct Redeemed has copy, drop { player: address, gts_burned: u64, sui_out: u64 }
 
 #[allow(deprecated_usage)]
@@ -40,6 +40,7 @@ fun init(witness: GTS, ctx: &mut TxContext) {
         DECIMALS,
         b"GTS",
         b"GTStar",
+        // Text at publish; the live description was changed with `update_description` (no reserve from v9).
         b"Fair-launch mining token on Sui, backed by a SUI reserve. 1,000,000 max supply.",
         option::some(url::new_unsafe_from_bytes(b"https://minegts.fun/icon.png")),
         ctx,
@@ -62,22 +63,19 @@ public(package) fun burn(t: &mut Treasury, gts: Coin<GTS>) {
     coin::burn(&mut t.cap, gts);
 }
 
-/// Add SUI to the reserve. Anyone may add; nobody can withdraw except via `redeem`.
-public fun vault_add(t: &mut Treasury, b: Balance<SUI>) {
-    balance::join(&mut t.vault, b);
+/// Closed from v9: there is no reserve, so SUI cannot be added to one.
+public fun vault_add(_t: &mut Treasury, _b: Balance<SUI>) {
+    abort ENoReserve
 }
 
-/// Burn GTS for a pro-rata share of the reserve.
-public fun redeem(t: &mut Treasury, gts: Coin<GTS>, ctx: &mut TxContext): Coin<SUI> {
-    let amount = coin::value(&gts);
-    assert!(amount > 0, ERedeemZero);
-    let supply = coin::total_supply(&t.cap);
-    let vault_value = balance::value(&t.vault);
-    assert!(vault_value > 0, EEmptyVault);
-    let payout = ((vault_value as u128) * (amount as u128) / (supply as u128)) as u64;
-    coin::burn(&mut t.cap, gts);
-    event::emit(Redeemed { player: tx_context::sender(ctx), gts_burned: amount, sui_out: payout });
-    coin::from_balance(balance::split(&mut t.vault, payout), ctx)
+/// Closed from v9: GTS cannot be redeemed for SUI.
+public fun redeem(_t: &mut Treasury, _gts: Coin<GTS>, _ctx: &mut TxContext): Coin<SUI> {
+    abort ENoReserve
+}
+
+/// All SUI still in the old reserve, for the one-time move to the Wealth Fund. Game only.
+public(package) fun vault_take_all(t: &mut Treasury): Balance<SUI> {
+    balance::withdraw_all(&mut t.vault)
 }
 
 // ===== Metadata (authorized by owning the CoinMetadata object) =====
@@ -97,7 +95,7 @@ public fun vault_value(t: &Treasury): u64 { balance::value(&t.vault) }
 public fun minted(t: &Treasury): u64 { t.minted }
 public fun max_supply(): u64 { MAX_SUPPLY }
 
-/// Floor price in SUI per 1 GTS, scaled by 1e9. Returns 0 if no supply.
+/// Old reserve over supply, SUI per 1 GTS scaled by 1e9 (0 from v9: the reserve is empty).
 public fun floor_price_scaled(t: &Treasury): u64 {
     let supply = coin::total_supply(&t.cap);
     if (supply == 0) { 0 }
@@ -106,3 +104,8 @@ public fun floor_price_scaled(t: &Treasury): u64 {
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) { init(GTS {}, ctx) }
+
+#[test_only]
+public fun vault_fill_for_testing(t: &mut Treasury, amount: u64, ctx: &mut TxContext) {
+    balance::join(&mut t.vault, coin::into_balance(coin::mint_for_testing<SUI>(amount, ctx)));
+}

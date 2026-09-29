@@ -4,7 +4,7 @@
 ///  - locked for 7 days: weight 1.5x, withdraw once the lock ends. Adding to it restarts the lock.
 /// Each round's SUI is split by weight among everyone staked at that moment. When a lock ends its weight
 /// drops back to 1x as soon as anyone calls `poke` for it (the keeper does), or the owner touches it.
-/// With nobody staked, the stakers' share goes to the reserve.
+/// With nobody staked, the stakers' share goes to the Wealth Fund.
 ///
 /// The pool lives in a dynamic field of the game Board, so rounds pay it without extra arguments.
 module gtstar::staking;

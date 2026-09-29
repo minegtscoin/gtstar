@@ -1,11 +1,11 @@
 // Relaunch game settings through the AdminCap. Changes apply at once, only inside the contract's bounds.
 //   node scripts/admin2.mjs show                           current settings and emission
-//   node scripts/admin2.mjs set odds=1000 reserve=400      change some settings, keep the rest
+//   node scripts/admin2.mjs set odds=1000 buyback=100      change some settings, keep the rest
 //   node scripts/admin2.mjs emission reward=1 step=15658   change the emission, keep the rest
 //   node scripts/admin2.mjs staking 300                    stakers' share of the losing pot, bps (creates the pool once)
-//   node scripts/admin2.mjs buyback-to-reserve             move the buyback SUI held on the Board into the reserve
+//   node scripts/admin2.mjs reserve-to-fund                move the SUI left in the old reserve into the Wealth Fund (once)
 //   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
-// set keys: odds (Wealth Fund 1 in N), fund (fund share of a no-winner pot, bps), reserve (bps),
+// set keys: odds (Wealth Fund 1 in N), fund (no-winner share, unused from game v9), reserve (bps, must be 0 from v9),
 //   buyback (bps), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
 //   full (SUI in a round for the full reward).
@@ -94,12 +94,8 @@ if (mode === "wealth") {
   console.log(await current());
   process.exit(0);
 }
-if (mode === "buyback-to-reserve") {
-  await run((tx, cap) => {
-    const [c] = tx.moveCall({ target: `${G}::take_buyback`, arguments: [cap, tx.object(dep.board)] });
-    const bal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: ["0x2::sui::SUI"], arguments: [c] });
-    tx.moveCall({ target: `${dep.latest}::gts::vault_add`, arguments: [tx.object(dep.treasury), bal] });
-  });
+if (mode === "reserve-to-fund") {
+  await run((tx, cap) => tx.moveCall({ target: `${G}::reserve_to_fund`, arguments: [cap, tx.object(dep.board), tx.object(dep.treasury)] }));
   console.log(await current());
   process.exit(0);
 }

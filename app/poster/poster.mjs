@@ -129,8 +129,6 @@ function milestone(prev, s) {
   const crossed = k => MILESTONES[k].filter(v => prev[k] < v && s[k] >= v).pop();
   const r = crossed("rounds");
   if (r) return `Milestone: ${int(r)} rounds played on GTStar.`;
-  const v = crossed("vault");
-  if (v) return `Milestone: the GTS reserve just passed ${int(v)} SUI.`;
   const g = crossed("supply");
   if (g) return `Milestone: ${int(g)} GTS mined by players.`;
   return null;
@@ -144,11 +142,10 @@ function roundsToHalving(played) {
 function compose(s, prev, a, price, variant) {
   const week = s.genesis ? Math.floor((s.ts - s.genesis) / (7 * 86_400_000)) + 1 : null;
   const unmined = 100 - pct(s.supply, MAX_SUPPLY);
-  const floorUsd = price ? ` (${usd(s.floor * price)})` : "";
-  const dv = a.vaultIn;
   const h = roundsToHalving(s.rounds);
   const active = a.rounds > 0;
   let v = variant;
+  if (v === 1) v = 0; // the reserve post: GTS has no reserve any more
   if (!active && (v === 0 || v === 2)) v = 3;
   let body;
   if (v === 0) body = [
@@ -157,12 +154,6 @@ function compose(s, prev, a, price, variant) {
     `${small(a.sui)} SUI in the pots`,
     `${small(a.mined)} GTS mined by players`, "",
     unmined >= 99.9 ? "Almost all GTS is still up for grabs. Early miners get the most." : `${fmt(unmined, 1)}% of all GTS is still up for grabs. Early miners get the most.`,
-  ];
-  else if (v === 1) body = [
-    "Every GTS is backed by real SUI.", "",
-    dv > 0 && dv < s.vault ? `The reserve grew +${small(dv)} SUI this week. It now holds ${small(s.vault)} SUI.` : `The reserve holds ${small(s.vault)} SUI.`,
-    `That's a floor of ${fmt(s.floor, 5)} SUI per GTS${floorUsd}, and you can burn for it any time.`, "",
-    "No premine. No team tokens. Just players.",
   ];
   else if (v === 2) body = [
     `Biggest pot this week: ${small(a.biggest)} SUI.`, "",
@@ -248,7 +239,7 @@ Go all in on one and take a bigger cut when it hits.
 Which one are you?`,
   `No premine. No team tokens. No VC bags.
 
-Every GTS out there was mined by a player, and every one is backed by SUI in the reserve.
+Every GTS out there was mined by a player.
 
 Go mine yours. Link in bio.`,
   `25 tiles. 60 seconds. One winner.
@@ -285,11 +276,6 @@ Link in bio.`,
   `How do you pick your tile?
 
 Lucky number, birthday, or pure chaos?`,
-  `Your GTS isn't just points.
-
-Every one is backed by SUI in the reserve, and you can burn it for that SUI any time.
-
-Link in bio.`,
   `Part of every pot rolls into the Wealth Fund.
 
 Every round it can pay the whole thing to one player, and every round you lose earns you tickets.

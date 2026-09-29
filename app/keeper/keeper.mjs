@@ -1,18 +1,13 @@
 // GTStar keeper: settles each round as soon as it ends and sweeps creator fees to DEV_ADDR once a day (00:00 UTC).
 // The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
-// and runs the House (house.mjs), the Shield (shield.mjs), the Matcher (matcher.mjs), the GTStar Bots (bots.mjs)
-// and the Floor bot (floor.mjs). Spends the game's buyback SUI on GTS and burns it (buyback.mjs).
+// and spends the game's buyback SUI on GTS and burns it (buyback.mjs). The first game's House, Shield, Matcher,
+// Bots and Floor bot are archived in legacy/app/keeper.
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
-import { makeBots } from "./bots.mjs";
 import { makeBuyback } from "./buyback.mjs";
-import { makeFloor } from "./floor.mjs";
-import { makeHouse } from "./house.mjs";
-import { makeMatcher } from "./matcher.mjs";
-import { makeShield } from "./shield.mjs";
 import { makeWelcome } from "./welcome.mjs";
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
@@ -30,15 +25,7 @@ export default async () => {
   const T = f => `${CFG.package}::${f}`;
   const start = Date.now();
   const log = [];
-  // Relaunch game: settle, creator-fee sweep and the free first round only. The House, Bots, Matcher,
-  // Shield and Floor bot were written for the first game's calls and stay off.
-  const extras = !CFG.relaunch;
-  const bots = extras ? makeBots(client, CFG, log, process.env.BOTS_DIR || ".") : null;
-  const house = extras ? makeHouse(client, CFG, log, bots?.botsIn) : null;
-  const matcher = extras ? makeMatcher(client, CFG, log) : null;
-  const shield = extras ? makeShield(client, CFG, log, process.env.BOTS_DIR || ".") : null;
   const welcome = makeWelcome(client, log);
-  const floor = extras ? makeFloor(client, CFG, log) : null;
 
   async function board() {
     const r = await client.query({ query: `{object(address:"${CFG.board}"){asMoveObject{contents{json}}}}` });
@@ -87,7 +74,6 @@ export default async () => {
     if (now.getUTCHours() === 0 && now.getUTCMinutes() === 0 && Number(b.dev_fees || 0) > 0) {
       await run("sweep", tx => tx.moveCall({ target: T("game::withdraw_dev_fees"), arguments: [tx.object(CFG.board)] }));
     }
-    if (house && now.getUTCHours() === 12 && now.getUTCMinutes() === 0) await house.addLiquidity();
   } catch (e) {
     log.push(`error ${String(e.message || e).slice(0, 200)}`);
   }
@@ -96,16 +82,8 @@ export default async () => {
   while (Date.now() - start < WINDOW_MS) {
     try {
       if (!b) b = await board();
-      if (shield && await shield.tick(b)) { b = await board(); continue; }
-      // In the target's rounds the House, Matcher and Bots stay out: a small stake on the winning tile
-      // would only take a slice of the Shield's pot.
-      const skip = shield && b.cur_started === true && await shield.targetIn(Number(b.cur_id));
-      if (!skip && house && await house.tick(b)) { b = await board(); continue; }
-      if (!skip && matcher && await matcher.tick(b)) { b = await board(); continue; }
-      if (!skip && bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
       if (await buyback.tick(b)) { b = await board(); continue; }
-      if (floor && await floor.tick()) continue;
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;
       if (b.cur_started === true && !worth) {

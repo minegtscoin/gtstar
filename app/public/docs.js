@@ -13,7 +13,7 @@
   var A = C.accounts || {};
   var rows = [
     ["GTS token", C.ids.token + "::gts::GTS", "coin", "The official coin type. Check it before you buy GTS anywhere."],
-    ["Reserve", C.ids.treasury, "object", "The SUI that backs every GTS."],
+    ["Treasury", C.ids.treasury, "object", "GTS mint authority and the 1,000,000 cap. Holds no SUI."],
     ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and emission."],
     ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund and unrefined GTS."],
     ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool."]

@@ -1,7 +1,7 @@
 {
   "name": "GTStar",
   "short_name": "GTStar",
-  "description": "A fair mining game on Sui. Mine GTS, backed by SUI.",
+  "description": "A fair mining game on Sui. Mine GTS, win SUI.",
   "start_url": "/#mine",
   "scope": "/",
   "display": "standalone",
