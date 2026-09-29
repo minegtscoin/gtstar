@@ -17,7 +17,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 |---|---|
 | Max supply | 1,000,000 GTS, hard cap in the contract |
 | Premine / team / presale | None |
-| Emission | 1 GTS per round, shared by everyone in the round by SUI deployed (full reward from 1 SUI in the round, less for smaller rounds). Every 15,658 rounds the reward drops 1.425%. Mining stops at exactly 1,000,000 GTS. Counted by rounds played, not by date |
+| Emission | 1 GTS per round, shared by everyone in the round by SUI deployed (full reward from 1 SUI in the round, less for smaller rounds). Every 15,658 rounds the reward drops 1.425%. The cut follows rounds, not GTS mined, so the 1,000,000 cap is a ceiling: full rounds every time would mint about 1,099,000, and rounds below 1 SUI mint less, so the final supply can end below 1,000,000. Counted by rounds played, not by date |
 | Losing pot | Up to 90% winners · 6% reserve · 3% stakers · 1% creator. A winner keeps the part of their own round deposit that sat on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round |
 | Wealth Fund | No one on the winning tile: 19.5% of the pot goes to the Wealth Fund. Every round with a winner has a 1 in 1000 chance to pay the whole fund to the winning tile |
 | Unrefined GTS | Mined GTS waits in your unrefined balance. Withdrawing costs 10%, shared among everyone still holding |
@@ -36,7 +36,7 @@ One package, [`contracts/gtstar`](contracts/gtstar):
 | `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances |
 | `staking` | GTS staking with SUI yield |
 
-During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract. Fixed: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
+During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract, but fee shares are capped only in total, and `take_buyback` pays the buyback share to the owner with no on-chain buy-and-burn. The `UpgradeCap` (policy 0, no timelock) can publish any new code, including code that moves reserve SUI. Fixed: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
 
 Deployed addresses and every upgrade transaction are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 

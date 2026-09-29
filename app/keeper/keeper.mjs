@@ -56,13 +56,18 @@ export default async () => {
   // Ended 7-day locks go back to 1x: poke every locked stake whose lock has passed but still counts 1.5x.
   async function pokeLocks() {
     if (!CFG.stakePkg) return;
-    const q = `{b:object(address:"${CFG.board}"){dynamicField(name:{type:"${CFG.stakePkg}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
-      e:events(filter:{type:"${CFG.stakePkg}::staking::Staked"},last:50){nodes{contents{json}}}}`;
+    const q = `{b:object(address:"${CFG.board}"){dynamicField(name:{type:"${CFG.stakePkg}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}}}}`;
     const d = (await client.query({ query: q })).data;
     const table = d.b?.dynamicField?.value?.json?.positions?.id;
     if (!table) return;
+    // Every Staked event, paged, so older locks are poked too.
     const now = Date.now(), due = new Set();
-    for (const n of d.e?.nodes || []) { const j = n.contents.json; if (j.locked && +j.locked_until < now) due.add(j.player); }
+    for (let after = null; ;) {
+      const e = (await client.query({ query: `{events(filter:{type:"${CFG.stakePkg}::staking::Staked"},first:50${after ? `,after:"${after}"` : ""}){pageInfo{hasNextPage endCursor} nodes{contents{json}}}}` })).data.events;
+      for (const n of e.nodes) { const j = n.contents.json; if (j.locked && +j.locked_until < now) due.add(j.player); }
+      if (!e.pageInfo.hasNextPage) break;
+      after = e.pageInfo.endCursor;
+    }
     for (const player of due) {
       const key = Buffer.from(player.slice(2).padStart(64, "0") + "01", "hex").toString("base64");
       const r = (await client.query({ query: `{object:address(address:"${table}"){dynamicField(name:{type:"${CFG.stakePkg}::staking::PosKey",bcs:"${key}"}){value{... on MoveValue{json}}}}}` })).data;

@@ -692,28 +692,6 @@ const swap = () => exec("Swap", "btnSwap", async tx => {
   tx.moveCall({ target: "0x2::balance::destroy_zero", typeArguments: [T_GTS], arguments: [gtsLeft] });
   tx.transferObjects([guardedCoin(tx, sui, POOL_T[1], minOut)], account.address);
 }).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
-// Donation: gts::vault_add puts SUI into the reserve. Nobody can take it out except by burning GTS.
-const addReserve = () => exec("Reserve deposit", "btnReserve", tx => {
-  const amt = toMist($("resAmt").value);
-  if (amt <= 0) throw new Error("Enter an amount.");
-  const [c] = tx.splitCoins(tx.gas, [amt]);
-  const bal = tx.moveCall({ target: "0x2::coin::into_balance", typeArguments: ["0x2::sui::SUI"], arguments: [c] });
-  tx.moveCall({ target: TK("gts::vault_add"), arguments: [tx.object(IDS.treasury), bal] });
-}, toMist($("resAmt").value)).then(r => { if (r) { $("resAmt").value = ""; renderReserveAdd(); } });
-function renderReserveAdd() {
-  if (!STATE) return;
-  const amt = toMist($("resAmt").value);
-  $("resNote").textContent = amt > 0 && STATE.supply > 0
-    ? (PRICE.sui
-      ? `SUI · floor $${fmt(STATE.floor * PRICE.sui, 4)} → $${fmt((STATE.vault + amt) / STATE.supply * PRICE.sui, 4)} per GTS`
-      : `SUI · floor ${fmt(STATE.floor, 5)} → ${fmt((STATE.vault + amt) / STATE.supply, 5)} SUI per GTS`)
-    : `SUI${USER ? ` · ${sui(USER.sui, 4)} in wallet` : ""}`;
-  if (busy) return;
-  const btn = $("btnReserve");
-  if (!account) { btn.textContent = "Sign in"; btn.disabled = false; return; }
-  const over = USER && amt + GAS_RESERVE > USER.sui;
-  btn.textContent = over ? "Insufficient SUI" : "Add to reserve";
-  btn.disabled = amt <= 0 || over;
 }
 
 // ---------- emission math (round-based, mirrors game::settle) ----------
@@ -1049,7 +1027,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps) / 10_000, fair = round >= FAIR_FROM;
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0)) / 10_000, fair = round >= FAIR_FROM;
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
@@ -1338,7 +1316,6 @@ function renderTokenomics() {
   $("kRound").textContent = `#${fmt(round, 0)}`;
   $("kReward").textContent = `Up to ${fmt(r, 6)} GTS`;
   $("kToHalving").textContent = r > 0 ? `-${fmt(e.decay / 1e4, 3)}% in ${fmt(e.step - e.count, 0)} rounds` : "Mining ended";
-  renderReserveAdd();
   drawChart(STATE.board.cur_id - 1);
 }
 let chartSize = 0;
@@ -1787,8 +1764,6 @@ document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button")
   if (set === "act") { actTab = t; actShown = ROWS; } else if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }
   renderExplorer();
 })));
-$("btnReserve").onclick = () => (account ? addReserve() : openWalletModal());
-$("resAmt").oninput = renderReserveAdd;
 $("moreAct").onclick = () => { actShown += ROWS; renderExplorer(); };
 $("moreRev").onclick = () => { revShown += ROWS; renderExplorer(); };
 $("moreLb").onclick = () => { lbShown += ROWS; renderExplorer(); };

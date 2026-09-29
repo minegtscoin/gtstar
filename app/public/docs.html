@@ -49,6 +49,7 @@
   article a{color:var(--text);text-decoration:underline;text-decoration-color:var(--line-3);text-underline-offset:3px}
   article a:hover{text-decoration-color:var(--text)}
   code,.code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px}
+  code.wrap{overflow-wrap:anywhere}
   p code,li code,td code{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
   .code{display:block;white-space:pre;overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0 18px;color:var(--text);line-height:1.7}
   .facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:14px;margin:6px 0 10px}
@@ -165,7 +166,7 @@
       <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>Rewards</h3>
-    <p><strong>Winners</strong> get their stake back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. That share is then scaled by how much of your own round deposit sat on the winning tile, so covering many tiles cannot collect the whole pot: 0.01 SUI on each of the 25 tiles (0.25 SUI) keeps 1/25 of its share. The part not kept goes to the GTS reserve. Each wallet plays a round with one miner, so all of its deposits count together. <strong>Everyone</strong> in the round, winners and losers alike, mines GTS in proportion to their deposits.</p>
+    <p><strong>Winners</strong> get their stake back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. That share is then scaled by how much of your own round deposit sat on the winning tile, so covering many tiles cannot collect the whole pot: 0.01 SUI on each of the 25 tiles (0.25 SUI) keeps 1/25 of its share. The part not kept goes to the GTS reserve. Each wallet plays a round with one miner, so all of its deposits count together. The rule is per wallet: a player using many wallets, one per tile, is not limited by it. <strong>Everyone</strong> in the round, winners and losers alike, mines GTS in proportion to their deposits.</p>
     <span class="code">losing_pot = total_deposits - winning_tile_total
 my_share   = losing_pot * 90% * my_stake / winning_tile_total
 payout     = my_stake + my_share * my_stake / my_round_deposits
@@ -181,16 +182,18 @@ my_bonus += fee * my_unrefined / all_unrefined   (each time another player withd
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
         <tr><td>Wealth Fund</td><td class="n">19.5%</td></tr>
-        <tr><td>Reserve, buyback and creator</td><td class="n">80.5%</td></tr>
+        <tr><td>Reserve</td><td class="n">76.5%</td></tr>
+        <tr><td>Stakers</td><td class="n">3%</td></tr>
+        <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
     </table></div>
 
     <h2 id="tokenomics">Tokenomics</h2>
     <p class="sub">1,000,000 GTS, a gentle decay, and a SUI floor.</p>
     <h3>Supply</h3>
-    <p>Each round mints up to 1 GTS, shared by everyone in the round. The full reward needs 1 SUI deployed in the round; a smaller round mints a matching part (0.25 SUI gives 0.25 GTS). There is no halving: every 15,658 rounds the reward drops by 1.425%. Mining stops for good once 1,000,000 GTS have been mined. There is no other source of GTS: no premine, no team tokens, no staking mint.</p>
+    <p>Each round mints up to 1 GTS, shared by everyone in the round. The full reward needs 1 SUI deployed in the round; a smaller round mints a matching part (0.25 SUI gives 0.25 GTS). There is no halving: every 15,658 rounds the reward drops by 1.425%. The cut follows rounds played, not GTS mined, and what a round below 1 SUI does not mint is never minted later. If every round were full the schedule would mint about 1,099,000 GTS, so the 1,000,000 cap is only reached if rounds average above about 91% of 1 SUI. Otherwise the final supply ends below 1,000,000. There is no other source of GTS: no premine, no team tokens, no staking mint.</p>
     <span class="code">reward = 1 GTS * 0.98575 ^ floor(rounds_played / 15,658)
-total  = 1,000,000 GTS, then mining stops</span>
+total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when rounds are below 1 SUI</span>
     <div class="tbl"><table>
       <thead><tr><th>Rounds played</th><th>Reward per round (max)</th><th>Max mined</th></tr></thead>
       <tbody>
@@ -210,17 +213,19 @@ total  = 1,000,000 GTS, then mining stops</span>
       <thead><tr><th>Destination</th><th>Share of losing pot</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td>Winners</td><td class="n">up to 90%</td><td>Split across the winning tile by stake; the part a spread deposit does not keep goes to the reserve</td></tr>
-        <tr><td>Reserve</td><td class="n">6%</td><td>Backs every GTS (4%, plus the 2% buyback share until a GTS/SUI pool exists)</td></tr>
+        <tr><td>Reserve</td><td class="n">6%</td><td>Backs every GTS</td></tr>
         <tr><td>Stakers</td><td class="n">3%</td><td>Paid in SUI to GTS stakers</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td></td></tr>
       </tbody>
     </table></div>
-    <p>Whoever draws a round is paid up to 0.005 SUI of it from the reserve share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds.</p>
+    <p>Whoever draws a round is paid up to 0.005 SUI of it from the reserve share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds, so this is usually paid to the keeper. In a round whose losing pot is under about 0.083 SUI, the whole reserve share goes to the drawer and the reserve gets nothing from that round.</p>
+    <h3>Where lost SUI goes</h3>
+    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 10% never goes back to players (6% reserve, 3% stakers, 1% creator), and the part a spread deposit does not keep also goes to the reserve. Most of the reserve that backs the floor price is SUI that players lost. Spreading over many tiles wins more often but keeps only part of each win, so it loses more on average than it looks.</p>
     <h3>Staking</h3>
     <p>Stake GTS and earn SUI: stakers share 3% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Choose <strong>flexible</strong> (1x, withdraw any time) or <strong>locked for 7 days</strong> (1.5x). Adding to a locked stake restarts its 7 days; when a lock ends it counts 1x again. With nobody staked, the stakers' share goes to the reserve.</p>
     <span class="code">my_yield = round_share * my_weight / all_weight     // weight = GTS x 1 (flexible) or x 1.5 (locked)</span>
     <h3>Reserve</h3>
-    <p>The reserve is SUI held by the token contract. Any holder can burn GTS for a proportional share, and SUI can leave the reserve in no other way.</p>
+    <p>The reserve is SUI held by the token contract. Any holder can burn GTS for a proportional share, and under the current code SUI can leave the reserve in no other way. The owner holds the upgrade key (see Verify), so new code could change this.</p>
     <span class="code">redeem(x GTS) = reserve * x / total_supply     // x GTS is burned
 floor_price   = reserve / total_supply</span>
     <ul>
@@ -231,8 +236,22 @@ floor_price   = reserve / total_supply</span>
 
     <h2 id="verify">Verify</h2>
     <p class="sub">Don't trust, verify.</p>
-    <p>One package holds the <strong>token</strong> (GTS, the 1,000,000 cap and the reserve) and the <strong>game</strong> (rounds, the draw, fees and emission). During the launch phase the owner can change settings and fix code at once, so bugs and exploits can be stopped right away. The plan is to give this up later by destroying the admin key on-chain, after which nobody can change anything.</p>
-    <p>Settings (Wealth Fund odds and share, fees, withdraw fee, emission step and cut, minimum deposit, round timing, pause of new deposits) stay within limits written in the contract. The 1% creator fee and the 1,000,000 cap are fixed, and no address can be blocked from playing, claiming or withdrawing.</p>
+    <p>One package holds the <strong>token</strong> (GTS, the 1,000,000 cap and the reserve) and the <strong>game</strong> (rounds, the draw, fees and emission). During the launch phase the owner can change settings and fix code at once, so bugs and exploits can be stopped right away.</p>
+    <h3>What the owner can do today</h3>
+    <p>The owner address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> holds two keys, with no timelock:</p>
+    <ul>
+      <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the reserve or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
+      <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. The fee shares are capped only in total (with the 1% creator fee and the Wealth Fund share, at most 100%), not one by one. The buyback share is paid to the owner by <code>take_buyback</code>, and the contract does not require that SUI to buy and burn GTS. So the owner could raise the buyback share and take most of each losing pot. Wealth Fund odds can be set anywhere from 1 in 2 to 1 in 1,000,000.</li>
+    </ul>
+    <p>Current settings on-chain: reserve 6%, buyback 0%, stakers 3%, creator 1%, Wealth Fund 19.5%, odds 1 in 1000, withdraw fee 10%. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
+    <h3>Known limits</h3>
+    <ul>
+      <li>The spread rule and the one-miner rule are per wallet. Many wallets, one per tile, cover the board and keep full wins, and in every round one of them wins, so they are always in line for the Wealth Fund.</li>
+      <li>GTStar bots are exempt from the withdraw fee in the contract. That they burn the GTS they mine is done by our off-chain bot code, not enforced on-chain.</li>
+      <li>GTS is minted when a player claims. While rounds are unclaimed, someone who redeems early gets slightly more than their fair share of the reserve.</li>
+      <li>If no one holds unrefined GTS and the reserve is empty, a withdraw fee stays in the contract with no owner. A fix is planned for the next upgrade.</li>
+    </ul>
     <p>Addresses on <strong id="netName">Sui</strong>:</p>
     <div class="addr" id="addrList"></div>
     <p>All source code is public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Project updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>. Questions and open discussion happen in the <a href="https://t.me/MineGTS" target="_blank" rel="noopener">Telegram group</a>.</p>
