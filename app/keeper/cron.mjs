@@ -31,7 +31,7 @@ if (fs.existsSync(poster)) {
   if (now.getUTCHours() % 3 === 0 && now.getUTCMinutes() === 30) await runPoster(["--engage"]);
 }
 
-// Low-balance email for the keeper and house wallets, every 10 minutes (alert.php mails at most once a day each).
+// Low-balance email for the keeper wallet, every 10 minutes (alert.php mails at most once a day each).
 const alert = path.join(dir, "alert.php");
 if (fs.existsSync(alert) && now.getUTCMinutes() % 10 === 0) {
   const { spawn } = await import("child_process");
