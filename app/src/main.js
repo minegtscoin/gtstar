@@ -1433,7 +1433,8 @@ function renderStake() {
   const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
   $("sFlex").textContent = USER ? `${sui(total, 4)} GTS` : "—";
   const pending = posYield(f) + posYield(l);
-  $("sPending").textContent = USER ? `${sui(Number(pending), 6)} SUI` : "—";
+  // Yield is paid when a round is drawn: a fresh stake shows 0 until the next one.
+  $("sPending").textContent = !USER ? "—" : total > 0 && pending === 0n ? "Starts next round" : `${sui(Number(pending), 6)} SUI`;
   // Yield grows once per round: flash what the last round added.
   const who = account?.address;
   if (USER && lastYield.who === who && pending > lastYield.v) {
