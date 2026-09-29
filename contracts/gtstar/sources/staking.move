@@ -5,6 +5,8 @@
 /// Each round's SUI is split by weight among everyone staked at that moment. When a lock ends its weight
 /// drops back to 1x as soon as anyone calls `poke` for it (the keeper does), or the owner touches it.
 /// With nobody staked, the stakers' share goes to the Wealth Fund.
+/// From game v12 stakers also get the GTS bought back, split by the same weights; the game keeps that
+/// accumulator on the Board and reads the weights with `weight`.
 ///
 /// The pool lives in a dynamic field of the game Board, so rounds pay it without extra arguments.
 module gtstar::staking;
@@ -181,3 +183,12 @@ public(package) fun position(p: &Pool, player: address, locked: bool): (u64, u64
 }
 
 public fun lock_ms(): u64 { LOCK_MS }
+
+/// Total weight in tenths (0 with nobody staked).
+public(package) fun total_weight(p: &Pool): u128 { p.total_weight }
+
+/// Weight in tenths of one position (0 when there is none).
+public(package) fun weight(p: &Pool, player: address, locked: bool): u128 {
+    let key = PosKey { player, locked };
+    if (table::contains(&p.positions, key)) { table::borrow(&p.positions, key).weight } else { 0 }
+}

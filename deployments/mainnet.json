@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32",
+  "latest": "0xaf806a3757661bf243913dd3f1e3809ad8c8682daeaf2479c518d37c6b56be54",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -53,6 +53,10 @@
     [
       "Game upgraded: buyback fixed at 2% (the GTS bought stays in the game, not burned), and 1% of every losing pot goes to liquidity: half buys GTS, both halves go into the Cetus GTS/SUI pool, the position locked in the game for good",
       "4ayWTjNursgK8i2gxdD5ja2mvQf9nncdJWmS9fDM3XSs"
+    ],
+    [
+      "Game upgraded: all the GTS the 2% buyback buys now goes to GTS stakers, split by stake, next to their SUI yield",
+      "7oAaJZvXSnPDtuQApHdTR7entLSJo9SffBevgPGnkgXZ"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -60,5 +64,6 @@
   "market": "0x0628902c5acd5b5755c9b1a6494e925d0c5327177486b5e3b25d0e9b0211de71",
   "v6Pkg": "0xfd20b3584720559b109870c1bb295295fcfa21774520500eea9f6253493b551f",
   "v10Pkg": "0xa32053565e5bb314e5caadeb1f2934f3597eab4e1602c0840d4137116f3e952e",
-  "v11Pkg": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32"
+  "v11Pkg": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32",
+  "v12Pkg": "0xaf806a3757661bf243913dd3f1e3809ad8c8682daeaf2479c518d37c6b56be54"
 }

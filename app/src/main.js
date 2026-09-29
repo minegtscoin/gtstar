@@ -114,6 +114,8 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // is no fair split again: a winner keeps the whole share, and a player may use at most maxTiles tiles a round.
 const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31, V9_FROM = 33;
 const V10_PKG = IDS.v10;
+// Stakers also get the GTS bought back (v12): the accumulator and each position's snapshot sit on the Board.
+const V12_PKG = IDS.v12;
 let V10_FROM = V10_PKG ? 0 : Infinity; // 0 until the Board says: every round not settled yet is under v10
 // SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
 const RESERVE_MOVED = 12_288_264_223;
@@ -162,7 +164,8 @@ async function loadGlobal() {
     sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}
     ${WF_PKG ? `wf:object(address:"${IDS.board}"){fb:dynamicField(name:{type:"${WF_PKG}::game::FundBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}} tk:dynamicField(name:{type:"${WF_PKG}::game::TicketsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
     ww:events(filter:{type:"${EV_WF_WON}"},last:12){nodes{contents{json}}}` : ""}
-    ${V10_PKG ? `tl:object(address:"${IDS.board}"){mt:dynamicField(name:{type:"${V10_PKG}::game::MaxTilesKey",bcs:"AA=="}){value{... on MoveValue{json}}} vf:dynamicField(name:{type:"${V10_PKG}::game::V10FromKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}}`);
+    ${V10_PKG ? `tl:object(address:"${IDS.board}"){mt:dynamicField(name:{type:"${V10_PKG}::game::MaxTilesKey",bcs:"AA=="}){value{... on MoveValue{json}}} vf:dynamicField(name:{type:"${V10_PKG}::game::V10FromKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}
+    ${V12_PKG ? `gy:object(address:"${IDS.board}"){y:dynamicField(name:{type:"${V12_PKG}::game::GtsYieldKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}}`);
   const v10 = num(d.tl?.vf?.value?.json);
   if (v10) V10_FROM = v10;
   const b = pick(d, "b"), t = pick(d, "t"), m = pick(d, "m");
@@ -184,7 +187,7 @@ async function loadGlobal() {
     fundBps: num(d.wf?.fb?.value?.json), maxTiles: num(d.tl?.mt?.value?.json) || 25, tickets: tk ? { epoch: num(tk.epoch), total: num(tk.total) } : null,
     refineFee: b.refine_fee_bps != null ? num(b.refine_fee_bps) / 10_000 : REFINE_FEE,
     em: emOf(b),
-    stake: stakeOf(d),
+    stake: stakeOf(d), gtsAcc: BigInt(d.gy?.y?.value?.json?.acc || 0),
     last: recent[0] || null, recent, deploys,
     board,
   };
@@ -292,11 +295,15 @@ async function loadStake(addr) {
   const key = locked => btoa(String.fromCharCode(...addr.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16)), locked ? 1 : 0));
   const q = alias => `${alias}:dynamicField(name:{type:"${STK_PKG}::staking::PosKey",bcs:"${key(alias === "l")}"}){value{... on MoveValue{json}}}`;
   // A Table is not an object: its entries are read as dynamic fields of its address.
-  const d = await gql(`{object:address(address:"${tbl}"){${q("f")} ${q("l")}}}`);
-  const pos = j => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0) } : null;
-  return { flex: pos(d.object?.f?.value?.json), lock: pos(d.object?.l?.value?.json) };
+  const g = alias => `${alias}:dynamicField(name:{type:"${V12_PKG}::game::GtsPosKey",bcs:"${key(alias === "gl")}"}){value{... on MoveValue{json}}}`;
+  const d = await gql(`{object:address(address:"${tbl}"){${q("f")} ${q("l")}}${V12_PKG ? ` b:object(address:"${IDS.board}"){${g("gf")} ${g("gl")}}` : ""}}`);
+  const gp = j => ({ snap: BigInt(j?.snap || 0), pending: BigInt(j?.pending || 0) }); // no entry yet: staked before v12, snap 0
+  const pos = (j, gj) => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0), gts: gp(gj) } : null;
+  return { flex: pos(d.object?.f?.value?.json, d.b?.gf?.value?.json), lock: pos(d.object?.l?.value?.json, d.b?.gl?.value?.json) };
 }
 const posYield = p => (p && STATE?.stake ? p.pending + p.weight * (STATE.stake.acc - p.snap) / STAKE_SCALE : 0n);
+// GTS from the buyback, same weights, its own accumulator (same 1e18 scale).
+const posGts = p => (p && V12_PKG ? p.gts.pending + p.weight * ((STATE?.gtsAcc || 0n) - p.gts.snap) / STAKE_SCALE : 0n);
 
 // Event history (newest first). Capped per type; the UI states the scope when capped.
 const PAGE = 50, MAX_PAGES = 20;
@@ -664,7 +671,9 @@ const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnS
 }).then(r => { if (r) $("stakeAmt").value = ""; });
 const claimYield = () => exec("Yield claim", "btnStakeClaim", tx => {
   const [c] = tx.moveCall({ target: C("game::claim_yield"), arguments: [tx.object(IDS.board)] });
-  tx.transferObjects([c], account.address);
+  const out = [c];
+  if (V12_PKG) out.push(tx.moveCall({ target: C("game::claim_gts"), arguments: [tx.object(IDS.board)] })[0]);
+  tx.transferObjects(out, account.address);
 });
 // Pool<GTS, SUI> on Cetus: selling GTS is a2b, buying GTS is b2a.
 const CETUS_PKG = "0x260693ec785a6e6c9d81d58c7d2ff72f1288ae0fa6a9725abe05a6478b11f084"; // clmm, latest version
@@ -1438,9 +1447,11 @@ function renderStake() {
   const S = STATE.stake, U = USER?.stake, now = Date.now();
   const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
   $("sFlex").textContent = USER ? `${sui(total, 4)} GTS` : "—";
-  const pending = posYield(f) + posYield(l);
+  const pending = posYield(f) + posYield(l), pendingGts = posGts(f) + posGts(l);
   // Yield is paid when a round is drawn: a fresh stake shows 0 until the next one.
   $("sPending").textContent = !USER ? "—" : total > 0 && pending === 0n ? "Starts next round" : `${sui(Number(pending), 6)} SUI`;
+  // GTS arrives with each buyback, not every round.
+  $("sPendingGts").textContent = !USER ? "—" : total > 0 && pendingGts === 0n ? "Starts with the next buyback" : `${sui(Number(pendingGts), 6)} GTS`;
   // Yield grows once per round: flash what the last round added.
   const who = account?.address;
   if (USER && lastYield.who === who && pending > lastYield.v) {
@@ -1453,11 +1464,11 @@ function renderStake() {
   const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
   $("sAprFlex").textContent = apr == null ? "—" : apr === 0 ? "0% · no rounds in the last hour" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. Your yield grows with every round played. APR shows the last hour of rounds, so it rises when the game is busy and falls to 0 when no one plays.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake. APR counts only the SUI from the last hour of rounds, so it rises when the game is busy and falls to 0 when no one plays.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
-  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI every round. Withdraw any time." : "Withdraw any time.";
+  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI and GTS. Withdraw any time." : "Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
     let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;
@@ -1466,7 +1477,7 @@ function renderStake() {
     else if (amt <= 0) dis = true;
     else if (amt > avail) { label = stakeMode === "deposit" ? "Insufficient GTS" : "Exceeds your stake"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
-    $("btnStakeClaim").disabled = !account || pending <= 0n;
+    $("btnStakeClaim").disabled = !account || (pending <= 0n && pendingGts <= 0n);
   }
 }
 

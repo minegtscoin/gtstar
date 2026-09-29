@@ -29,14 +29,15 @@
 ///
 /// Buyback (v11): 2% of every losing pot is saved in the game. Only the keeper may take it
 /// (`buyback_take`), and the same transaction must hand back GTS for it (`buyback_keep` closes the
-/// receipt). The GTS bought is not burned: it stays in the game for good (`bought_value`), and no
-/// function can take it out. `BuybackKept` shows the SUI spent and the GTS kept.
+/// receipt). The GTS bought is not burned: from v12 it goes to the GTS stakers, split by stake weight
+/// like their SUI (`claim_gts`). With nobody staked it waits in the game (`bought_value`) for the next
+/// buyback. `BuybackKept` shows the SUI spent and the GTS bought.
 ///
 /// Liquidity (v11): 1% of every losing pot is saved in the game. Only the keeper may take it
 /// (`liquidity_take`); in the same transaction it buys GTS with about half, adds both halves to the
 /// Cetus GTS/SUI pool as a new position, and `liquidity_lock` closes the receipt: the position (a Cetus
 /// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
-/// balance and GTS not used joins the bought GTS. No function can take a position out.
+/// balance and GTS not used goes to the stakers with the next buyback. No function can take a position out.
 ///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
@@ -126,7 +127,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 11;
+const VERSION: u64 = 12;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -248,12 +249,20 @@ public struct RefineFromKey has copy, drop, store {}
 
 /// Dynamic field on the Board (v11): SUI saved for liquidity, waiting for the keeper.
 public struct LiquidityKey has copy, drop, store {}
-/// Dynamic field on the Board (v11): GTS bought back, kept in the game for good.
+/// Dynamic field on the Board (v11): GTS bought back, waiting to go to the stakers (v12).
 public struct BoughtKey has copy, drop, store {}
 /// Dynamic object fields on the Board (v11): the Cetus positions locked for good, `i` from 0.
 public struct LpKey has copy, drop, store { i: u64 }
 /// Dynamic field on the Board (v11): how many positions are locked.
 public struct LpCountKey has copy, drop, store {}
+
+/// Dynamic field on the Board (v12): the GTS paid to stakers, split by stake weight.
+public struct GtsYieldKey has copy, drop, store {}
+public struct GtsYield has store { rewards: Balance<GTS>, acc: u256, paid_total: u64 }
+/// Dynamic field on the Board (v12): one staking position's GTS yield. A position staked before v12 has
+/// none until it is touched, which is right: `acc` was 0 then.
+public struct GtsPosKey has copy, drop, store { player: address, locked: bool }
+public struct GtsPos has store, drop { snap: u256, pending: u64 }
 
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
@@ -334,6 +343,10 @@ public struct FundBpsChanged has copy, drop { fund_bps: u64 }
 public struct MaxTilesChanged has copy, drop { max_tiles: u64 }
 /// Buyback SUI spent on GTS, and the GTS kept in the game (v11). `gts_total`: all GTS kept so far.
 public struct BuybackKept has copy, drop { sui_spent: u64, gts_kept: u64, gts_total: u64 }
+/// GTS bought back and paid to stakers (v12).
+public struct GtsYieldAdded has copy, drop { amount: u64, total_weight: u128 }
+/// GTS yield claimed by a staker (v12).
+public struct GtsYieldClaimed has copy, drop { player: address, gts: u64 }
 /// Liquidity SUI added to the Cetus pool as a position locked in the game (v11).
 public struct LiquidityLocked has copy, drop { sui_spent: u64, gts_left: u64, position: ID, positions: u64 }
 /// SUI paid to whoever settled a round, out of its Wealth Fund share, then buyback, then liquidity.
@@ -603,15 +616,18 @@ fun pool_mut(board: &mut Board): &mut StakePool {
 
 // ===== Staking (see `staking`) =====
 
-/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). Yield is paid in SUI from every round.
+/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). Yield is paid in SUI from every round, and in
+/// the GTS bought back (v12).
 public fun stake(board: &mut Board, gts: Coin<GTS>, locked: bool, clock: &Clock, ctx: &mut TxContext) {
     check_version(board);
+    settle_gts_both(board, tx_context::sender(ctx));
     staking::stake(pool_mut(board), gts, locked, clock, ctx)
 }
 
 /// Take staked GTS out: flexible any time, locked once its 7 days have passed.
 public fun unstake(board: &mut Board, amount: u64, locked: bool, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
+    settle_gts_both(board, tx_context::sender(ctx));
     staking::unstake(pool_mut(board), amount, locked, clock, ctx)
 }
 
@@ -621,10 +637,81 @@ public fun claim_yield(board: &mut Board, ctx: &mut TxContext): Coin<SUI> {
     staking::claim(pool_mut(board), ctx)
 }
 
+/// Claim all GTS yield of the sender (v12): their part of the GTS bought back.
+public fun claim_gts(board: &mut Board, ctx: &mut TxContext): Coin<GTS> {
+    check_version(board);
+    let player = tx_context::sender(ctx);
+    settle_gts_both(board, player);
+    let mut total = 0;
+    let mut i = 0;
+    while (i < 2) {
+        let key = GtsPosKey { player, locked: i == 1 };
+        if (df::exists(&board.id, key)) {
+            let w = staking::weight(pool_ref(board), player, i == 1);
+            let pos = df::borrow_mut<GtsPosKey, GtsPos>(&mut board.id, key);
+            total = total + pos.pending;
+            pos.pending = 0;
+            if (w == 0) { let _: GtsPos = df::remove(&mut board.id, key); };
+        };
+        i = i + 1;
+    };
+    if (total > 0) { event::emit(GtsYieldClaimed { player, gts: total }); };
+    coin::from_balance(balance::split(&mut gts_yield_mut(board).rewards, total), ctx)
+}
+
 /// Drop `player`'s ended lock back to 1x. Anyone may call it.
 public fun poke(board: &mut Board, player: address, clock: &Clock) {
     check_version(board);
+    settle_gts_both(board, player);
     staking::poke(pool_mut(board), player, clock)
+}
+
+fun pool_ref(board: &Board): &StakePool { df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}) }
+
+fun gts_yield_mut(board: &mut Board): &mut GtsYield {
+    if (!df::exists(&board.id, GtsYieldKey {})) {
+        df::add(&mut board.id, GtsYieldKey {}, GtsYield { rewards: balance::zero<GTS>(), acc: 0, paid_total: 0 });
+    };
+    df::borrow_mut<GtsYieldKey, GtsYield>(&mut board.id, GtsYieldKey {})
+}
+
+fun gts_acc(board: &Board): u256 {
+    if (df::exists(&board.id, GtsYieldKey {})) { df::borrow<GtsYieldKey, GtsYield>(&board.id, GtsYieldKey {}).acc } else { 0 }
+}
+
+fun gts_earned(w: u128, acc: u256, snap: u256): u64 { (((w as u256) * (acc - snap)) / REFINE_SCALE) as u64 }
+
+/// Bring one position's GTS yield up to now at its current weight. Called before its weight changes.
+fun settle_gts(board: &mut Board, player: address, locked: bool) {
+    let w = staking::weight(pool_ref(board), player, locked);
+    let acc = gts_acc(board);
+    let key = GtsPosKey { player, locked };
+    if (!df::exists(&board.id, key)) {
+        if (w == 0) { df::add(&mut board.id, key, GtsPos { snap: acc, pending: 0 }); return };
+        df::add(&mut board.id, key, GtsPos { snap: 0, pending: 0 });
+    };
+    let pos = df::borrow_mut<GtsPosKey, GtsPos>(&mut board.id, key);
+    pos.pending = pos.pending + gts_earned(w, acc, pos.snap);
+    pos.snap = acc;
+}
+
+fun settle_gts_both(board: &mut Board, player: address) {
+    settle_gts(board, player, false);
+    settle_gts(board, player, true);
+}
+
+/// Pay all waiting bought GTS to the stakers by weight; with nobody staked it keeps waiting.
+fun pay_bought_to_stakers(board: &mut Board) {
+    if (!df::exists(&board.id, StakeKey {})) { return };
+    let tw = staking::total_weight(pool_ref(board));
+    let amount = bought_value(board);
+    if (tw == 0 || amount == 0) { return };
+    let b = balance::withdraw_all(bought_mut(board));
+    let y = gts_yield_mut(board);
+    y.acc = y.acc + (amount as u256) * REFINE_SCALE / (tw as u256);
+    y.paid_total = y.paid_total + amount;
+    balance::join(&mut y.rewards, b);
+    event::emit(GtsYieldAdded { amount, total_weight: tw });
 }
 
 // ===== Play =====
@@ -1036,7 +1123,8 @@ public fun buyback_burn(_board: &mut Board, _treasury: &mut Treasury, receipt: B
     abort EUseBuybackKeep
 }
 
-/// Buyback, step 2: keep the GTS bought in the game for good and return any SUI not spent. Closes the receipt.
+/// Buyback, step 2: pay the GTS bought to the stakers (with any GTS waiting) and return any SUI not spent.
+/// Closes the receipt.
 public fun buyback_keep(board: &mut Board, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>) {
     check_version(board);
     let BuybackReceipt { sui } = receipt;
@@ -1045,10 +1133,10 @@ public fun buyback_keep(board: &mut Board, receipt: BuybackReceipt, gts: Coin<GT
     let gts_kept = coin::value(&gts);
     assert!(gts_kept > 0, ENothingBought);
     balance::join(&mut board.buyback, coin::into_balance(left));
-    let bought = bought_mut(board);
-    balance::join(bought, coin::into_balance(gts));
-    let gts_total = balance::value(bought);
-    event::emit(BuybackKept { sui_spent: sui - back, gts_kept, gts_total });
+    balance::join(bought_mut(board), coin::into_balance(gts));
+    pay_bought_to_stakers(board);
+    // `gts_total`: bought GTS still waiting (only with nobody staked).
+    event::emit(BuybackKept { sui_spent: sui - back, gts_kept, gts_total: bought_value(board) });
 }
 
 /// Liquidity, step 1 (keeper only): take all the saved liquidity SUI to add to the Cetus pool in the
@@ -1063,7 +1151,7 @@ public fun liquidity_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, L
 }
 
 /// Liquidity, step 2: lock the new Cetus position in the game for good. SUI not used goes back to the
-/// liquidity balance, GTS not used joins the bought GTS. Closes the receipt.
+/// liquidity balance, GTS not used waits for the stakers (paid with the next buyback). Closes the receipt.
 public fun liquidity_lock<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
     check_version(board);
     let LiquidityReceipt { sui } = receipt;
@@ -1116,7 +1204,7 @@ public fun liquidity_bps(): u64 { LIQ_BPS }
 public fun liquidity_value(board: &Board): u64 {
     if (df::exists(&board.id, LiquidityKey {})) { balance::value(df::borrow<LiquidityKey, Balance<SUI>>(&board.id, LiquidityKey {})) } else { 0 }
 }
-/// GTS bought back and kept in the game.
+/// GTS bought back, waiting to go to the stakers.
 public fun bought_value(board: &Board): u64 {
     if (df::exists(&board.id, BoughtKey {})) { balance::value(df::borrow<BoughtKey, Balance<GTS>>(&board.id, BoughtKey {})) } else { 0 }
 }
@@ -1164,6 +1252,29 @@ public fun staking_bps(board: &Board): u64 { stake_bps(board) }
 public fun staking_totals(board: &Board): (u64, u128, u64, u64) {
     if (!df::exists(&board.id, StakeKey {})) { return (0, 0, 0, 0) };
     staking::totals(df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}))
+}
+/// (GTS paid to stakers so far, GTS waiting to be claimed) from the buyback (v12).
+public fun staking_gts_totals(board: &Board): (u64, u64) {
+    if (!df::exists(&board.id, GtsYieldKey {})) { return (0, 0) };
+    let y = df::borrow<GtsYieldKey, GtsYield>(&board.id, GtsYieldKey {});
+    (y.paid_total, balance::value(&y.rewards))
+}
+/// GTS claimable by `player` from both positions (v12).
+public fun staking_gts_of(board: &Board, player: address): u64 {
+    if (!df::exists(&board.id, StakeKey {})) { return 0 };
+    let acc = gts_acc(board);
+    let mut total = 0;
+    let mut i = 0;
+    while (i < 2) {
+        let w = staking::weight(pool_ref(board), player, i == 1);
+        let key = GtsPosKey { player, locked: i == 1 };
+        total = total + if (df::exists(&board.id, key)) {
+            let pos = df::borrow<GtsPosKey, GtsPos>(&board.id, key);
+            pos.pending + gts_earned(w, acc, pos.snap)
+        } else { gts_earned(w, acc, 0) };
+        i = i + 1;
+    };
+    total
 }
 /// (GTS staked, locked until (ms, 0 if flexible), SUI claimable) of one of `player`'s positions.
 public fun staking_position(board: &Board, player: address, locked: bool): (u64, u64, u64) {

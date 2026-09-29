@@ -1390,3 +1390,93 @@ fun test_five_tiles_full_win() {
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
 }
+
+/// The keeper's buyback: takes the saved SUI, hands back `gts` bought GTS, spends it all.
+fun buyback_as_keeper(sc: &mut Scenario, gts: u64) {
+    ts::next_tx(sc, KEEPER);
+    let mut board = ts::take_shared<Board>(sc);
+    let (sui, receipt) = game::buyback_take(&mut board, ts::ctx(sc));
+    coin::burn_for_testing(sui);
+    game::buyback_keep(&mut board, receipt, coin::mint_for_testing<gts::GTS>(gts, ts::ctx(sc)), coin::zero<SUI>(ts::ctx(sc)));
+    ts::return_shared(board);
+}
+
+fun claim_gts_as(sc: &mut Scenario, who: address): u64 {
+    ts::next_tx(sc, who);
+    let mut board = ts::take_shared<Board>(sc);
+    let c = game::claim_gts(&mut board, ts::ctx(sc));
+    let v = coin::value(&c);
+    coin::burn_for_testing(c);
+    ts::return_shared(board);
+    v
+}
+
+/// The GTS bought back goes to the stakers by weight, like their SUI: flexible 1x, locked 1.5x (40% / 60%).
+/// Someone who stakes after a buyback gets nothing from it.
+#[test]
+fun test_buyback_gts_to_stakers() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    carol_round(&mut sc, 10);
+    buyback_as_keeper(&mut sc, 1_000_000);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    assert!(game::staking_gts_of(&board, ALICE) == 400_000 && game::staking_gts_of(&board, BOB) == 600_000, 1);
+    assert!(game::bought_value(&board) == 0, 2);
+    ts::return_shared(board);
+    stake_as(&mut sc, CAROL, GTS1, false, 20);
+    assert!(claim_gts_as(&mut sc, CAROL) == 0, 3);
+    assert!(claim_gts_as(&mut sc, ALICE) == 400_000, 4);
+    assert!(claim_gts_as(&mut sc, ALICE) == 0, 5);
+    // Second buyback: Alice 10, Bob 15, Carol 10 tenths of weight.
+    carol_round(&mut sc, 30);
+    buyback_as_keeper(&mut sc, 3_500_000);
+    assert!(claim_gts_as(&mut sc, ALICE) == 1_000_000, 6);
+    assert!(claim_gts_as(&mut sc, BOB) == 600_000 + 1_500_000, 7);
+    assert!(claim_gts_as(&mut sc, CAROL) == 1_000_000, 8);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (paid, waiting) = game::staking_gts_totals(&board);
+    assert!(paid == 4_500_000 && waiting == 0, 9);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// With nobody staked the bought GTS waits in the game, then goes to the stakers with the next buyback.
+#[test]
+fun test_buyback_gts_waits_for_stakers() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    carol_round(&mut sc, 10);
+    buyback_as_keeper(&mut sc, 1_000);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    assert!(game::bought_value(&board) == 1_000, 1);
+    ts::return_shared(board);
+    stake_as(&mut sc, ALICE, GTS1, false, 20);
+    carol_round(&mut sc, 30);
+    buyback_as_keeper(&mut sc, 500);
+    assert!(claim_gts_as(&mut sc, ALICE) == 1_500, 2);
+    ts::end(sc);
+}
+
+/// Unstaking keeps the GTS already earned.
+#[test]
+fun test_gts_yield_survives_unstake() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    carol_round(&mut sc, 10);
+    buyback_as_keeper(&mut sc, 7_000);
+    ts::next_tx(&mut sc, ALICE);
+    let mut board = ts::take_shared<Board>(&sc);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let c = game::unstake(&mut board, GTS1, false, &clk, ts::ctx(&mut sc));
+    coin::burn_for_testing(c);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    assert!(claim_gts_as(&mut sc, ALICE) == 7_000, 1);
+    ts::end(sc);
+}
