@@ -11,10 +11,10 @@
 /// tickets always cost real SUI. House bots get no tickets. Tickets reset after each payout.
 ///
 /// Emission, by rounds played (not by time): each settled round mints `reward` GTS (1 GTS at launch),
-/// shared by the players who lost SUI in the round, by SUI lost (from v5, so extra wallets gain nothing);
-/// the full reward needs `full_reward_deploy` SUI in the round, less scales it down. From v5 a round
-/// never mints more GTS than the SUI it adds to the reserve buys at the floor price, so mining never
-/// lowers the floor. Every `step_rounds` settled rounds (15,658) the reward drops by
+/// shared by everyone in the round by SUI deployed (win or lose); the full reward needs
+/// `full_reward_deploy` SUI in the round, less scales it down, so with 1 GTS per 1 SUI a player mines
+/// exactly the SUI they deployed while the round holds at most 1 SUI. (Rounds settled by v5-v7 were
+/// shared by SUI lost and capped by the floor; v8 removes both.) Every `step_rounds` settled rounds (15,658) the reward drops by
 /// `decay_ppm` (1.425%). Mining stops for good once 1,000,000 GTS have been assigned to rounds.
 /// No staker or other mint: the round reward is the only source of GTS.
 ///
@@ -106,7 +106,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 7;
+const VERSION: u64 = 8;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -206,6 +206,8 @@ public struct FundBpsKey has copy, drop, store {}
 
 /// Dynamic field on the Board: the first round settled by v5 (GTS by SUI lost, floor cap, no spread cut).
 public struct V5FromKey has copy, drop, store {}
+/// Dynamic field on the Board: the first round settled by v8 (GTS by SUI deployed again, no floor cap).
+public struct V8FromKey has copy, drop, store {}
 
 /// Dynamic field on the Board (v6): when `player`'s 7-day withdraw clock started (ms): their last
 /// withdrawal, or when they first mined. Holders from before v6 without one use `RefineFromKey`.
@@ -399,19 +401,9 @@ fun v5_from(board: &Board): u64 {
     if (df::exists(&board.id, V5FromKey {})) { *df::borrow<V5FromKey, u64>(&board.id, V5FromKey {}) } else { 18_446_744_073_709_551_615 }
 }
 
-/// GTS in circulation for the floor: the supply plus GTS assigned to rounds but not claimed yet.
-fun floor_supply(board: &Board, treasury: &Treasury): u64 {
-    let minted = gts::minted(treasury);
-    gts::total_supply(treasury) + if (board.committed > minted) { board.committed - minted } else { 0 }
-}
-
-/// Most GTS a round may mint so the floor does not drop: the SUI it added to the reserve, at the floor
-/// price before the round (reserve `v0` over supply `s0`). No limit while the floor is 0 or undefined.
-fun floor_cap(added: u64, s0: u64, v0: u64): u64 {
-    let max = 18_446_744_073_709_551_615u64;
-    if (v0 == 0 || s0 == 0) { return max };
-    let c = (added as u128) * (s0 as u128) / (v0 as u128);
-    if (c > (max as u128)) { max } else { c as u64 }
+/// First round under the v8 GTS rules (u64 max until v8 settles its first round).
+fun v8_from(board: &Board): u64 {
+    if (df::exists(&board.id, V8FromKey {})) { *df::borrow<V8FromKey, u64>(&board.id, V8FromKey {}) } else { 18_446_744_073_709_551_615 }
 }
 
 // ===== Admin =====
@@ -631,9 +623,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
 
     if (!df::exists(&board.id, V5FromKey {})) { df::add(&mut board.id, V5FromKey {}, board.cur_id) };
     if (!df::exists(&board.id, RefineFromKey {})) { df::add(&mut board.id, RefineFromKey {}, clock::timestamp_ms(clock)) };
-    // Floor before the round, for the GTS cap below.
-    let v0 = gts::vault_value(treasury);
-    let s0 = floor_supply(board, treasury);
+    if (!df::exists(&board.id, V8FromKey {})) { df::add(&mut board.id, V8FromKey {}, board.cur_id) };
 
     let mut gen = random::new_generator(r, ctx);
     let rng = random::generate_u64(&mut gen);
@@ -714,13 +704,10 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     };
     event::emit(MotherlodeUpdate { round_id: board.cur_id, added: ml_added, paid: ml_paid, balance: balance::value(&board.motherlode) });
 
-    // GTS: the step reward (scaled down below `full_reward_deploy`), shared by the SUI lost, so none
-    // when nobody lost; never more than the SUI added to the reserve buys at the floor. Then the decay.
+    // GTS: the step reward (scaled down below `full_reward_deploy`), shared by SUI deployed. Then the decay.
     let full = next_full_reward(board);
-    let scaled = if (board.cur_total >= board.full_reward_deploy) { full }
+    let reward = if (board.cur_total >= board.full_reward_deploy) { full }
         else { mul_div(full, board.cur_total, board.full_reward_deploy) };
-    let cap = floor_cap(gts::vault_value(treasury) - v0, s0, v0);
-    let reward = if (losing_pot == 0) { 0 } else if (scaled < cap) { scaled } else { cap };
     board.committed = board.committed + reward;
     board.step_count = board.step_count + 1;
     if (board.step_count >= board.step_rounds) {
@@ -804,8 +791,8 @@ public fun claim(
 
     let v5 = round_id >= v5_from(board);
     let my_win = *vector::borrow(&miner.deployed, w);
-    // v5: GTS by SUI lost in the round; before: by SUI deployed.
-    let gts_amt = if (v5) {
+    // v5-v7: GTS by SUI lost in the round; before v5 and from v8: by SUI deployed.
+    let gts_amt = if (v5 && round_id < v8_from(board)) {
         let lost_total = round_total - winners_total;
         if (lost_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed - my_win, lost_total) }
     } else if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };

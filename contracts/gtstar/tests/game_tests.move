@@ -308,9 +308,8 @@ fun test_whale_tickets_below_loss() {
 
 /// 25 wallets of one owner, one tile each (the cheapest way to cover the board): the winner takes the
 /// others' losses, so together they only lose the fees. Their tickets equal exactly those fees: a ticket
-/// always costs one mist of real SUI, a second wallet makes it no cheaper. GTS goes by SUI lost too:
-/// the winning wallet mines none, the 24 others share the round reward equally, the same total one
-/// wallet on every tile would mine.
+/// always costs one mist of real SUI, a second wallet makes it no cheaper. GTS goes by SUI deployed:
+/// all 25 wallets share the round reward equally, the same total one wallet on every tile would mine.
 #[test]
 fun test_sybil_wallets_pay_full_price() {
     let mut sc = ts::begin(@0x0);
@@ -334,7 +333,6 @@ fun test_sybil_wallets_pay_full_price() {
     clock::set_for_testing(&mut clk, 62_000);
     ts::next_tx(&mut sc, OWNER);
     game::settle_with_odds_for_testing(&mut board, &mut treasury, &rs, &clk, 1_000_000, ts::ctx(&mut sc));
-    let w = game::winning_square_for_testing(&board, 1);
     let mut back = 0u64;
     let mut tickets = 0u64;
     let mut mined = 0u64;
@@ -348,7 +346,7 @@ fun test_sybil_wallets_pay_full_price() {
         coin::burn_for_testing(g); coin::burn_for_testing(s);
         tickets = tickets + game::tickets_of(&board, who);
         let (u, _) = game::unrefined_of(&board, who);
-        assert!(u == if (i == w) { 0 } else { GTS1 / 24 }, 3);
+        assert!(u == GTS1 / 25, 3);
         mined = mined + u;
         transfer::public_transfer(m, who);
     };
@@ -356,7 +354,7 @@ fun test_sybil_wallets_pay_full_price() {
     let lost = amt * 25 - back;
     assert!(lost == amt * 24 / 20, 1); // together they lost only the 5% fee on 24 tiles
     assert!(tickets == lost, 2);
-    assert!(mined == GTS1 / 24 * 24, 4);
+    assert!(mined == GTS1 / 25 * 25, 4);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
@@ -1009,45 +1007,10 @@ fun test_fund_bps_bounds() {
     ts::end(sc);
 }
 
-/// Reserve over all GTS in circulation (claimed rounds only here), scaled by 1e18.
-fun floor_of(treasury: &Treasury): u128 {
-    (gts::vault_value(treasury) as u128) * 1_000_000_000_000_000_000 / (gts::total_supply(treasury) as u128)
-}
-
-/// Mining never lowers the floor: after the first round each round mints at most what the SUI it adds
-/// to the reserve buys at the floor, through winning and no-winner rounds of different sizes.
+/// GTS goes by SUI deployed, win or lose: Alice on every tile (0.1 each) and Bob with 1 SUI on tile 0
+/// share the round reward by what each deployed.
 #[test]
-fun test_floor_never_drops() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    let mut board = ts::take_shared<Board>(&sc);
-    let mut treasury = ts::take_shared<Treasury>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(40_000_000), 1_000_000);
-    let mut floor = floor_of(&treasury);
-    let mut i = 0;
-    while (i < 12) {
-        let amounts = if (i % 3 == 0) { one_tile(i % 25, SUI1) } else if (i % 3 == 1) { all_tiles(10_000_000) } else { all_tiles(80_000_000) };
-        let who = if (i % 2 == 0) { ALICE } else { BOB };
-        let (_, _, _, _, _, before) = game::emission(&board);
-        round_as(&mut sc, who, &mut board, &mut treasury, &rs, &mut clk, amounts, 1_000_000);
-        let (_, _, _, _, _, after) = game::emission(&board);
-        assert!(after - before <= GTS1, 1); // never above the schedule
-        let f = floor_of(&treasury);
-        assert!(f >= floor, 2);
-        floor = f;
-        i = i + 1;
-    };
-    clock::destroy_for_testing(clk);
-    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
-    ts::end(sc);
-}
-
-/// GTS goes by SUI lost: Alice on every tile (0.1 each) and Bob with 1 SUI on tile 0 share the round
-/// reward by what each lost; a winning stake mines nothing.
-#[test]
-fun test_gts_by_loss() {
+fun test_gts_by_deposit() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     let mut board = ts::take_shared<Board>(&sc);
@@ -1063,28 +1026,27 @@ fun test_gts_by_loss() {
     game::deploy(&mut board, &mut mb, coin::mint_for_testing<SUI>(SUI1, ts::ctx(&mut sc)), one_tile(0, SUI1), &clk, ts::ctx(&mut sc));
     clock::set_for_testing(&mut clk, 62_000);
     game::settle_for_testing(&mut board, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
-    let w = game::winning_square_for_testing(&board, 1);
-    let alice_lost = 24 * 100_000_000;
-    let bob_lost = if (w == 0) { 0 } else { SUI1 };
+    let alice_in = 25 * 100_000_000;
+    let bob_in = SUI1;
     let (g, s) = game::claim(&mut board, &mut mb, &mut treasury, ts::ctx(&mut sc));
     coin::burn_for_testing(g); coin::burn_for_testing(s);
     ts::next_tx(&mut sc, ALICE);
     let (g, s) = game::claim(&mut board, &mut ma, &mut treasury, ts::ctx(&mut sc));
     coin::burn_for_testing(g); coin::burn_for_testing(s);
-    let lost = alice_lost + bob_lost;
+    let total = alice_in + bob_in;
     let (a, _) = game::unrefined_of(&board, ALICE);
     let (b, _) = game::unrefined_of(&board, BOB);
-    assert!(a == (((GTS1 as u128) * (alice_lost as u128) / (lost as u128)) as u64), 1);
-    assert!(b == (((GTS1 as u128) * (bob_lost as u128) / (lost as u128)) as u64), 2);
+    assert!(a == (((GTS1 as u128) * (alice_in as u128) / (total as u128)) as u64), 1);
+    assert!(b == (((GTS1 as u128) * (bob_in as u128) / (total as u128)) as u64), 2);
     transfer::public_transfer(ma, ALICE); transfer::public_transfer(mb, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
 }
 
-/// A round where nobody lost (everything on the winning tile) mints no GTS and pays the stake back.
+/// A round where nobody lost (everything on the winning tile) still mines GTS and pays the stake back.
 #[test]
-fun test_nobody_lost_no_gts() {
+fun test_nobody_lost_still_mines() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     let mut board = ts::take_shared<Board>(&sc);
@@ -1099,12 +1061,30 @@ fun test_nobody_lost_no_gts() {
         let round = game::current_round(&board) - 1;
         if (game::winning_square_for_testing(&board, round) == 7) {
             let (_, _, _, _, _, after) = game::emission(&board);
-            assert!(after == before && back == SUI1, 1);
+            assert!(after - before == GTS1 && back == SUI1, 1);
             done = true;
         };
         tries = tries + 1;
     };
     assert!(done, 2);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// The rule players see: alone in a round, 0.25 SUI deployed (0.01 on every tile) mines exactly 0.25 GTS.
+#[test]
+fun test_sui_in_equals_gts_mined() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(40_000_000), 1_000_000);
+    round_as(&mut sc, ALICE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(10_000_000), 1_000_000);
+    let (a, _) = game::unrefined_of(&board, ALICE);
+    assert!(a == 250_000_000, 1);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
