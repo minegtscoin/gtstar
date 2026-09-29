@@ -877,32 +877,13 @@ const paintTitle = () => { document.title = flashTitle && document.hidden && Mat
 const setTitle = t => { baseTitle = t; paintTitle(); };
 setInterval(() => { if (flashTitle) paintTitle(); }, 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { flashTitle = null; paintTitle(); } });
-const canNotify = "Notification" in window;
-const alertsOn = () => canNotify && Notification.permission === "granted" && store.get("gtstar.alerts") === "on";
-// A round you played has ended while you were in another tab: flash the title, and notify if you turned alerts on.
+// A round you played has ended while you were in another tab: flash the title.
 function roundAlert(L) {
   const m = USER?.miner;
   if (!document.hidden || !m || m.round_id !== L.round) return;
   const r = rewards(), net = r.sui - m.total;
   const head = net > 0 ? "You won!" : r.sui > 0 ? "Your tile won" : `Tile ${L.tile + 1} won`;
-  const body = net > 0 ? `Round #${L.round}: +${sui(net, 4)} SUI and ${sui(r.gts, 4)} GTS mined.`
-    : r.sui > 0 ? `Round #${L.round}: ${sui(r.sui, 4)} SUI back and ${sui(r.gts, 4)} GTS mined.`
-    : `Round #${L.round}: your tiles did not win. ${sui(r.gts, 4)} GTS mined.`;
   flashTitle = `${head} · GTStar`;
-  if (alertsOn()) try {
-    const n = new Notification(head, { body, icon: "/icon-192.png", tag: "gtstar-round" });
-    n.onclick = () => { window.focus(); location.hash = "#mine"; n.close(); };
-  } catch {}
-}
-function renderAlerts() {
-  $("alertsRow").hidden = !canNotify;
-  if (!canNotify) return;
-  const on = alertsOn();
-  $("alertsBtn").textContent = Notification.permission === "denied" ? "Blocked" : on ? "On" : "Off";
-  $("alertsBtn").classList.toggle("strong", on);
-  $("alertsBtn").title = Notification.permission === "denied"
-    ? "Notifications are blocked for this site in your browser settings"
-    : "Browser notification when a round you played ends while this tab is in the background";
 }
 function lastDeploy() {
   try { const j = JSON.parse(store.get("gtstar.last")); return j && Array.isArray(j.tiles) && j.tiles.length ? j : null; } catch { return null; }
@@ -1208,7 +1189,6 @@ function renderMine() {
   const per = parseAmt($("amt").value);
   $("tileCount").textContent = selected.size;
   $("selRepeat").disabled = !lastDeploy();
-  renderAlerts();
   $("totalCost").textContent = fmt(per * selected.size, 4);
   renderEstimate(per, p);
   $("mbTiles").textContent = `${selected.size} ${selected.size === 1 ? "tile" : "tiles"} · ${fmt(per, 4)} SUI each`;
@@ -1787,12 +1767,6 @@ $("selRepeat").onclick = () => {
   selected = new Set(l.tiles.filter(i => Number.isInteger(i) && i >= 0 && i < 25).slice(0, tileCap()));
   $("amt").value = l.per; render();
 };
-$("alertsBtn").onclick = async () => {
-  if (alertsOn()) store.set("gtstar.alerts", "off");
-  else if ((await Notification.requestPermission()) === "granted") store.set("gtstar.alerts", "on");
-  else if (Notification.permission === "denied") toast("Notifications are blocked for this site. Allow them in your browser settings.");
-  renderAlerts();
-};
 // Phones: while the real Deploy button is off screen, a fixed bar mirrors it (same label, same state, same action).
 const syncBar = () => { $("mbPlay").textContent = $("btnPlay").textContent; $("mbPlay").disabled = $("btnPlay").disabled; };
 new MutationObserver(syncBar).observe($("btnPlay"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
@@ -1810,7 +1784,12 @@ $("btnPlay").onclick = async () => {
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
 $("btnWithdraw").onclick = withdrawGts;
 $("hdrClaim").onclick = claimAll;
-$("selRand").onclick = () => { selected = new Set([Math.floor(Math.random() * 25)]); render(); };
+// Random keeps the current tile count (at least 1) and picks that many distinct tiles.
+$("selRand").onclick = () => {
+  const n = Math.min(Math.max(selected.size, 1), tileCap(), 25), pool = [...Array(25).keys()];
+  for (let i = 24; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  selected = new Set(pool.slice(0, n)); render();
+};
 $("btnSwap").onclick = () => (!account ? openWalletModal() : swapDir === "buy" ? buy() : swap());
 const swInput = () => { renderTrade(); requestQuote(); };
 $("swIn").addEventListener("input", swInput);
