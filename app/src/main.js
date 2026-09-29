@@ -692,7 +692,6 @@ const swap = () => exec("Swap", "btnSwap", async tx => {
   tx.moveCall({ target: "0x2::balance::destroy_zero", typeArguments: [T_GTS], arguments: [gtsLeft] });
   tx.transferObjects([guardedCoin(tx, sui, POOL_T[1], minOut)], account.address);
 }).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
-}
 
 // ---------- emission math (round-based, mirrors game::settle) ----------
 // Full GTS reward of the round now open: the step reward, never past the 1,000,000 cap.
