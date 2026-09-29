@@ -972,12 +972,12 @@ function renderResult() {
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
   const m = USER?.miner, back = m && m.round_id === L.round ? rewards().sui : 0, net = back - (m?.total || 0);
-  if (back > 0) me = net > 0 ? `<div class="res-me won">You won <b>+${sui(net, 4)} SUI</b></div>${shareLink(net, L)}` : `<div class="res-me">Your tile won · <b>${sui(back, 4)} SUI back</b></div>`;
+  if (back > 0) me = `<div class="res-me won">${net > 0 ? `You won <b>+${sui(net, 4)} SUI</b>` : `Your tile won · <b>${sui(back, 4)} SUI back</b>`}</div>${shareRow(net, back, L)}`;
   const youWon = back > 0 && net > 0;
   if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}. ${shareLink(net, L)}`, false, true); }
   box.hidden = false;
   box.classList.toggle("fresh", !!fresh);
-  box.classList.toggle("won", youWon);
+  box.classList.toggle("won", back > 0);
   box.innerHTML = `<div class="res-main"><span class="res-tile">${L.tile + 1}</span><div><b>Round #${fmt(L.round, 0)} · Tile ${L.tile + 1} wins</b><small>${sub}</small></div></div>${me ? `<div class="res-side">${me}</div>` : ""}`;
 }
 
@@ -989,6 +989,23 @@ const shareUrl = (net, L) => "https://x.com/intent/post?" + new URLSearchParams(
 25 tiles, one winner every round, GTS mined on Sui. Pick your tile:`,
   url: "https://minegts.fun/", related: "MineGTS1",
 });
+// Win text for any share: a net gain says "won +X", a tile win that returned less than deployed only says what came back.
+const shareText = (net, back, L, tag) => net > 0
+  ? `Just won +${sui(net, 4)} SUI on tile ${L.tile + 1} in round #${fmt(L.round, 0)} of ${tag}`
+  : `My tile ${L.tile + 1} won round #${fmt(L.round, 0)} of ${tag}: ${sui(back, 4)} SUI back`;
+const SITE = "https://minegts.fun/";
+const ICO = {
+  x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18h1.7L6.3 3.9H4.5L17.8 20Z"/></svg>',
+  fb: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.5 22v-8.2h2.8l.4-3.2h-3.2V8.5c0-.9.3-1.6 1.6-1.6h1.7V4.1c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.4H7.3v3.2h2.8V22h3.4Z"/></svg>',
+  wa: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.6-.3Z"/></svg>',
+};
+const shareRow = (net, back, L) => {
+  const x = "https://x.com/intent/post?" + new URLSearchParams({ text: shareText(net, back, L, "@MineGTS1") + "\n\n25 tiles, one winner every round, GTS mined on Sui. Pick your tile:", url: SITE, related: "MineGTS1" });
+  const fb = "https://www.facebook.com/sharer/sharer.php?" + new URLSearchParams({ u: SITE });
+  const wa = "https://wa.me/?" + new URLSearchParams({ text: shareText(net, back, L, "GTStar") + ". 25 tiles, one winner every round, GTS mined on Sui. Pick your tile: " + SITE });
+  const a = (cls, href, name) => `<a class="sh ${cls}" href="${href}" target="_blank" rel="noopener" aria-label="Share on ${name}" title="Share on ${name}">${ICO[cls]}</a>`;
+  return `<div class="share-row"><span>Share</span>${a("x", x, "X")}${a("fb", fb, "Facebook")}${a("wa", wa, "WhatsApp")}</div>`;
+};
 const shareLink = (net, L) => `<a class="share-x" href="${shareUrl(net, L)}" target="_blank" rel="noopener">Share on X</a>`;
 function renderRecent() {
   const list = (STATE?.recent || []).slice(0, 3);

@@ -321,10 +321,25 @@ button.sw-bal:hover{color:var(--text)}
 .round-bar[data-urgent] .prog i{background:var(--gold)}
 @keyframes tick{50%{opacity:.55}}
 .win-est{color:var(--win)}
-.result.won{border-color:rgba(127,220,180,.5);background:linear-gradient(90deg,rgba(127,220,180,.1),transparent 70%)}
-.result.won .res-tile{border-color:var(--win);color:var(--win)}
+.result.won{position:relative;overflow:hidden;border-color:rgba(127,220,180,.7);background:linear-gradient(100deg,rgba(127,220,180,.2),rgba(127,220,180,.06) 60%,rgba(127,220,180,.12));box-shadow:0 0 0 1px rgba(127,220,180,.25),0 0 28px rgba(127,220,180,.22);padding:16px 18px}
+.result.won::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(127,220,180,.18) 50%,transparent 70%);transform:translateX(-100%);animation:shine 3.2s ease-in-out infinite;pointer-events:none}
+.result.won .res-tile{width:48px;height:48px;font-size:22px;border-color:var(--win);color:#0b1210;background:var(--win);box-shadow:0 0 18px rgba(127,220,180,.55);animation:glow 1.8s ease-in-out infinite}
+.result.won .res-main b{color:var(--win);font-size:17px}
+.result.won .res-side{flex-direction:column;align-items:flex-end;gap:8px}
+.result.won .res-me{font-size:14px;color:var(--text)}
+.result.won .res-me b{color:var(--win);font-size:20px;text-shadow:0 0 14px rgba(127,220,180,.5)}
+.result.won.fresh{animation:winin .6s cubic-bezier(.2,1.4,.4,1)}
+.share-row{display:flex;align-items:center;gap:8px;position:relative;z-index:1}
+.share-row span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.share-row .sh{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#0b1210;background:var(--win);transition:transform .15s,box-shadow .15s}
+.share-row .sh svg{width:16px;height:16px}
+.share-row .sh:hover{transform:translateY(-2px) scale(1.06);box-shadow:0 0 16px rgba(127,220,180,.6)}
+@keyframes shine{0%{transform:translateX(-100%)}55%,100%{transform:translateX(100%)}}
+@keyframes glow{50%{box-shadow:0 0 30px rgba(127,220,180,.85)}}
+@keyframes winin{0%{opacity:0;transform:scale(.96)}100%{opacity:1;transform:none}}
+@media(max-width:560px){.result.won .res-side{align-items:flex-start;width:100%}}
 @media(max-width:520px){.tile .add{font-size:12px}}
-@media (prefers-reduced-motion:reduce){.tile.bump,.round-bar[data-urgent] .rb-time b,.tile.win,.result.fresh,.fr.new{animation:none}}
+@media (prefers-reduced-motion:reduce){.tile.bump,.round-bar[data-urgent] .rb-time b,.tile.win,.result.fresh,.fr.new,.result.won::after,.result.won .res-tile{animation:none}}
 
 /* v5: simpler board */
 .board-hint{margin:0;color:var(--muted);font-size:13.5px;text-align:center}
