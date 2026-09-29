@@ -1282,9 +1282,11 @@ function renderActivity() {
     const body = rows.map(r => {
       const w = winnersOf(r);
       const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
-      const sn = r.ml?.paid > 0 ? `<span class="gold">Hit ${sui(r.ml.paid, 4)}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
+      // A payout goes to a ticket holder, not the tile winner: name who got it right in the cell.
+      const hit = r.ml?.paid > 0;
+      const sn = hit ? `<span class="fund-hit"><b>Won ${sui(r.ml.paid, 4)} SUI</b>${r.ml.winner ? acctLink(r.ml.winner) : `<span>tile winners</span>`}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
       const winnings = wonFromOthers(r);
-      let html = `<tr class="round" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
+      let html = `<tr class="round${hit ? " jackpot" : ""}" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
         <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
         <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td>
         <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sn}</td><td class="r">${sui(r.reward, 3)}</td>
@@ -1316,7 +1318,8 @@ function minersHtml(r) {
   const list = HIST.byRound.get(r.round) || [];
   if (!list.length) return `<span class="muted">No deploy events found for this round.</span>`;
   const agg = playersOf(r, list);
-  return `<div class="miners">` + [...agg.entries()].sort((x, y) => y[1].total - x[1].total).map(([p, a]) => {
+  const fund = r.ml?.paid > 0 && r.ml.winner ? `<div class="fund-win">Wealth Fund paid <b>${sui(r.ml.paid, 4)} SUI</b> to ticket holder ${acctLink(r.ml.winner)}</div>` : "";
+  return fund + `<div class="miners">` + [...agg.entries()].sort((x, y) => y[1].total - x[1].total).map(([p, a]) => {
     const back = payoutOf(r, a.onWin, a.total, p).back, net = back - a.total;
     const gts = gtsOf(r, a.onWin, a.total);
     return `<div class="m">${acctLink(p)}<span>${sui(a.total, 3)} SUI deployed · ${sui(gts, 4)} GTS mined</span>

@@ -99,6 +99,13 @@ body.on-home .hero{padding:8px 0 32px}
 .tbl tr.round{cursor:pointer}
 .tbl tr.round:hover td{background:var(--tile)}
 .tbl tr.round td:first-child b{font-family:var(--disp);font-weight:600}
+.tbl tr.jackpot td{background:rgba(230,196,134,.07)}
+.tbl tr.jackpot td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
+.fund-hit{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;line-height:1.2}
+.fund-hit b{color:var(--gold);font-weight:600;white-space:nowrap}
+.fund-hit a,.fund-hit span{font-size:12px;color:var(--gold);opacity:.85}
+.fund-win{margin:0 0 10px;padding:10px 12px;border:1px solid rgba(230,196,134,.35);border-radius:10px;background:rgba(230,196,134,.06);color:var(--gold);font-size:14px}
+.fund-win a{color:var(--gold);text-decoration:underline}
 .tbl a{color:var(--muted)}
 .tbl a:hover{color:var(--text);text-decoration:underline}
 .tile-badge{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;padding:0 6px;border:1px solid var(--win);color:var(--win);border-radius:6px;font-size:12px;font-weight:600}
