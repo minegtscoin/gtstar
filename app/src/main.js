@@ -438,9 +438,9 @@ function friendlyError(e) {
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
 }
-// The keeper draws a round within seconds of its end. If it has not after 20 seconds (keeper down or out of
-// gas), the board stops showing "Drawing" and asks the player to draw; whoever draws is paid for it.
-const KEEPER_GRACE_MS = 20_000;
+// The keeper draws every round within seconds of its end, so players never draw. Only if it has not after
+// 2 minutes (keeper down) does the board offer the draw to the player as a fallback.
+const KEEPER_GRACE_MS = 120_000;
 const keeperDrawing = b => Date.now() < b.cur_end_ms + KEEPER_GRACE_MS;
 const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
@@ -1117,6 +1117,7 @@ function renderMine() {
     let label = "Deploy", dis = false;
     if (!account) label = "Sign in to play";
     else if (p === "loading") { label = "Loading"; dis = true; }
+    else if (p === "ended" && keeperDrawing(b)) { label = "Picking the winner"; dis = true; }
     else if (p === "ended") label = selected.size ? "Draw winner, then deploy" : "Draw winner";
     else if (p === "frozen") { label = "Round closing"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
