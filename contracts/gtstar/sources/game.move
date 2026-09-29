@@ -4,8 +4,11 @@
 /// losing pot pays: creator DEV_BPS (1%, fixed), reserve `vault_bps`, buyback `buyback_bps`, and the
 /// rest to the winners, each keeping the part of their round deposit that sat on the winning square
 /// (the rest goes to the reserve). With no one on the winning square the rest is split between the
-/// Wealth Fund (`ml_share_bps` of the losing pot) and the reserve. Every round with a winner has a
-/// 1 in `ml_odds` chance to pay the whole Wealth Fund to the winning square.
+/// Wealth Fund (`ml_share_bps` of the losing pot) and the reserve. Every round has a 1 in `ml_odds`
+/// chance to pay the whole Wealth Fund to one ticket, drawn by weight. Tickets: every mist of fee a
+/// player paid (creator + reserve + buyback + stakers, on the SUI they lost) since the last payout is
+/// one ticket, added when the round is claimed. Fees cannot be won back through a second wallet, so
+/// tickets always cost real SUI. House bots get no tickets. Tickets reset after each payout.
 ///
 /// Emission, by rounds played (not by time): each settled round mints `reward` GTS (1 GTS at launch),
 /// shared by everyone in the round by SUI deployed; the full reward needs `full_reward_deploy` SUI in
@@ -73,6 +76,8 @@ const BOT1_ADDR: address = @0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3a
 const BOT2_ADDR: address = @0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7;
 const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4;
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
+/// Shield bot: no Wealth Fund tickets either.
+const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
 
 /// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's buyback
 /// share, then its reserve share, so the draw pays for its own gas.
@@ -82,7 +87,7 @@ const DRAW_REWARD_MAX: u64 = 5_000_000;
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 3;
+const VERSION: u64 = 4;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -163,6 +168,15 @@ public struct SeatKey has copy, drop, store { round_id: u64, player: address }
 public struct UnrefinedKey has copy, drop, store { player: address }
 public struct Unrefined has store, drop { amount: u64, bonus: u64, snap: u256 }
 
+/// Dynamic field on the Board: the Wealth Fund tickets of the current draw (`epoch`, bumped on payout).
+/// Entries `TicketKey { epoch, i }` hold cumulative ranges: entry i owns tickets [end(i-1), end(i)).
+public struct TicketsKey has copy, drop, store {}
+public struct Tickets has store { epoch: u64, total: u64, count: u64 }
+public struct TicketKey has copy, drop, store { epoch: u64, i: u64 }
+public struct TicketEntry has store, drop { player: address, end: u64 }
+/// Dynamic field on the Board: one player's tickets in `epoch` (for display).
+public struct PlayerTicketsKey has copy, drop, store { epoch: u64, player: address }
+
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
@@ -218,6 +232,9 @@ public struct RoundSettled has copy, drop {
 }
 
 public struct MotherlodeUpdate has copy, drop { round_id: u64, added: u64, paid: u64, balance: u64 }
+/// The Wealth Fund was paid to the holder of the drawn ticket.
+public struct WealthFundWon has copy, drop { round_id: u64, epoch: u64, winner: address, amount: u64, winner_tickets: u64, total_tickets: u64 }
+public struct TicketsAdded has copy, drop { round_id: u64, epoch: u64, player: address, tickets: u64, total: u64 }
 public struct MotherlodeReturned has copy, drop { round_id: u64, amount: u64, balance: u64 }
 public struct Forfeited has copy, drop { round_id: u64, player: address, to_reserve: u64, to_fund: u64 }
 public struct GtsWithdrawn has copy, drop { player: address, amount: u64, fee: u64, bonus: u64, paid: u64, burned: u64 }
@@ -285,6 +302,48 @@ fun check_version(board: &mut Board) {
 
 fun is_bot(a: address): bool {
     a == HOUSE_ADDR || a == BOT1_ADDR || a == BOT2_ADDR || a == BOT3_ADDR || a == MATCHER_ADDR
+}
+
+/// No Wealth Fund tickets for house bots.
+fun no_tickets(a: address): bool { is_bot(a) || a == SHIELD_ADDR }
+
+/// Fees taken from the losing pot, in bps: creator + reserve + buyback + stakers.
+fun fee_bps(board: &Board): u64 { DEV_BPS + board.vault_bps + board.buyback_bps + stake_bps(board) }
+
+fun tickets_mut(board: &mut Board): &mut Tickets {
+    if (!df::exists(&board.id, TicketsKey {})) {
+        df::add(&mut board.id, TicketsKey {}, Tickets { epoch: 0, total: 0, count: 0 });
+    };
+    df::borrow_mut<TicketsKey, Tickets>(&mut board.id, TicketsKey {})
+}
+
+/// Add `n` tickets for `player` in the current draw (merged into the last range if it is theirs).
+fun add_tickets(board: &mut Board, round_id: u64, player: address, n: u64) {
+    let t = tickets_mut(board);
+    let (epoch, count) = (t.epoch, t.count);
+    t.total = t.total + n;
+    let total = t.total;
+    let merge = count > 0 && df::borrow<TicketKey, TicketEntry>(&board.id, TicketKey { epoch, i: count - 1 }).player == player;
+    if (merge) {
+        df::borrow_mut<TicketKey, TicketEntry>(&mut board.id, TicketKey { epoch, i: count - 1 }).end = total;
+    } else {
+        df::add(&mut board.id, TicketKey { epoch, i: count }, TicketEntry { player, end: total });
+        tickets_mut(board).count = count + 1;
+    };
+    let pk = PlayerTicketsKey { epoch, player };
+    if (df::exists(&board.id, pk)) { let v = df::borrow_mut<PlayerTicketsKey, u64>(&mut board.id, pk); *v = *v + n; }
+    else { df::add(&mut board.id, pk, n); };
+    event::emit(TicketsAdded { round_id, epoch, player, tickets: n, total });
+}
+
+/// Holder of ticket number `r` (< total) of the current draw: binary search over the ranges.
+fun ticket_holder(board: &Board, epoch: u64, count: u64, r: u64): address {
+    let (mut lo, mut hi) = (0, count - 1);
+    while (lo < hi) {
+        let mid = (lo + hi) / 2;
+        if (df::borrow<TicketKey, TicketEntry>(&board.id, TicketKey { epoch, i: mid }).end > r) { hi = mid } else { lo = mid + 1 };
+    };
+    df::borrow<TicketKey, TicketEntry>(&board.id, TicketKey { epoch, i: lo }).player
 }
 
 /// Full reward of the next settled round: the step reward, never past the cap.
@@ -496,6 +555,11 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let winning = ((rng % GRID) as u8);
     // Drawn on every round, hit or not, so both paths cost about the same gas.
     let hit = random::generate_u64_in_range(&mut gen, 0, odds - 1) == 0;
+    let (t_epoch, t_total, t_count) = if (df::exists(&board.id, TicketsKey {})) {
+        let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
+        (t.epoch, t.total, t.count)
+    } else { (0, 0, 0) };
+    let ticket = random::generate_u64_in_range(&mut gen, 0, if (t_total > 0) { t_total - 1 } else { 0 });
 
     let winners_total = *vector::borrow(&board.cur_deployed, (winning as u64));
     let losing_pot = board.cur_total - winners_total;
@@ -530,8 +594,8 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
         event::emit(DrawPaid { round_id: board.cur_id, settler, amount: draw_reward });
     };
 
-    // Wealth Fund: with no one on the winning square the rest is split between it and the reserve;
-    // with a winner there is a 1 in `odds` chance it is paid out.
+    // Wealth Fund: with no one on the winning square the rest is split between it and the reserve.
+    // Then, in any round, a 1 in `odds` chance it is paid to the holder of the drawn ticket.
     let mut ml_added = 0;
     let mut ml_paid = 0;
     if (winners_total == 0) {
@@ -546,12 +610,18 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
             };
             losing_after_fee = 0;
         };
-    } else if (hit && balance::value(&board.motherlode) > 0) {
+    };
+    if (hit && t_total > 0 && balance::value(&board.motherlode) > 0) {
+        let winner = ticket_holder(board, t_epoch, t_count, ticket);
+        let winner_tickets = *df::borrow<PlayerTicketsKey, u64>(&board.id, PlayerTicketsKey { epoch: t_epoch, player: winner });
         ml_paid = balance::value(&board.motherlode);
         let fund = balance::withdraw_all(&mut board.motherlode);
-        balance::join(&mut board.pot, fund);
-        losing_after_fee = losing_after_fee + ml_paid;
-        df::add(&mut board.id, JackpotKey { round_id: board.cur_id }, ml_paid);
+        transfer::public_transfer(coin::from_balance(fund, ctx), winner);
+        let t = tickets_mut(board);
+        t.epoch = t_epoch + 1;
+        t.total = 0;
+        t.count = 0;
+        event::emit(WealthFundWon { round_id: board.cur_id, epoch: t_epoch, winner, amount: ml_paid, winner_tickets, total_tickets: t_total });
     };
     event::emit(MotherlodeUpdate { round_id: board.cur_id, added: ml_added, paid: ml_paid, balance: balance::value(&board.motherlode) });
 
@@ -666,6 +736,10 @@ public fun claim(
         coin::zero<SUI>(ctx)
     };
 
+    // Wealth Fund tickets: the fee paid on the SUI lost this round (none for house bots).
+    let n = mul_div(miner.total_deployed - my_win, fee_bps(board), 10_000);
+    if (n > 0 && !no_tickets(player)) { add_tickets(board, round_id, player, n) };
+
     let seat = SeatKey { round_id, player };
     if (df::exists(&board.id, seat) && *df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner)) {
         let _: ID = df::remove(&mut board.id, seat);
@@ -768,6 +842,18 @@ public fun unrefined_of(board: &Board, player: address): (u64, u64) {
     (u.amount, u.bonus + earned(u.amount, board.acc, u.snap))
 }
 public fun unrefined_total(board: &Board): u64 { board.unrefined_total }
+/// Wealth Fund draw: (epoch, total tickets).
+public fun wealth_tickets(board: &Board): (u64, u64) {
+    if (!df::exists(&board.id, TicketsKey {})) { return (0, 0) };
+    let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
+    (t.epoch, t.total)
+}
+/// `player`'s tickets in the current Wealth Fund draw.
+public fun tickets_of(board: &Board, player: address): u64 {
+    let (epoch, _) = wealth_tickets(board);
+    let pk = PlayerTicketsKey { epoch, player };
+    if (df::exists(&board.id, pk)) { *df::borrow<PlayerTicketsKey, u64>(&board.id, pk) } else { 0 }
+}
 /// Stakers' share of the losing pot in bps (0 before staking is set up).
 public fun staking_bps(board: &Board): u64 { stake_bps(board) }
 /// (GTS staked, total weight in tenths, SUI paid to stakers so far, SUI waiting to be claimed).
@@ -797,6 +883,12 @@ public fun settle_with_odds_for_testing(
 #[test_only]
 public fun winning_square_for_testing(board: &Board, round_id: u64): u64 {
     (table::borrow(&board.rounds, round_id).winning_square as u64)
+}
+
+#[test_only]
+public fun ticket_holder_for_testing(board: &Board, r: u64): address {
+    let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
+    ticket_holder(board, t.epoch, t.count, r)
 }
 
 #[test_only]

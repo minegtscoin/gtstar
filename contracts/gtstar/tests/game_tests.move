@@ -239,48 +239,195 @@ fun test_round_without_winner() {
     ts::end(sc);
 }
 
-/// Wealth Fund pays the whole balance to the winning tile when it hits (odds 1 forces a hit).
+/// One round by `who` alone with `amounts`, settled by OWNER, claimed by `who`. Returns the SUI paid back.
+fun round_as(sc: &mut Scenario, who: address, board: &mut Board, treasury: &mut Treasury, rs: &Random, clk: &mut Clock, amounts: vector<u64>, odds: u64): u64 {
+    let t = clock::timestamp_ms(clk) + 100_000;
+    ts::next_tx(sc, who);
+    let mut m = game::new_miner(ts::ctx(sc));
+    let mut sum = 0u64;
+    let mut k = 0;
+    while (k < 25) { sum = sum + *vector::borrow(&amounts, k); k = k + 1; };
+    clock::set_for_testing(clk, t);
+    game::deploy(board, &mut m, coin::mint_for_testing<SUI>(sum, ts::ctx(sc)), amounts, clk, ts::ctx(sc));
+    clock::set_for_testing(clk, t + 61_000);
+    ts::next_tx(sc, OWNER);
+    game::settle_with_odds_for_testing(board, treasury, rs, clk, odds, ts::ctx(sc));
+    ts::next_tx(sc, who);
+    let (g, s) = game::claim(board, &mut m, treasury, ts::ctx(sc));
+    let sv = coin::value(&s);
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(m, who);
+    sv
+}
+
+/// Tickets are the fee paid on the SUI lost: 10% (creator 1 + reserve 4 + buyback 5) of a lost deposit,
+/// nothing for a round won. Odds of a million keep the fund from paying during the test.
 #[test]
-fun test_wealth_fund_pays() {
+fun test_tickets_are_fee_paid() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
     let mut board = ts::take_shared<Board>(&sc);
     let mut treasury = ts::take_shared<Treasury>(&sc);
     let rs = ts::take_shared<Random>(&sc);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    // Fill the fund with no-winner rounds on tile 0 until one misses.
-    let amt = 1_000_000_000;
-    let mut t = 1_000;
-    while (game::motherlode_value(&board) == 0) {
+    let mut expected = 0u64;
+    let mut n = 0u64;
+    while (n < 8) {
+        round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
+        let round = game::current_round(&board) - 1;
+        if (game::winning_square_for_testing(&board, round) != 0) { expected = expected + SUI1 / 10 };
+        n = n + 1;
+    };
+    assert!(expected > 0, 1);
+    assert!(game::tickets_of(&board, BOB) == expected, 2);
+    let (epoch, total) = game::wealth_tickets(&board);
+    assert!(epoch == 0 && total == expected, 3);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Whale on all 25 tiles: tickets only for the 24 losing tiles' fee, far below what the whale lost.
+#[test]
+fun test_whale_tickets_below_loss() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let per = 400_000_000; // 10 SUI in all
+    let back = round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1_000_000);
+    let tickets = game::tickets_of(&board, BOB);
+    assert!(tickets == per * 24 / 10, 1);
+    assert!(tickets <= per * 25 - back, 2);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// 25 wallets of one owner, one tile each (the cheapest way to cover the board): the winner takes the
+/// others' losses, so together they only lose the fees. Their tickets equal exactly those fees: a ticket
+/// always costs one mist of real SUI, a second wallet makes it no cheaper.
+#[test]
+fun test_sybil_wallets_pay_full_price() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let amt = 100_000_000;
+    clock::set_for_testing(&mut clk, 1_000);
+    let mut miners = vector[];
+    let mut i = 0;
+    while (i < 25) {
+        let who = sui::address::from_u256((0x5000 + i) as u256);
+        ts::next_tx(&mut sc, who);
         let mut m = game::new_miner(ts::ctx(&mut sc));
-        clock::set_for_testing(&mut clk, t);
-        game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(&mut sc)), one_tile(0, amt), &clk, ts::ctx(&mut sc));
-        clock::set_for_testing(&mut clk, t + 61_000);
-        game::settle_for_testing(&mut board, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
+        game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(&mut sc)), one_tile(i, amt), &clk, ts::ctx(&mut sc));
+        vector::push_back(&mut miners, m);
+        i = i + 1;
+    };
+    clock::set_for_testing(&mut clk, 62_000);
+    ts::next_tx(&mut sc, OWNER);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &rs, &clk, 1_000_000, ts::ctx(&mut sc));
+    let mut back = 0u64;
+    let mut tickets = 0u64;
+    while (!vector::is_empty(&miners)) {
+        let mut m = vector::pop_back(&mut miners);
+        let who = sui::address::from_u256((0x5000 + vector::length(&miners)) as u256);
+        ts::next_tx(&mut sc, who);
         let (g, s) = game::claim(&mut board, &mut m, &mut treasury, ts::ctx(&mut sc));
+        back = back + coin::value(&s);
         coin::burn_for_testing(g); coin::burn_for_testing(s);
-        transfer::public_transfer(m, BOB);
-        t = t + 100_000;
+        tickets = tickets + game::tickets_of(&board, who);
+        transfer::public_transfer(m, who);
+    };
+    vector::destroy_empty(miners);
+    let lost = amt * 25 - back;
+    assert!(lost == amt * 24 / 10, 1); // together they lost only the 10% fee on 24 tiles
+    assert!(tickets == lost, 2);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+const SHIELD: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
+const HOUSE: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
+
+/// House bots and the Shield bot get no tickets.
+#[test]
+fun test_bots_get_no_tickets() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    round_as(&mut sc, SHIELD, &mut board, &mut treasury, &rs, &mut clk, all_tiles(100_000_000), 1_000_000);
+    round_as(&mut sc, HOUSE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(100_000_000), 1_000_000);
+    assert!(game::tickets_of(&board, SHIELD) == 0 && game::tickets_of(&board, HOUSE) == 0, 1);
+    let (_, total) = game::wealth_tickets(&board);
+    assert!(total == 0, 2);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Ticket ranges in order of claim: Bob [0, 240M), Alice [240M, 720M), Bob [720M, 960M).
+#[test]
+fun test_ticket_ranges() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(100_000_000), 1_000_000);
+    round_as(&mut sc, ALICE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(200_000_000), 1_000_000);
+    round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(100_000_000), 1_000_000);
+    assert!(game::tickets_of(&board, BOB) == 480_000_000 && game::tickets_of(&board, ALICE) == 480_000_000, 1);
+    assert!(game::ticket_holder_for_testing(&board, 0) == BOB, 2);
+    assert!(game::ticket_holder_for_testing(&board, 239_999_999) == BOB, 3);
+    assert!(game::ticket_holder_for_testing(&board, 240_000_000) == ALICE, 4);
+    assert!(game::ticket_holder_for_testing(&board, 719_999_999) == ALICE, 5);
+    assert!(game::ticket_holder_for_testing(&board, 720_000_000) == BOB, 6);
+    assert!(game::ticket_holder_for_testing(&board, 959_999_999) == BOB, 7);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// When the fund hits (odds 1 forces it) it goes whole to a ticket holder, not to the round's winning
+/// tile: Bob holds every ticket, Alice plays the hitting round on all tiles and gets none of it.
+/// Tickets then start over.
+#[test]
+fun test_wealth_fund_pays() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    // Fill the fund with Bob's no-winner rounds on tile 0.
+    while (game::motherlode_value(&board) == 0) {
+        round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
     };
     let fund = game::motherlode_value(&board);
-    // Every tile covered: always a winner; odds 1 always hits.
-    let mut m = game::new_miner(ts::ctx(&mut sc));
     let per = 10_000_000;
-    clock::set_for_testing(&mut clk, t);
-    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per * 25, ts::ctx(&mut sc)), all_tiles(per), &clk, ts::ctx(&mut sc));
-    clock::set_for_testing(&mut clk, t + 61_000);
-    game::settle_with_odds_for_testing(&mut board, &mut treasury, &rs, &clk, 1, ts::ctx(&mut sc));
-    let round = game::current_round(&board) - 1;
-    assert!(game::motherlode_paid(&board, round) == fund, 1);
-    let (g, s) = game::claim(&mut board, &mut m, &mut treasury, ts::ctx(&mut sc));
-    // On 1 of 25 tiles: keeps 1/25 of the jackpot, the rest goes back to the fund.
-    let kept = fund / 25;
-    assert!(coin::value(&s) >= per + kept - 1, 2);
-    assert!(game::motherlode_value(&board) == fund - kept, 3);
-    assert!(game::pot_value(&board) == 0, 4);
-    coin::burn_for_testing(g); coin::burn_for_testing(s);
-    transfer::public_transfer(m, BOB);
+    let alice_back = round_as(&mut sc, ALICE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1);
+    assert!(game::motherlode_value(&board) == 0, 1);
+    ts::next_tx(&mut sc, BOB);
+    let won = ts::take_from_sender<coin::Coin<SUI>>(&sc);
+    assert!(coin::value(&won) == fund, 2);
+    coin::burn_for_testing(won);
+    assert!(alice_back < per * 25, 3); // no jackpot for the winning tile
+    let (epoch, total) = game::wealth_tickets(&board);
+    assert!(epoch == 1 && game::tickets_of(&board, BOB) == 0, 4);
+    // Alice's tickets from the hitting round were claimed after the draw: they count for the next one.
+    assert!(game::tickets_of(&board, ALICE) == per * 24 / 10 && total == per * 24 / 10, 5);
+    assert!(game::pot_value(&board) == 0, 6);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
