@@ -438,7 +438,10 @@ function friendlyError(e) {
   if (/MoveAbort/i.test(m)) return "The transaction was rejected by the contract. Refresh and try again.";
   return m.slice(0, 140);
 }
-const KEEPER_MIN_POT = 0;   // the keeper draws every round; raise together with KEEPER_MIN_POT_MIST if that changes
+// The keeper draws a round within seconds of its end. If it has not after 20 seconds (keeper down or out of
+// gas), the board stops showing "Drawing" and asks the player to draw; whoever draws is paid for it.
+const KEEPER_GRACE_MS = 20_000;
+const keeperDrawing = b => Date.now() < b.cur_end_ms + KEEPER_GRACE_MS;
 const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
   if (!USER || USER.sui >= needMist + GAS_RESERVE) return false;
@@ -867,7 +870,7 @@ function renderBoard() {
   const bump = b?.cur_started && bumpRound === shown ? dep.map((v, i) => v > (bumpDep[i] || 0)) : [];
   bumpRound = shown; bumpDep = dep.slice();
   // Only animate the draw when the keeper is about to settle; small rounds wait for a player to draw them.
-  const auto = p === "ended" && b.cur_total >= KEEPER_MIN_POT;
+  const auto = p === "ended" && keeperDrawing(b);
   if (auto && !landing) startScan(); else if (!landing) stopScan();
   $("board").classList.toggle("settled", showWin >= 0);
   $("board").classList.toggle("drawing", auto || !!landing);
@@ -1088,7 +1091,7 @@ function renderMine() {
     t = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; prog = ms / b.round_ms;
     if (p === "frozen") lbl = "Closing";
   } else if (p === "ended") {
-    const auto = b.cur_total >= KEEPER_MIN_POT;
+    const auto = keeperDrawing(b);
     t = auto ? "Drawing" : "Ready"; lbl = auto ? "Picking the winner" : "Draw the winner";
   }
   $("sTime").textContent = t; $("sPhase").textContent = lbl;
@@ -1127,9 +1130,9 @@ function renderMine() {
     const R = rewards();
     hint = `${per * selected.size > 0 ? `You pay ${fmt(per * selected.size, 4)} SUI. ` : ""}Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
     if (!selected.size) hint = "Your rewards from the last round are collected with your next deploy, or use Claim all.";
-  } else if (p === "ended") hint = b.cur_total >= KEEPER_MIN_POT
+  } else if (p === "ended") hint = keeperDrawing(b)
     ? "The round has ended. The winner is drawn within seconds."
-    : "The round has ended. Anyone can draw the winner; rounds above 0.2 SUI are drawn automatically.";
+    : "The round has ended. Draw the winner: whoever draws is paid up to 0.005 SUI for it.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first 2 rounds free.";
