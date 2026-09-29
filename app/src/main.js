@@ -1147,14 +1147,12 @@ function renderRewards() {
   if (R.any) hc.textContent = R.sui > 0 ? `Claim ${sui(R.sui, 3)} SUI` : "Claim";
 }
 
-// Wealth Fund line: odds, the player's share of the tickets, then the last payout and who got it, or
+// Wealth Fund line: odds, then the last payout and who got it, or
 // the rounds since it started filling.
 function mlOddsText() {
   if (!STATE) return "";
   const v4 = !!STATE.tickets || !!WF_PKG;
   let t = v4 ? `1 in ${fmt(STATE.mlOdds, 0)} chance each round` : `1 in ${fmt(STATE.mlOdds, 0)} chance each round with a winner`;
-  const total = STATE.tickets?.total || 0, mine = USER?.tickets || 0;
-  if (v4 && account) t += mine > 0 && total > 0 ? ` · you hold ${fmt(mine / total * 100, mine / total < 0.01 ? 2 : 1)}% of the tickets` : " · you hold no tickets yet";
   if (HIST?.rounds.length) {
     const hit = HIST.rounds.find(r => r.ml?.paid > 0), start = HIST.rounds.filter(r => r.ml).pop();
     const since = hit ? HIST.rounds.filter(r => r.round > hit.round).length : start ? HIST.rounds.filter(r => r.round >= start.round).length : 0;
