@@ -326,10 +326,6 @@
   <section class="view" id="view-stake" hidden>
     <div class="ore-card">
       <div class="ore-head"><h1>Stake</h1><p class="sub">Earn SUI from every round. Nothing is minted.</p></div>
-      <div class="pilltabs" id="stakeKind" role="tablist" aria-label="Stake type">
-        <button type="button" role="tab" data-kind="flex" aria-selected="true">Flexible 1x</button>
-        <button type="button" role="tab" data-kind="lock" aria-selected="false">Locked 7 days 1.5x</button>
-      </div>
       <div class="pilltabs" id="stakeSeg" role="tablist" aria-label="Stake action">
         <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
         <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
@@ -349,20 +345,18 @@
 
       <h2 class="sum-h">Account</h2>
       <dl class="dl">
-        <div><dt>Flexible</dt><dd id="sFlex">—</dd></div>
-        <div><dt>Locked</dt><dd id="sLock">—</dd></div>
+        <div><dt>Staked</dt><dd id="sFlex">—</dd></div>
         <div><dt>Yield</dt><dd id="sPending" class="gold">—</dd></div>
       </dl>
       <button class="gold-btn" id="btnStakeClaim" type="button">Claim SUI</button>
 
       <h2 class="sum-h">Summary</h2>
       <dl class="dl">
-        <div><dt>APR flexible</dt><dd id="sAprFlex">—</dd></div>
-        <div><dt>APR locked</dt><dd id="sAprLock">—</dd></div>
+        <div><dt>APR</dt><dd id="sAprFlex" class="gold">—</dd></div>
         <div><dt>Total staked</dt><dd id="sStaked">—</dd></div>
         <div><dt>Paid to stakers</dt><dd id="sPaid">—</dd></div>
       </dl>
-      <p class="note-sm" id="stakeNote">Stakers share 2% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. APR shows once the game has 7 days of rounds.</p>
+      <p class="note-sm" id="stakeNote">Stakers share every round's losing pot, paid in SUI. Withdraw any time.</p>
     </div>
   </section>
 
@@ -387,7 +381,7 @@
       <p>Part of every losing pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
-        <li><b>Stake:</b> earn SUI from every round. Flexible, or locked for 7 days at 1.5x.</li>
+        <li><b>Stake:</b> earn SUI from every round. Withdraw any time.</li>
         <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
       </ul>
       <h2>Getting started</h2>

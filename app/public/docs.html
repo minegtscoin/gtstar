@@ -226,8 +226,8 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
     <h3>Where lost SUI goes</h3>
     <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (3% buyback, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund, which pays it to one player when it hits. Spreading over many tiles wins more often, but the SUI on the other tiles is lost every time and a spread deposit keeps only part of its winnings, so a win can return much less than you put in.</p>
     <h3>Staking</h3>
-    <p>Stake GTS and earn SUI: stakers share 2% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Choose <strong>flexible</strong> (1x, withdraw any time) or <strong>locked for 7 days</strong> (1.5x). Adding to a locked stake restarts its 7 days; when a lock ends it counts 1x again. With nobody staked, the stakers' share goes to the Wealth Fund.</p>
-    <span class="code">my_yield = round_share * my_weight / all_weight     // weight = GTS x 1 (flexible) or x 1.5 (locked)</span>
+    <p>Stake GTS and earn SUI: stakers share 2% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Withdraw any time. With nobody staked, the stakers' share goes to the Wealth Fund.</p>
+    <span class="code">my_yield = round_share * my_stake / all_staked</span>
     <h3>No reserve</h3>
     <p>GTS has no SUI reserve and cannot be redeemed for SUI. Its price is set only by the market, on the Cetus GTS/SUI pool. Until round 33, GTS could be redeemed from a SUI reserve. That ended on 2026-09-29, and the 12.29 SUI left in it moved to the Wealth Fund (<a href="https://suiscan.xyz/mainnet/tx/A3pyW6MpRUAUgXfP8Z9hQA6ef6sAutuERGarRJ7MZpvh" target="_blank" rel="noopener">transaction</a>).</p>
 

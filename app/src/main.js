@@ -191,7 +191,8 @@ function stakeOf(d) {
   const ev = (d.sr?.nodes || []).map(n => ({ t: new Date(n.timestamp).getTime(), a: num(n.contents?.json?.amount) }));
   const recent = ev.filter(e => now - e.t < week);
   // 50 events can cover less than a week: then scale by the time they span.
-  const span = ev.length >= 50 && recent.length === ev.length ? Math.max(3600_000, now - Math.min(...ev.map(e => e.t))) : week;
+  const span = ev.length >= 50 && recent.length === ev.length ? Math.max(3600_000, now - Math.min(...ev.map(e => e.t)))
+    : Math.max(3600_000, Math.min(week, now - GAME_LAUNCH));
   const yearly = recent.reduce((a, e) => a + e.a, 0) * (365.25 * 86_400_000 / span);
   return {
     bps: num(d.sk?.bp?.value?.json), amount: num(p.total_amount), weight: num(p.total_weight), paid: num(p.paid_total),
@@ -640,15 +641,21 @@ const settle = () => exec("Draw", "btnPlay", tx => {
   tx.setGasBudget(SETTLE_GAS);
   tx.moveCall({ target: C("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object.random(), tx.object.clock()] });
 });
-let stakeMode = "deposit", stakeKind = "flex";
+let stakeMode = "deposit";
+// Old locked stakes (the lock option is gone) can leave once their 7 days are over.
+const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= Date.now() ? l.amount : 0; };
 const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
-  const amt = toMist($("stakeAmt").value), locked = stakeKind === "lock";
+  const amt = toMist($("stakeAmt").value);
   if (amt <= 0) throw new Error("Enter an amount.");
   if (stakeMode === "deposit") {
-    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(locked), tx.object.clock()] });
+    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(false), tx.object.clock()] });
   } else {
-    const [g] = tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(amt), tx.pure.bool(locked), tx.object.clock()] });
-    tx.transferObjects([g], account.address);
+    // Flexible first, then any unlocked old locked stake.
+    const flex = Math.min(amt, USER?.stake?.flex?.amount || 0), rest = Math.min(amt - flex, lockFree());
+    const out = [];
+    if (flex > 0) out.push(tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(flex), tx.pure.bool(false), tx.object.clock()] })[0]);
+    if (rest > 0) out.push(tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(rest), tx.pure.bool(true), tx.object.clock()] })[0]);
+    tx.transferObjects(out, account.address);
   }
 }).then(r => { if (r) $("stakeAmt").value = ""; });
 const claimYield = () => exec("Yield claim", "btnStakeClaim", tx => {
@@ -1417,42 +1424,31 @@ function drawChart(played) {
 }
 
 // ---------- render: stake ----------
-const myPos = () => USER?.stake?.[stakeKind] || null;
+const stakedAvail = () => (USER?.stake?.flex?.amount || 0) + lockFree();
 function renderStake() {
   if (!STATE) return;
   const S = STATE.stake, U = USER?.stake, now = Date.now();
-  const f = U?.flex, l = U?.lock;
-  $("sFlex").textContent = USER ? `${sui(f?.amount || 0, 4)} GTS` : "—";
-  const lockLeft = l && l.until > now ? Math.ceil((l.until - now) / 3600_000) : 0;
-  $("sLock").textContent = USER ? `${sui(l?.amount || 0, 4)} GTS${l?.amount ? lockLeft ? ` · unlocks in ${lockLeft >= 24 ? `${Math.ceil(lockLeft / 24)}d` : `${lockLeft}h`}` : " · unlocked" : ""}` : "—";
+  const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
+  const lockLeft = l?.amount && l.until > now ? Math.ceil((l.until - now) / 3600_000) : 0;
+  $("sFlex").textContent = USER ? `${sui(total, 4)} GTS${lockLeft ? ` · ${sui(l.amount, 4)} unlocks in ${lockLeft >= 24 ? `${Math.ceil(lockLeft / 24)}d` : `${lockLeft}h`}` : ""}` : "—";
   const pending = posYield(f) + posYield(l);
   $("sPending").textContent = USER ? `${sui(Number(pending), 6)} SUI` : "—";
-  // APR: yearly SUI per weight unit, over the value of the GTS behind it.
+  // APR: yearly SUI per staked GTS (weight is GTS x 10), over the GTS price in SUI.
   const px = gtsSui();
-  // No APR until the game has 7 days of rounds: a few hours scaled to a year says nothing.
-  const aprReady = Date.now() - GAME_LAUNCH >= 7 * 86_400_000;
-  const aprFlex = aprReady && S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
-  const aprTxt = a => (!aprReady ? "After 7 days" : a == null ? "—" : `${fmt(a, a < 10 ? 2 : 0)}%`);
-  $("sAprFlex").textContent = aprTxt(aprFlex);
-  $("sAprLock").textContent = aprTxt(aprFlex == null ? null : aprFlex * 1.5);
+  const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
+  $("sAprFlex").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
   $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 3}% of every round's losing pot, paid in SUI. Locked stakes count 1.5x. ${aprReady ? "APR is based on the last 7 days of rounds and changes with how much is played." : "APR shows once the game has 7 days of rounds."}`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. APR comes from the last 7 days of rounds (since launch while the game is newer) and moves with how much is played.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
-  document.querySelectorAll("#stakeKind button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.kind === stakeKind)));
-  const pos = myPos();
-  const avail = stakeMode === "deposit" ? (USER?.gts || 0) : (pos?.amount || 0);
+  const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "staked"}`;
-  const lockedNow = stakeKind === "lock" && pos && pos.until > now;
-  $("stakeHint").textContent = stakeKind === "lock"
-    ? (stakeMode === "deposit" ? "Locked for 7 days at 1.5x. Adding more restarts the 7 days for the whole locked stake." : lockedNow ? "Locked stakes can be withdrawn once their 7 days have passed." : "Your lock has ended: withdraw any time.")
-    : "Flexible: withdraw any time.";
+  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI every round. Withdraw any time." : "Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
     let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;
     if (!account) label = "Sign in";
     else if (!S) { label = "Staking opens soon"; dis = true; }
-    else if (stakeMode === "withdraw" && lockedNow) { label = "Locked"; dis = true; }
     else if (amt <= 0) dis = true;
     else if (amt > avail) { label = stakeMode === "deposit" ? "Insufficient GTS" : "Exceeds your stake"; dis = true; }
     btn.textContent = label; btn.disabled = dis;
@@ -1804,10 +1800,9 @@ document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
 $("btnStake").onclick = () => (account ? stakeTx() : openWalletModal());
 $("btnStakeClaim").onclick = () => (account ? claimYield() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));
-document.querySelectorAll("#stakeKind button").forEach(b => (b.onclick = () => { stakeKind = b.dataset.kind; $("stakeAmt").value = ""; renderStake(); }));
 document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
-  const avail = stakeMode === "deposit" ? USER.gts : (myPos()?.amount || 0);
+  const avail = stakeMode === "deposit" ? USER.gts : stakedAvail();
   const v = +b.dataset.pct === 100 ? avail : Math.floor(avail * +b.dataset.pct / 100);
   $("stakeAmt").value = String(v / MIST); renderStake();
 }));

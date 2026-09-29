@@ -21,7 +21,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Losing pot | 90% winners · 4% Wealth Fund · 3% buyback (GTS bought on Cetus and burned) · 2% stakers · 1% creator. Winners split it by their stake on the winning tile; a spread deposit keeps only the part of its share matching the part of its round deposit on the winning tile (fair split), the rest goes to the Wealth Fund. One miner per wallet per round |
 | Wealth Fund | 4% of every losing pot, plus what spread deposits do not keep, and the whole pot less fees when no one is on the winning tile. Every round has a 1 in 100 chance to pay the whole fund to one ticket holder. Tickets = the fees a player paid on SUI they lost since the last payout (10% of it), so extra wallets give no extra tickets; bots get none |
 | Unrefined GTS | Mined GTS waits in your unrefined balance. Withdrawing is free 7 days after your last withdrawal; before that the fee falls from 10% to 0 and is burned |
-| Staking | Stake GTS, earn SUI (2% of every losing pot). Flexible 1x or 7-day lock 1.5x. Nothing is minted |
+| Staking | Stake GTS, earn SUI (2% of every losing pot). Withdraw any time. Nothing is minted |
 | No reserve | GTS cannot be redeemed for SUI. Until the 2026-09-29 upgrade it could; the SUI left in the old reserve moved to the Wealth Fund |
 | Draw | Anyone can draw a round and is paid up to 0.005 SUI for it. The keeper draws every round |
 | Randomness | `sui::random` (validator-generated, unbiasable) |
