@@ -2,12 +2,13 @@
 // The House also adds its mined GTS to the Cetus pool once a day (12:00 UTC).
 // Signs with KEEPER_KEY (a dedicated key that only holds SUI for gas). Also pays the free first round (welcome.mjs)
 // and runs the House (house.mjs), the Shield (shield.mjs), the Matcher (matcher.mjs), the GTStar Bots (bots.mjs)
-// and the Floor bot (floor.mjs).
+// and the Floor bot (floor.mjs). Spends the game's buyback SUI on GTS and burns it (buyback.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
 import { makeBots } from "./bots.mjs";
+import { makeBuyback } from "./buyback.mjs";
 import { makeFloor } from "./floor.mjs";
 import { makeHouse } from "./house.mjs";
 import { makeMatcher } from "./matcher.mjs";
@@ -52,6 +53,7 @@ export default async () => {
     log.push(`${label} ${res.status.success ? "ok" : "failed"} ${res.digest}`);
     await client.waitForTransaction({ digest: res.digest });
   }
+  const buyback = makeBuyback(client, CFG, log, run);
 
   // Ended 7-day locks go back to 1x: poke every locked stake whose lock has passed but still counts 1.5x.
   async function pokeLocks() {
@@ -102,6 +104,7 @@ export default async () => {
       if (!skip && matcher && await matcher.tick(b)) { b = await board(); continue; }
       if (!skip && bots && await bots.tick(b)) { b = await board(); continue; }
       if (welcome && await welcome()) continue;
+      if (await buyback.tick(b)) { b = await board(); continue; }
       if (floor && await floor.tick()) continue;
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;

@@ -604,14 +604,84 @@ fun test_caps_at_limit() {
     ts::end(sc);
 }
 
-/// The buyback is fixed at 0: it cannot be turned on.
-#[test, expected_failure(abort_code = game::EBuybackOff)]
-fun test_buyback_cannot_turn_on() {
+/// The buyback is capped at 3%.
+#[test, expected_failure(abort_code = game::EBadParams)]
+fun test_buyback_cap() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     let admin = ts::take_from_sender<AdminCap>(&sc);
     let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 1, 1_000, 10_000_000, 60_000, 5_000, false);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 301, 1_000, 10_000_000, 60_000, 5_000, false);
+    abort 0
+}
+
+const KEEPER: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
+
+/// Buyback 1%: every losing pot saves 1%; the keeper spends it and the GTS bought is burned.
+#[test]
+fun test_buyback_saved_and_burned() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 100, 1_000, 10_000_000, 60_000, 5_000, false);
+    ts::return_to_sender(&sc, admin);
+    ts::next_tx(&mut sc, BOB);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
+    // 24 SUI lost: 1% = 0.24 SUI saved, the drawer is paid from the reserve share.
+    assert!(game::buyback_value(&board) == 240_000_000, 1);
+
+    ts::next_tx(&mut sc, KEEPER);
+    let (mut sui, receipt) = game::buyback_take(&mut board, ts::ctx(&mut sc));
+    assert!(coin::value(&sui) == 240_000_000 && game::buyback_value(&board) == 0, 2);
+    // Spend 0.2 SUI on "the market", return the rest.
+    coin::burn_for_testing(coin::split(&mut sui, 200_000_000, ts::ctx(&mut sc)));
+    let bought = coin::mint_for_testing<gts::GTS>(1_000, ts::ctx(&mut sc));
+    let supply = gts::total_supply(&treasury);
+    game::buyback_burn(&mut board, &mut treasury, receipt, bought, sui);
+    assert!(game::buyback_value(&board) == 40_000_000, 3);
+    assert!(gts::total_supply(&treasury) == supply - 1_000, 4);
+
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Only the keeper may take the buyback SUI.
+#[test, expected_failure(abort_code = game::ENotBuyer)]
+fun test_buyback_keeper_only() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let (c, _r) = game::buyback_take(&mut board, ts::ctx(&mut sc));
+    coin::burn_for_testing(c);
+    abort 0
+}
+
+/// The receipt cannot be closed without burning GTS.
+#[test, expected_failure(abort_code = game::ENothingBought)]
+fun test_buyback_needs_gts() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 400, 100, 1_000, 10_000_000, 60_000, 5_000, false);
+    ts::return_to_sender(&sc, admin);
+    ts::next_tx(&mut sc, BOB);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
+    ts::next_tx(&mut sc, KEEPER);
+    let (sui, receipt) = game::buyback_take(&mut board, ts::ctx(&mut sc));
+    game::buyback_burn(&mut board, &mut treasury, receipt, coin::zero<gts::GTS>(ts::ctx(&mut sc)), sui);
     abort 0
 }
 
@@ -696,7 +766,7 @@ fun test_redeem() {
     ts::end(sc);
 }
 
-/// The drawer is paid up to 0.005 SUI out of the round's buyback share.
+/// The drawer is paid up to 0.005 SUI out of the round's reserve share.
 #[test]
 fun test_draw_reward() {
     let mut sc = ts::begin(@0x0);

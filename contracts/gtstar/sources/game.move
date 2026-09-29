@@ -22,7 +22,11 @@
 /// passed since the player's last withdrawal (or first mining); before that the fee falls linearly from
 /// `refine_fee_bps` to 0 over the 7 days, and the fee GTS is burned (supply falls, the floor rises).
 ///
-/// The owner holds the AdminCap (settings change at once, each fee within its own cap, no buyback)
+/// Buyback (v7): `buyback_bps` of every losing pot is saved in the game. Only the keeper may take it
+/// (`buyback_take`), and the same transaction must burn GTS for it (`buyback_burn` closes the receipt),
+/// so supply falls and the floor rises. `BuybackDone` shows the SUI spent and the GTS burned.
+///
+/// The owner holds the AdminCap (settings change at once, each fee within its own cap)
 /// and the UpgradeCap. `renounce` destroys the
 /// AdminCap for good. Fixed: the creator fee (1%), the 1,000,000 cap, and no address can be blocked
 /// from playing, claiming or withdrawing. A pause only stops new deposits.
@@ -56,7 +60,7 @@ const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3
 
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 400;        // 4% reserve
-const DEFAULT_BUYBACK_BPS: u64 = 0;        // buyback off (fixed from v5)
+const DEFAULT_BUYBACK_BPS: u64 = 0;        // buyback off until set (v7)
 const DEFAULT_ML_ODDS: u64 = 1_000;        // Wealth Fund: 1 in 1000
 const DEFAULT_ML_SHARE_BPS: u64 = 1_950;   // 19.5% of a no-winner round
 const DEFAULT_REFINE_FEE_BPS: u64 = 1_000; // 10%
@@ -70,6 +74,7 @@ const MAX_VAULT_BPS: u64 = 1_500;    // reserve 15%
 const MAX_STAKE_BPS: u64 = 500;      // stakers 5%
 const MAX_FUND_BPS: u64 = 1_000;     // Wealth Fund, every round, 10%
 const MAX_ML_SHARE_BPS: u64 = 3_000; // Wealth Fund, no-winner round, 30%
+const MAX_BUYBACK_BPS: u64 = 300;    // buyback 3% (v7)
 const MIN_MIN_DEPLOY: u64 = 1_000_000;      // 0.001 SUI
 const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
 const MIN_ROUND_MS: u64 = 30_000;
@@ -87,9 +92,11 @@ const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94f
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
 /// Shield bot: no Wealth Fund tickets either.
 const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
+/// Keeper: the only address that may spend the buyback SUI, and only on GTS that is then burned (v7).
+const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
-/// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's buyback
-/// share, then its reserve share, so the draw pays for its own gas.
+/// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's reserve
+/// share, then its buyback share (v7: reserve first), so the draw pays for its own gas.
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Precision of the per-GTS withdraw-fee accumulator.
@@ -99,7 +106,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 6;
+const VERSION: u64 = 7;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -122,6 +129,9 @@ const EBuybackOpen: u64 = 21;
 const ENoStaking: u64 = 22;
 const EBuybackOff: u64 = 23;
 const EUseWithdrawV6: u64 = 24;
+const ENotBuyer: u64 = 25;
+const ENoBuyback: u64 = 26;
+const ENothingBought: u64 = 27;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -207,8 +217,11 @@ public struct RefineFromKey has copy, drop, store {}
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
 
-/// Right to change the settings and take the buyback SUI.
+/// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
+
+/// Hot potato from `buyback_take`: the transaction only succeeds once `buyback_burn` burns GTS for it.
+public struct BuybackReceipt { sui: u64 }
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
 public struct Miner has key, store {
@@ -270,9 +283,11 @@ public struct Claimed has copy, drop { round_id: u64, player: address, gts: u64,
 public struct BuybackTaken has copy, drop { amount: u64 }
 /// GTS bought back and burned.
 public struct BuybackBurned has copy, drop { amount: u64 }
+/// Buyback SUI spent on GTS and the GTS burned for it (v7).
+public struct BuybackDone has copy, drop { sui_spent: u64, gts_burned: u64 }
 public struct StakingChanged has copy, drop { stake_bps: u64 }
 public struct FundBpsChanged has copy, drop { fund_bps: u64 }
-/// SUI paid to whoever settled a round, out of its buyback share.
+/// SUI paid to whoever settled a round, out of its reserve share, then its buyback share.
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 
 fun init(ctx: &mut TxContext) {
@@ -417,7 +432,7 @@ public fun set_params(
 ) {
     check_version(board);
     assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
-    assert!(buyback_bps == 0, EBuybackOff);
+    assert!(buyback_bps <= MAX_BUYBACK_BPS, EBadParams);
     assert!(vault_bps <= MAX_VAULT_BPS && ml_share_bps <= MAX_ML_SHARE_BPS, EBadParams);
     assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) + fund_bps(board) <= 10_000, EBadParams);
     assert!(refine_fee_bps <= MAX_REFINE_FEE_BPS, EBadParams);
@@ -639,10 +654,10 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let buyback_full = mul_div(losing_pot, board.buyback_bps, 10_000);
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
-    // The drawer is paid from the buyback share first, then from the reserve share.
-    let from_buyback = if (buyback_full < DRAW_REWARD_MAX) { buyback_full } else { DRAW_REWARD_MAX };
-    let rest = DRAW_REWARD_MAX - from_buyback;
-    let from_vault = if (vault_full < rest) { vault_full } else { rest };
+    // The drawer is paid from the reserve share first, then from the buyback share.
+    let from_vault = if (vault_full < DRAW_REWARD_MAX) { vault_full } else { DRAW_REWARD_MAX };
+    let rest = DRAW_REWARD_MAX - from_vault;
+    let from_buyback = if (buyback_full < rest) { buyback_full } else { rest };
     let draw_reward = from_buyback + from_vault;
     let buyback_part = buyback_full - from_buyback;
     let mut vault_part = vault_full - from_vault;
@@ -910,6 +925,28 @@ entry fun withdraw_dev_fees(board: &mut Board, ctx: &mut TxContext) {
 /// Off from v5: the buyback share is fixed at 0, so no SUI can be taken from the game.
 public fun take_buyback(_: &AdminCap, _board: &mut Board, _ctx: &mut TxContext): Coin<SUI> {
     abort EBuybackOff
+}
+
+/// Buyback, step 1 (keeper only): take all the saved buyback SUI to buy GTS in the same transaction.
+public fun buyback_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, BuybackReceipt) {
+    check_version(board);
+    assert!(tx_context::sender(ctx) == BUYER_ADDR, ENotBuyer);
+    let sui = balance::value(&board.buyback);
+    assert!(sui > 0, ENoBuyback);
+    (coin::from_balance(balance::withdraw_all(&mut board.buyback), ctx), BuybackReceipt { sui })
+}
+
+/// Buyback, step 2: burn the GTS bought and return any SUI not spent. Closes the receipt.
+public fun buyback_burn(board: &mut Board, treasury: &mut Treasury, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>) {
+    check_version(board);
+    let BuybackReceipt { sui } = receipt;
+    let back = coin::value(&left);
+    assert!(back <= sui, EAmountMismatch);
+    let gts_burned = coin::value(&gts);
+    assert!(gts_burned > 0, ENothingBought);
+    balance::join(&mut board.buyback, coin::into_balance(left));
+    gts::burn(treasury, gts);
+    event::emit(BuybackDone { sui_spent: sui - back, gts_burned });
 }
 
 /// Burn bought-back GTS: redeem it and put the SUI straight back, so supply falls and the reserve stays.
