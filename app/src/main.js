@@ -1081,7 +1081,7 @@ function renderMine() {
   const b = STATE?.board, p = phase();
   $("sDeployed").textContent = b ? sui(b.cur_total, 3) : "—";
   $("sMotherlode").textContent = STATE ? `${sui(STATE.motherlode, 4)} SUI` : "—";
-  $("sMlOdds").innerHTML = mlOddsText();
+  $("sMlOdds").innerHTML = mlOddsText(); $("sMlOdds").title = $("sMlOdds").textContent;
   $("sRound").textContent = b ? `#${fmt(b.cur_id, 0)}` : "—";
   $("sPlayers").textContent = b ? fmt(b.cur_players, 0) : "—";
   let t = "—", lbl = "Time left", prog = 0;
