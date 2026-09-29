@@ -18,7 +18,7 @@ const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 // Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
 // raise the bar if dust rounds ever start draining the keeper; smaller rounds are then drawn by players.
 const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST ?? 0);
-const SETTLE_GAS = 50_000_000; // 0.05 SUI ceiling; unused gas is refunded
+const SETTLE_GAS = 20_000_000; // 0.02 SUI ceiling (a settle uses ~0.011 gross, ~0.004 net); unused gas is refunded
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async () => {

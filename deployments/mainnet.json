@@ -1,132 +1,22 @@
 {
   "network": "mainnet",
+  "relaunch": true,
   "dev": "0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b",
-  "publishedAt": "2026-09-22T18:11:09.387Z",
-  "token": "0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e",
-  "tokenDigest": "9f5nTXdo34NKuYK6DfmnRfmmCgwUT3oXQR6Bj131V7b9",
-  "treasury": "0x1dfef30cd82739d4b70f71fdbe15dd9ad218324054401a3751ac7b91dcd1b786",
-  "coinMetadata": "0x07acef25184dab3d6caf7ed9cc44824f9b56795e4b894db8ddb6cf455a872e3f",
-  "package": "0x2cef85db37c28fccda8b409e2a321ee5932e1b292b596877184245972250004e",
-  "digest": "8DkvQSUqMVjgaUG9G7LZbfuUroDQWLw9RmcYAg8WFX1R",
-  "board": "0x324f7da04e5a328c8ec674f1ad5615fad1bc34ffa6cee48beb86731c718c1664",
-  "pool": "0xb09a8451b452b779c7fd6fba094e12693f379af5924ea54c2a5ad5fd586787de",
-  "market": "0x7492d608ea92b2274bd83be39ac17ebb0f3fed42e4b7a638c17ebf8743e6ebcf",
-  "upgradeCap": "0xbe062c2f03237f2e068a36f52ba9cc3fbcfae5779ba413570d3aad65f6949b54",
-  "installDigest": "NkPHyKMLDSA6mocKWfgwoVvcP5axvPnJ2jBSmAsVdg6",
-  "freezeDigest": "BWX6CBebdqXGyMiiQiypBh5F4HbNFBB4gTtj3rMWTasS",
-  "immutableDigest": "4Lzkqp56jrnAMcCaFEX6nCkkdGVdsVcmGhByLMMhWF5Q",
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
+  "publishedAt": "2026-09-29T10:20:50.655Z",
+  "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
+  "latest": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
+  "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
+  "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
+  "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
+  "treasury": "0x9997e12537af59b1f3e6bba2593c5c7ef18df9162cd40d0d99370eddd99f11ea",
+  "coinMetadata": "0x8819c8d56434ef4078b8c08ee8fa5d709cc9109a4ee7674390b4569ee50a0162",
+  "adminCap": "0x93ac4ad9da58ff6ed26d453f1ca31a305552cf630fa79989af6e91a6b38c0098",
+  "upgradeCap": "0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1",
   "proof": [
     [
-      "Token contract published",
-      "9f5nTXdo34NKuYK6DfmnRfmmCgwUT3oXQR6Bj131V7b9"
-    ],
-    [
-      "Token metadata frozen",
-      "BWX6CBebdqXGyMiiQiypBh5F4HbNFBB4gTtj3rMWTasS"
-    ],
-    [
-      "Token contract made immutable",
-      "4Lzkqp56jrnAMcCaFEX6nCkkdGVdsVcmGhByLMMhWF5Q"
-    ],
-    [
-      "Game contract published",
-      "8DkvQSUqMVjgaUG9G7LZbfuUroDQWLw9RmcYAg8WFX1R"
-    ],
-    [
-      "Minting right installed, emission clock started",
-      "NkPHyKMLDSA6mocKWfgwoVvcP5axvPnJ2jBSmAsVdg6"
-    ],
-    [
-      "First deploy, with the miner created in the same transaction",
-      "Fcmw41NSjJyToNSREg83r2PNLDz4itjPLfj3qwZEywtv"
-    ],
-    [
-      "Round 1 settled by the keeper with sui::random",
-      "AKS8vBvjfhEWP4sRTbmjdCZ5vp2prXQgjAxzsnXGGypu"
-    ],
-    [
-      "Claim (1 GTS mined) and new deploy in one transaction",
-      "5cJBELntNJSEpScZRRdhAuCUAMWpH9pWuUFQALbhzoWz"
-    ],
-    [
-      "GTS staked, no lock-up",
-      "2xKYCkyKGafqgMSXG3HkJmgekJHccc9WuH26M8WrTica"
-    ],
-    [
-      "GTS redeemed from the reserve and burned",
-      "FWrWkYo8yNb2WjEZRH7QBFHjzFSRzS3XzoN4ydK73uFn"
-    ],
-    [
-      "Staking yield claimed in GTS",
-      "2pwKtAqimqtrZeKAzZRVZVBhs7qnhbdmsA3HrvJVN6D6"
-    ],
-    [
-      "Stake withdrawn at any time",
-      "EPA3zyiCuX6eXkB5YYL2znVFedwNdcVWKwaEz5W9BNPg"
-    ],
-    [
-      "Game upgraded: GTS halves by rounds played, not by date",
-      "F7wAuBV8NqSccxmvyP5pFGwVfTDbARuN1pHT4zRnZbAs"
-    ],
-    [
-      "Game upgraded: Motherlode jackpot",
-      "4UTVJtTEmR3Z9har71Ht3RVvYEwMTwxS3NzJ21x3tBYw"
-    ],
-    [
-      "Game upgraded: Supernova split 50/50 with the reserve, 1 in 25 odds",
-      "C1p9Q9UTEB8RCC47Pv4hhmX6dmvnLpF9dz3XkGntnP5L"
-    ],
-    [
-      "Game upgraded: only the latest version can run the game",
-      "5RYC77TqWMHrLTJD31vdt2vxTVcHF5EKRhpDBbrjaxCT"
-    ],
-    [
-      "Game upgraded: GTS reward scales with SUI deployed (full at 1 SUI)",
-      "4CqSJsvN8t57xc7osrqCeF3QYxXB5TpH31TajpQ4DPeo"
-    ],
-    [
-      "Timelock contract published",
-      "7sx9De7NVHLBhNe23zgJHWkzfW7arFe73fSWNFg3NwVu"
-    ],
-    [
-      "Timelock contract made immutable",
-      "4865Yn3nhMcho18ssu5EDa8mfXUzPf5g9xADiXHh5qSf"
-    ],
-    [
-      "Game upgrade key locked in the 48h timelock",
-      "8dA3nFNhhy7TKaPdym1A9sDSvteX7GuLARGxD7SM3BXn"
-    ],
-    [
-      "GTS/SUI liquidity burned on Cetus (can never be withdrawn)",
-      "2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y"
-    ]
-  ],
-  "latest": "0x4c1e8af305b166e95631882f33293f960675c5e47a29affde8f863553b47f541",
-  "motherlodePkg": "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6",
-  "timelockPkg": "0x6c90bed3ffa9c429ab2381ad3cfeb45ceadb0e10c22df9b90f995d0892158bd5",
-  "timelock": "0x8390bf694f67a332d0916f0adde76bf64c351a6560401c3a53401442c220a68c",
-  "lpBurnProof": "0x46f49864c203020bf9d2687d6e8d62b684a2ff37823d2772e0bff5920509e84a",
-  "siteProof": [
-    [
-      "Token contract made immutable",
-      "4Lzkqp56jrnAMcCaFEX6nCkkdGVdsVcmGhByLMMhWF5Q"
-    ],
-    [
-      "Minting right given to the game, no premine",
-      "NkPHyKMLDSA6mocKWfgwoVvcP5axvPnJ2jBSmAsVdg6"
-    ],
-    [
-      "Game upgrade key locked in a 48-hour timelock",
-      "8dA3nFNhhy7TKaPdym1A9sDSvteX7GuLARGxD7SM3BXn"
-    ],
-    [
-      "Timelock contract made immutable",
-      "4865Yn3nhMcho18ssu5EDa8mfXUzPf5g9xADiXHh5qSf"
-    ],
-    [
-      "Trading liquidity burned on Cetus",
-      "2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y"
+      "GTS token and game published (1,000,000 cap, no premine)",
+      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
     ]
   ]
 }

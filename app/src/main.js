@@ -557,7 +557,7 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
 });
 // Fixed gas budget: the wallet's dry run usually takes the no-jackpot path, and a round that pays the
 // Wealth Fund needs more gas than that. Unused gas is refunded.
-const SETTLE_GAS = 50_000_000;
+const SETTLE_GAS = 20_000_000; // ~0.011 SUI gross for a settle, more when the Wealth Fund pays
 const settle = () => exec("Draw", "btnPlay", tx => {
   tx.setGasBudget(SETTLE_GAS);
   tx.moveCall({ target: C("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object.random(), tx.object.clock()] });
