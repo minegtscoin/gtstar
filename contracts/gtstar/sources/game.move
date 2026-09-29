@@ -2,8 +2,8 @@
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
 /// losing pot pays: creator DEV_BPS (1%, fixed), reserve `vault_bps`, buyback `buyback_bps`, Wealth
-/// Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners, each keeping the part of their round deposit that sat on the winning square
-/// (the rest goes to the reserve). With no one on the winning square the rest is split between the
+/// Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on the
+/// winning square (from v5 there is no cut for spread deposits). With no one on the winning square the rest is split between the
 /// Wealth Fund (`ml_share_bps` of the losing pot) and the reserve. Every round has a 1 in `ml_odds`
 /// chance to pay the whole Wealth Fund to one ticket, drawn by weight. Tickets: every mist of fee a
 /// player paid (creator + reserve + buyback + stakers + Wealth Fund, on the SUI they lost) since the last payout is
@@ -11,15 +11,18 @@
 /// tickets always cost real SUI. House bots get no tickets. Tickets reset after each payout.
 ///
 /// Emission, by rounds played (not by time): each settled round mints `reward` GTS (1 GTS at launch),
-/// shared by everyone in the round by SUI deployed; the full reward needs `full_reward_deploy` SUI in
-/// the round, less scales it down. Every `step_rounds` settled rounds (15,658) the reward drops by
+/// shared by the players who lost SUI in the round, by SUI lost (from v5, so extra wallets gain nothing);
+/// the full reward needs `full_reward_deploy` SUI in the round, less scales it down. From v5 a round
+/// never mints more GTS than the SUI it adds to the reserve buys at the floor price, so mining never
+/// lowers the floor. Every `step_rounds` settled rounds (15,658) the reward drops by
 /// `decay_ppm` (1.425%). Mining stops for good once 1,000,000 GTS have been assigned to rounds.
 /// No staker or other mint: the round reward is the only source of GTS.
 ///
 /// Mined GTS waits in the player's unrefined balance; withdrawing it costs `refine_fee_bps`, shared
 /// among everyone still holding (burned for the reserve when nobody is).
 ///
-/// The owner holds the AdminCap (settings change at once) and the UpgradeCap. `renounce` destroys the
+/// The owner holds the AdminCap (settings change at once, each fee within its own cap, no buyback)
+/// and the UpgradeCap. `renounce` destroys the
 /// AdminCap for good. Fixed: the creator fee (1%), the 1,000,000 cap, and no address can be blocked
 /// from playing, claiming or withdrawing. A pause only stops new deposits.
 #[allow(lint(self_transfer))]
@@ -52,15 +55,20 @@ const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3
 
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 400;        // 4% reserve
-const DEFAULT_BUYBACK_BPS: u64 = 500;      // 5% buyback
+const DEFAULT_BUYBACK_BPS: u64 = 0;        // buyback off (fixed from v5)
 const DEFAULT_ML_ODDS: u64 = 1_000;        // Wealth Fund: 1 in 1000
 const DEFAULT_ML_SHARE_BPS: u64 = 1_950;   // 19.5% of a no-winner round
 const DEFAULT_REFINE_FEE_BPS: u64 = 1_000; // 10%
 
 // Bounds.
-const MIN_ODDS: u64 = 2;
+const MIN_ODDS: u64 = 100;
 const MAX_ODDS: u64 = 1_000_000;
 const MAX_REFINE_FEE_BPS: u64 = 5_000;
+// Each fee has its own cap (v5).
+const MAX_VAULT_BPS: u64 = 1_500;    // reserve 15%
+const MAX_STAKE_BPS: u64 = 500;      // stakers 5%
+const MAX_FUND_BPS: u64 = 1_000;     // Wealth Fund, every round, 10%
+const MAX_ML_SHARE_BPS: u64 = 3_000; // Wealth Fund, no-winner round, 30%
 const MIN_MIN_DEPLOY: u64 = 1_000_000;      // 0.001 SUI
 const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
 const MIN_ROUND_MS: u64 = 30_000;
@@ -87,7 +95,7 @@ const DRAW_REWARD_MAX: u64 = 5_000_000;
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 4;
+const VERSION: u64 = 5;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -108,6 +116,7 @@ const EPaused: u64 = 19;
 const ENothingToWithdraw: u64 = 20;
 const EBuybackOpen: u64 = 21;
 const ENoStaking: u64 = 22;
+const EBuybackOff: u64 = 23;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -179,6 +188,9 @@ public struct PlayerTicketsKey has copy, drop, store { epoch: u64, player: addre
 
 /// Dynamic field on the Board: the Wealth Fund's share of every round's losing pot, in bps.
 public struct FundBpsKey has copy, drop, store {}
+
+/// Dynamic field on the Board: the first round settled by v5 (GTS by SUI lost, floor cap, no spread cut).
+public struct V5FromKey has copy, drop, store {}
 
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
@@ -356,6 +368,26 @@ fun next_full_reward(board: &Board): u64 {
     if (board.reward < room) { board.reward } else { room }
 }
 
+/// First round under the v5 rules (u64 max until v5 settles its first round).
+fun v5_from(board: &Board): u64 {
+    if (df::exists(&board.id, V5FromKey {})) { *df::borrow<V5FromKey, u64>(&board.id, V5FromKey {}) } else { 18_446_744_073_709_551_615 }
+}
+
+/// GTS in circulation for the floor: the supply plus GTS assigned to rounds but not claimed yet.
+fun floor_supply(board: &Board, treasury: &Treasury): u64 {
+    let minted = gts::minted(treasury);
+    gts::total_supply(treasury) + if (board.committed > minted) { board.committed - minted } else { 0 }
+}
+
+/// Most GTS a round may mint so the floor does not drop: the SUI it added to the reserve, at the floor
+/// price before the round (reserve `v0` over supply `s0`). No limit while the floor is 0 or undefined.
+fun floor_cap(added: u64, s0: u64, v0: u64): u64 {
+    let max = 18_446_744_073_709_551_615u64;
+    if (v0 == 0 || s0 == 0) { return max };
+    let c = (added as u128) * (s0 as u128) / (v0 as u128);
+    if (c > (max as u128)) { max } else { c as u64 }
+}
+
 // ===== Admin =====
 
 /// Change the settings at once. Fee changes apply from the next settle.
@@ -374,6 +406,8 @@ public fun set_params(
 ) {
     check_version(board);
     assert!(ml_odds >= MIN_ODDS && ml_odds <= MAX_ODDS, EBadParams);
+    assert!(buyback_bps == 0, EBuybackOff);
+    assert!(vault_bps <= MAX_VAULT_BPS && ml_share_bps <= MAX_ML_SHARE_BPS, EBadParams);
     assert!(DEV_BPS + vault_bps + buyback_bps + ml_share_bps + stake_bps(board) + fund_bps(board) <= 10_000, EBadParams);
     assert!(refine_fee_bps <= MAX_REFINE_FEE_BPS, EBadParams);
     assert!(min_deploy >= MIN_MIN_DEPLOY && min_deploy <= MAX_MIN_DEPLOY, EBadParams);
@@ -424,6 +458,7 @@ public fun renounce(cap: AdminCap, board: &Board) {
 /// Set the stakers' share of the losing pot (bps), creating the staking pool the first time.
 public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxContext) {
     check_version(board);
+    assert!(bps <= MAX_STAKE_BPS, EBadParams);
     assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + bps + fund_bps(board) <= 10_000, EBadParams);
     if (!df::exists(&board.id, StakeKey {})) {
         df::add(&mut board.id, StakeKey {}, staking::new(ctx));
@@ -436,6 +471,7 @@ public fun set_staking(_: &AdminCap, board: &mut Board, bps: u64, ctx: &mut TxCo
 /// Set the Wealth Fund's share of every round's losing pot (bps), on top of the no-winner share.
 public fun set_fund_bps(_: &AdminCap, board: &mut Board, bps: u64) {
     check_version(board);
+    assert!(bps <= MAX_FUND_BPS, EBadParams);
     assert!(DEV_BPS + board.vault_bps + board.buyback_bps + board.ml_share_bps + stake_bps(board) + bps <= 10_000, EBadParams);
     if (df::exists(&board.id, FundBpsKey {})) { *df::borrow_mut<FundBpsKey, u64>(&mut board.id, FundBpsKey {}) = bps }
     else { df::add(&mut board.id, FundBpsKey {}, bps) };
@@ -567,6 +603,11 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
 
+    if (!df::exists(&board.id, V5FromKey {})) { df::add(&mut board.id, V5FromKey {}, board.cur_id) };
+    // Floor before the round, for the GTS cap below.
+    let v0 = gts::vault_value(treasury);
+    let s0 = floor_supply(board, treasury);
+
     let mut gen = random::new_generator(r, ctx);
     let rng = random::generate_u64(&mut gen);
     let winning = ((rng % GRID) as u8);
@@ -646,10 +687,13 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     };
     event::emit(MotherlodeUpdate { round_id: board.cur_id, added: ml_added, paid: ml_paid, balance: balance::value(&board.motherlode) });
 
-    // GTS: the step reward (scaled down below `full_reward_deploy`), then advance the decay.
+    // GTS: the step reward (scaled down below `full_reward_deploy`), shared by the SUI lost, so none
+    // when nobody lost; never more than the SUI added to the reserve buys at the floor. Then the decay.
     let full = next_full_reward(board);
-    let reward = if (board.cur_total >= board.full_reward_deploy) { full }
+    let scaled = if (board.cur_total >= board.full_reward_deploy) { full }
         else { mul_div(full, board.cur_total, board.full_reward_deploy) };
+    let cap = floor_cap(gts::vault_value(treasury) - v0, s0, v0);
+    let reward = if (losing_pot == 0) { 0 } else if (scaled < cap) { scaled } else { cap };
     board.committed = board.committed + reward;
     board.step_count = board.step_count + 1;
     if (board.step_count >= board.step_rounds) {
@@ -724,7 +768,13 @@ public fun claim(
     let (round_reward, round_total, w) = (info.round_reward, info.total_deployed, (info.winning_square as u64));
     let (pot_after_fee, winners_total) = (info.losing_pot_after_fee, info.winners_total);
 
-    let gts_amt = if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
+    let v5 = round_id >= v5_from(board);
+    let my_win = *vector::borrow(&miner.deployed, w);
+    // v5: GTS by SUI lost in the round; before: by SUI deployed.
+    let gts_amt = if (v5) {
+        let lost_total = round_total - winners_total;
+        if (lost_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed - my_win, lost_total) }
+    } else if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
     let mined = gts::mint(treasury, gts_amt, ctx);
     let mined_amt = coin::value(&mined);
     let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
@@ -732,10 +782,11 @@ public fun claim(
         coin::zero<GTS>(ctx)
     };
 
-    // SUI: own stake on the winning square back, plus a share of the losing pot (and any Wealth Fund)
-    // in proportion to it, kept only for the part of the round deposit that was on that square.
-    let my_win = *vector::borrow(&miner.deployed, w);
-    let sui_coin = if (my_win > 0 && winners_total > 0) {
+    // SUI: own stake on the winning square back, plus a share of the losing pot in proportion to it.
+    // Before v5 also any Wealth Fund, and only the part of the round deposit on that square was kept.
+    let sui_coin = if (v5 && my_win > 0) {
+        coin::from_balance(balance::split(&mut board.pot, my_win + mul_div(pot_after_fee, my_win, winners_total)), ctx)
+    } else if (my_win > 0 && winners_total > 0) {
         let share = mul_div(pot_after_fee, my_win, winners_total);
         let jk = JackpotKey { round_id };
         let jackpot = if (df::exists(&board.id, jk)) { mul_div(*df::borrow<JackpotKey, u64>(&board.id, jk), my_win, winners_total) } else { 0 };
@@ -817,12 +868,9 @@ entry fun withdraw_dev_fees(board: &mut Board, ctx: &mut TxContext) {
     };
 }
 
-/// Take all buyback SUI, to buy GTS on the market in the same transaction and burn it with `burn_bought`.
-public fun take_buyback(_: &AdminCap, board: &mut Board, ctx: &mut TxContext): Coin<SUI> {
-    check_version(board);
-    let out = balance::withdraw_all(&mut board.buyback);
-    event::emit(BuybackTaken { amount: balance::value(&out) });
-    coin::from_balance(out, ctx)
+/// Off from v5: the buyback share is fixed at 0, so no SUI can be taken from the game.
+public fun take_buyback(_: &AdminCap, _board: &mut Board, _ctx: &mut TxContext): Coin<SUI> {
+    abort EBuybackOff
 }
 
 /// Burn bought-back GTS: redeem it and put the SUI straight back, so supply falls and the reserve stays.
