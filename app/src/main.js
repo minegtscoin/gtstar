@@ -1443,9 +1443,6 @@ function renderStake() {
   const px = gtsSui();
   const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
   $("sAprFlex").textContent = apr == null ? "—" : apr === 0 ? "0% · no rounds in the last hour" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
-  // Your part of every round's staker share, from your weight in the pool now.
-  const myW = Number((f?.weight || 0n) + (l?.weight || 0n));
-  $("sShare").textContent = !USER ? "—" : S && S.weight > 0 && myW > 0 ? `${fmt(myW / S.weight * 100, myW / S.weight < 0.1 ? 2 : 1)}% of every round's staker share` : "Stake to get a share";
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
   $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. Your yield grows with every round played. APR shows the last hour of rounds, so it rises when the game is busy and falls to 0 when no one plays.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
