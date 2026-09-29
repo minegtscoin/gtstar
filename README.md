@@ -44,7 +44,7 @@ Deployed addresses and every upgrade transaction are in [`deployments/mainnet.js
 
 ```
 contracts/gtstar  GTS token, game and staking (Move)
-app/              Web app (static, non-custodial), the keeper and bots, the X poster
+app/              Web app (static, non-custodial) and the keeper
 scripts/          publish2.js (launch), admin2.mjs (settings)
 deployments/      Live object IDs
 legacy/           The first token and game (archived)
