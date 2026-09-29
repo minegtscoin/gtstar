@@ -503,3 +503,6 @@ button.sw-bal:hover{color:var(--text)}
 .est{margin:2px 0 10px;font-size:12px;color:var(--dim);line-height:1.5}
 .est b{color:var(--text);font-weight:600}
 .est span{opacity:.75}
+.gain{color:#6fd49a;font-size:12px;margin-right:8px;opacity:0}
+.gain.show{animation:gain 4s ease-out}
+@keyframes gain{0%{opacity:0;transform:translateY(4px)}10%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0}}

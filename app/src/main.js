@@ -1425,25 +1425,31 @@ function drawChart(played) {
 }
 
 // ---------- render: stake ----------
+let lastYield = { who: null, v: 0n };
 const stakedAvail = () => (USER?.stake?.flex?.amount || 0) + lockFree();
 function renderStake() {
   if (!STATE) return;
   const S = STATE.stake, U = USER?.stake, now = Date.now();
   const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
-  const lockLeft = l?.amount && l.until > now ? Math.ceil((l.until - now) / 3600_000) : 0;
-  $("sFlex").textContent = USER ? `${sui(total, 4)} GTS${lockLeft ? ` · ${sui(l.amount, 4)} unlocks in ${lockLeft >= 24 ? `${Math.ceil(lockLeft / 24)}d` : `${lockLeft}h`}` : ""}` : "—";
+  $("sFlex").textContent = USER ? `${sui(total, 4)} GTS` : "—";
   const pending = posYield(f) + posYield(l);
   $("sPending").textContent = USER ? `${sui(Number(pending), 6)} SUI` : "—";
+  // Yield grows once per round: flash what the last round added.
+  const who = account?.address;
+  if (USER && lastYield.who === who && pending > lastYield.v) {
+    const g = $("sGain"); g.textContent = `+${sui(Number(pending - lastYield.v), 6)}`;
+    g.classList.remove("show"); void g.offsetWidth; g.classList.add("show");
+  }
+  if (USER) lastYield = { who, v: pending };
   // APR: yearly SUI per staked GTS (weight is GTS x 10), over the GTS price in SUI.
   const px = gtsSui();
   const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
   $("sAprFlex").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. APR comes from the last 7 days of rounds (since launch while the game is newer) and moves with how much is played.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI. Your yield grows with every round played. APR is based on the rounds played so far and changes with how much is played and staked.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
-  $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "staked"}`;
+  $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
   $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI every round. Withdraw any time." : "Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
