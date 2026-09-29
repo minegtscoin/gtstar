@@ -73,11 +73,15 @@ const BOT2_ADDR: address = @0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040d
 const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94fc5cb292f3c9dc4;
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
 
+/// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's buyback
+/// share, so the draw pays for its own gas. Rounds without a buyback share pay nothing.
+const DRAW_REWARD_MAX: u64 = 5_000_000;
+
 /// Precision of the per-GTS withdraw-fee accumulator.
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -217,6 +221,8 @@ public struct Claimed has copy, drop { round_id: u64, player: address, gts: u64,
 public struct BuybackTaken has copy, drop { amount: u64 }
 /// GTS bought back and burned.
 public struct BuybackBurned has copy, drop { amount: u64 }
+/// SUI paid to whoever settled a round, out of its buyback share.
+public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 
 fun init(ctx: &mut TxContext) {
     transfer::share_object(Board {
@@ -442,12 +448,19 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
 
     let mut vault_part = mul_div(losing_pot, board.vault_bps, 10_000);
     let dev_part = mul_div(losing_pot, DEV_BPS, 10_000);
-    let buyback_part = mul_div(losing_pot, board.buyback_bps, 10_000);
-    let mut losing_after_fee = losing_pot - vault_part - dev_part - buyback_part;
+    let buyback_full = mul_div(losing_pot, board.buyback_bps, 10_000);
+    let draw_reward = if (buyback_full < DRAW_REWARD_MAX) { buyback_full } else { DRAW_REWARD_MAX };
+    let buyback_part = buyback_full - draw_reward;
+    let mut losing_after_fee = losing_pot - vault_part - dev_part - buyback_full;
 
     if (vault_part > 0) { gts::vault_add(treasury, balance::split(&mut board.pot, vault_part)); };
     if (dev_part > 0) { balance::join(&mut board.dev_fees, balance::split(&mut board.pot, dev_part)); };
     if (buyback_part > 0) { balance::join(&mut board.buyback, balance::split(&mut board.pot, buyback_part)); };
+    if (draw_reward > 0) {
+        let settler = tx_context::sender(ctx);
+        transfer::public_transfer(coin::from_balance(balance::split(&mut board.pot, draw_reward), ctx), settler);
+        event::emit(DrawPaid { round_id: board.cur_id, settler, amount: draw_reward });
+    };
 
     // Wealth Fund: with no one on the winning square the rest is split between it and the reserve;
     // with a winner there is a 1 in `odds` chance it is paid out.

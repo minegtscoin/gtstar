@@ -993,7 +993,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps) / 10_000, fair = round >= FAIR_FROM;
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps) / 10_000, fair = round >= FAIR_FROM;
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
