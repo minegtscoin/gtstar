@@ -411,6 +411,14 @@ const save = () => fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
 const today = et.toISOString().slice(0, 10), wd = et.getDay();
 if (process.argv.includes("--engage")) { await engage(); process.exit(0); }
+// One-off post: node poster.mjs --say "text"
+if (process.argv.includes("--say")) {
+  const text = process.argv[process.argv.indexOf("--say") + 1] || "";
+  if (!text || xLength(text) > 280) throw new Error(`bad text length ${xLength(text)}`);
+  if (DRY) { console.log(text, `
+(${xLength(text)} chars)`); process.exit(0); }
+  console.log(new Date().toISOString(), "posted", await tweet(text)); process.exit(0);
+}
 const kind = FORCE || (DRY ? "all" : wd === TILE_DAY ? "tiles" : wd === DATA_DAY ? "data" : wd === FUN_DAY ? "fun" : null);
 if (!kind || (!FORCE && !DRY && state.day === today)) process.exit(0);
 
