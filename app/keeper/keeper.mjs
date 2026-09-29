@@ -65,7 +65,7 @@ export default async () => {
     for (const n of d.e?.nodes || []) { const j = n.contents.json; if (j.locked && +j.locked_until < now) due.add(j.player); }
     for (const player of due) {
       const key = Buffer.from(player.slice(2).padStart(64, "0") + "01", "hex").toString("base64");
-      const r = (await client.query({ query: `{object(address:"${table}"){dynamicField(name:{type:"${CFG.stakePkg}::staking::PosKey",bcs:"${key}"}){value{... on MoveValue{json}}}}}` })).data;
+      const r = (await client.query({ query: `{object:address(address:"${table}"){dynamicField(name:{type:"${CFG.stakePkg}::staking::PosKey",bcs:"${key}"}){value{... on MoveValue{json}}}}}` })).data;
       const pos = r.object?.dynamicField?.value?.json;
       if (!pos || BigInt(pos.weight) <= BigInt(pos.amount) * 10n || +pos.locked_until > now) continue;
       await run(`poke ${player.slice(0, 8)}`, tx => tx.moveCall({ target: T("game::poke"), arguments: [tx.object(CFG.board), tx.pure.address(player), tx.object.clock()] }));

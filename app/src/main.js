@@ -255,7 +255,8 @@ async function loadStake(addr) {
   if (!tbl) return null;
   const key = locked => btoa(String.fromCharCode(...addr.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16)), locked ? 1 : 0));
   const q = alias => `${alias}:dynamicField(name:{type:"${STK_PKG}::staking::PosKey",bcs:"${key(alias === "l")}"}){value{... on MoveValue{json}}}`;
-  const d = await gql(`{object(address:"${tbl}"){${q("f")} ${q("l")}}}`);
+  // A Table is not an object: its entries are read as dynamic fields of its address.
+  const d = await gql(`{object:address(address:"${tbl}"){${q("f")} ${q("l")}}}`);
   const pos = j => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0) } : null;
   return { flex: pos(d.object?.f?.value?.json), lock: pos(d.object?.l?.value?.json) };
 }
@@ -1543,6 +1544,11 @@ async function refresh() {
     shownU = su; USER = u; render(); renderWelcome();
   }, e => console.warn("wallet refresh failed", e));
   await Promise.all([g, u]);
+  // The first load reads the wallet before the staking pool is known: read the positions once it is.
+  if (USER && !USER.stake && STATE?.stake && account?.address === addr) {
+    const st = await loadStake(addr).catch(() => null);
+    if (USER && account?.address === addr) { USER.stake = st; render(); }
+  }
   // A round to claim older than the last 12 is only in the full history: load it so the amounts show.
   const m = USER?.miner;
   if (STATE && !HIST && m && m.round_id !== 0 && m.round_id < STATE.board.cur_id && !STATE.recent.some(r => r.round === m.round_id)) refreshHistory();
