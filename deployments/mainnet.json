@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x66b408f215d5d550b301568f942371404b33c765bd549697cfe28271e957984c",
+  "latest": "0xa32053565e5bb314e5caadeb1f2934f3597eab4e1602c0840d4137116f3e952e",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -45,10 +45,15 @@
     [
       "Game upgraded: no reserve (GTS cannot be redeemed for SUI), the reserve share goes to the Wealth Fund, and the fair split is back for spread deposits",
       "F1xMMGr6WQq33C13RCfx4JHsVKiVPQba6NW81epVip2F"
+    ],
+    [
+      "Game upgraded: at most 5 tiles per player a round, and a winner keeps the whole win (no cut for spread deposits)",
+      "A2tUUGBezHqZrbGMWfFCsCv4GFuzaqqP5QNohMhd7kWC"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
   "wfPkg": "0x7c1288891489591765402a61bee62df34a68de25ffb0459d6e83c020f4ae5c42",
   "market": "0x0628902c5acd5b5755c9b1a6494e925d0c5327177486b5e3b25d0e9b0211de71",
-  "v6Pkg": "0xfd20b3584720559b109870c1bb295295fcfa21774520500eea9f6253493b551f"
+  "v6Pkg": "0xfd20b3584720559b109870c1bb295295fcfa21774520500eea9f6253493b551f",
+  "v10Pkg": "0xa32053565e5bb314e5caadeb1f2934f3597eab4e1602c0840d4137116f3e952e"
 }

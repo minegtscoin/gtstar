@@ -3,9 +3,10 @@
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
 /// losing pot pays: creator DEV_BPS (1%, fixed), buyback `buyback_bps`, stakers `stake_bps`, Wealth
 /// Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
-/// the winning square. From v9 a winner keeps only the part of that share matching the part of their
-/// round deposit on the winning square (the fair split, as in rounds 1-20); the rest goes to the
-/// Wealth Fund. With no one on the winning square the whole rest goes to the Wealth Fund. Every round
+/// the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
+/// part matching the part of their round deposit on the winning square, the fair split). A player may
+/// deposit on at most `max_tiles` squares a round (5; see `set_max_tiles`). With no one on the winning
+/// square the whole rest goes to the Wealth Fund. Every round
 /// has a 1 in `ml_odds` chance to pay the whole Wealth Fund to one ticket, drawn by weight. Tickets:
 /// every mist of fee a player paid (creator + buyback + stakers + Wealth Fund, on the SUI they lost)
 /// since the last payout is one ticket, added when the round is claimed. House bots get no tickets.
@@ -109,7 +110,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 9;
+const VERSION: u64 = 10;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -136,6 +137,7 @@ const ENotBuyer: u64 = 25;
 const ENoBuyback: u64 = 26;
 const ENothingBought: u64 = 27;
 const ENoReserve: u64 = 28;
+const ETooManyTiles: u64 = 29;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -215,6 +217,10 @@ public struct V5FromKey has copy, drop, store {}
 public struct V8FromKey has copy, drop, store {}
 /// Dynamic field on the Board: the first round settled by v9 (fair split back, no reserve).
 public struct V9FromKey has copy, drop, store {}
+/// Dynamic field on the Board: the first round settled by v10 (no fair split: winners keep it all).
+public struct V10FromKey has copy, drop, store {}
+/// Dynamic field on the Board (v10): the most squares one player may deposit on in a round.
+public struct MaxTilesKey has copy, drop, store {}
 
 /// Dynamic field on the Board (v6): when `player`'s 7-day withdraw clock started (ms): their last
 /// withdrawal, or when they first mined. Holders from before v6 without one use `RefineFromKey`.
@@ -296,6 +302,7 @@ public struct BuybackBurned has copy, drop { amount: u64 }
 public struct BuybackDone has copy, drop { sui_spent: u64, gts_burned: u64 }
 public struct StakingChanged has copy, drop { stake_bps: u64 }
 public struct FundBpsChanged has copy, drop { fund_bps: u64 }
+public struct MaxTilesChanged has copy, drop { max_tiles: u64 }
 /// SUI paid to whoever settled a round, out of its Wealth Fund share, then its buyback share.
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
@@ -415,6 +422,11 @@ fun v9_from(board: &Board): u64 {
     if (df::exists(&board.id, V9FromKey {})) { *df::borrow<V9FromKey, u64>(&board.id, V9FromKey {}) } else { 18_446_744_073_709_551_615 }
 }
 
+/// First round under the v10 rules (u64 max until v10 settles its first round).
+fun v10_from(board: &Board): u64 {
+    if (df::exists(&board.id, V10FromKey {})) { *df::borrow<V10FromKey, u64>(&board.id, V10FromKey {}) } else { 18_446_744_073_709_551_615 }
+}
+
 /// First round under the v8 GTS rules (u64 max until v8 settles its first round).
 fun v8_from(board: &Board): u64 {
     if (df::exists(&board.id, V8FromKey {})) { *df::borrow<V8FromKey, u64>(&board.id, V8FromKey {}) } else { 18_446_744_073_709_551_615 }
@@ -520,6 +532,19 @@ public fun set_fund_bps(_: &AdminCap, board: &mut Board, bps: u64) {
     event::emit(FundBpsChanged { fund_bps: bps });
 }
 
+/// Set the most squares one player may deposit on in a round (1 to 25).
+public fun set_max_tiles(_: &AdminCap, board: &mut Board, n: u64) {
+    check_version(board);
+    assert!(n >= 1 && n <= GRID, EBadParams);
+    if (df::exists(&board.id, MaxTilesKey {})) { *df::borrow_mut<MaxTilesKey, u64>(&mut board.id, MaxTilesKey {}) = n }
+    else { df::add(&mut board.id, MaxTilesKey {}, n) };
+    event::emit(MaxTilesChanged { max_tiles: n });
+}
+
+fun max_tiles(board: &Board): u64 {
+    if (df::exists(&board.id, MaxTilesKey {})) { *df::borrow<MaxTilesKey, u64>(&board.id, MaxTilesKey {}) } else { GRID }
+}
+
 fun fund_bps(board: &Board): u64 {
     if (df::exists(&board.id, FundBpsKey {})) { *df::borrow<FundBpsKey, u64>(&board.id, FundBpsKey {}) } else { 0 }
 }
@@ -617,6 +642,7 @@ public fun deploy(
     };
 
     i = 0;
+    let mut tiles = 0;
     while (i < GRID) {
         let a = *vector::borrow(&amounts, i);
         if (a > 0) {
@@ -625,8 +651,10 @@ public fun deploy(
             let md = vector::borrow_mut(&mut miner.deployed, i);
             *md = *md + a;
         };
+        if (*vector::borrow(&miner.deployed, i) > 0) { tiles = tiles + 1; };
         i = i + 1;
     };
+    assert!(tiles <= max_tiles(board), ETooManyTiles);
     board.cur_total = board.cur_total + sum;
     miner.total_deployed = miner.total_deployed + sum;
     balance::join(&mut board.pot, coin::into_balance(payment));
@@ -649,6 +677,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     if (!df::exists(&board.id, RefineFromKey {})) { df::add(&mut board.id, RefineFromKey {}, clock::timestamp_ms(clock)) };
     if (!df::exists(&board.id, V8FromKey {})) { df::add(&mut board.id, V8FromKey {}, board.cur_id) };
     if (!df::exists(&board.id, V9FromKey {})) { df::add(&mut board.id, V9FromKey {}, board.cur_id) };
+    if (!df::exists(&board.id, V10FromKey {})) { df::add(&mut board.id, V10FromKey {}, board.cur_id) };
 
     let mut gen = random::new_generator(r, ctx);
     let rng = random::generate_u64(&mut gen);
@@ -805,7 +834,8 @@ public fun claim(
     let (pot_after_fee, winners_total) = (info.losing_pot_after_fee, info.winners_total);
 
     let v5 = round_id >= v5_from(board);
-    let v9 = round_id >= v9_from(board);
+    // Rounds settled by v9 keep the fair split; from v10 winners keep their whole share (the v5 branch).
+    let v9 = round_id >= v9_from(board) && round_id < v10_from(board);
     let my_win = *vector::borrow(&miner.deployed, w);
     // v5-v7: GTS by SUI lost in the round; before v5 and from v8: by SUI deployed.
     let gts_amt = if (v5 && round_id < v8_from(board)) {
@@ -820,8 +850,9 @@ public fun claim(
     };
 
     // SUI: own stake on the winning square back, plus a share of the losing pot in proportion to it.
-    // From v9 (and before v5) only the part of that share matching the part of the round deposit on the
-    // winning square is kept, the rest goes to the Wealth Fund. Rounds 21-30 (v5-v8) kept it all.
+    // Rounds settled by v9 (and before v5) kept only the part of that share matching the part of the
+    // round deposit on the winning square, the rest went to the Wealth Fund. Rounds 21-32 (v5-v8) and
+    // from v10 keep it all.
     let sui_coin = if (v9 && my_win > 0) {
         let share = mul_div(pot_after_fee, my_win, winners_total);
         let kept = mul_div(share, my_win, miner.total_deployed);
@@ -1018,6 +1049,7 @@ public fun tickets_of(board: &Board, player: address): u64 {
 }
 /// Wealth Fund's share of every round's losing pot in bps.
 public fun wealth_fund_bps(board: &Board): u64 { fund_bps(board) }
+public fun max_tiles_per_player(board: &Board): u64 { max_tiles(board) }
 /// Stakers' share of the losing pot in bps (0 before staking is set up).
 public fun staking_bps(board: &Board): u64 { stake_bps(board) }
 /// (GTS staked, total weight in tenths, SUI paid to stakers so far, SUI waiting to be claimed).

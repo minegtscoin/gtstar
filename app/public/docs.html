@@ -161,15 +161,15 @@
     <h3>Rounds</h3>
     <ul>
       <li>A round starts with its first deposit and lasts 60 seconds. No deposits means no round and no emission.</li>
-      <li>Deploy SUI on one or more of the 25 tiles, minimum 0.01 SUI per tile.</li>
+      <li>Deploy SUI on up to 5 of the 25 tiles, minimum 0.01 SUI per tile.</li>
       <li>Deposits close 5 seconds before the end, so no one can react to other players at the last second.</li>
       <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>Rewards</h3>
-    <p><strong>Winners</strong> get their stake on the winning tile back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. <strong>Fair split:</strong> if you also put SUI on other tiles, you keep only the part of that share matching the part of your round deposit that was on the winning tile; the rest goes to the Wealth Fund. So 0.01 SUI on each of the 25 tiles always wins, but keeps only 1/25 of its share and loses most of the round. Each wallet plays a round with one miner, so all of its deposits count together. <strong>GTS</strong> is mined by the SUI you deploy, win or lose: the round's GTS is split by what each player deployed. Up to 1 SUI in a round, every 0.01 SUI mines 0.01 GTS (0.25 SUI mines 0.25 GTS).</p>
+    <p><strong>Winners</strong> get their stake on the winning tile back plus a share of 90% of everything deployed on the other tiles, split in proportion to what each player put on the winning tile. <strong>A win is a full win:</strong> you keep your whole share, no cut. <strong>Up to 5 tiles per round:</strong> each wallet plays a round with one miner, and all of its deposits in the round count together, so a wallet can hold at most 5 tiles. <strong>GTS</strong> is mined by the SUI you deploy, win or lose: the round's GTS is split by what each player deployed. Up to 1 SUI in a round, every 0.01 SUI mines 0.01 GTS (0.25 SUI mines 0.25 GTS).</p>
     <span class="code">losing_pot = total_deposits - winning_tile_total
 my_share   = losing_pot * 90% * my_stake / winning_tile_total
-payout     = my_stake + my_share * my_stake / my_round_deposit   (the rest to the Wealth Fund)
+payout     = my_stake + my_share
 round_reward = step_reward * min(round_total, 1 SUI) / 1 SUI
 my_gts       = round_reward * my_deposit / round_total</span>
     <h3>Unrefined GTS</h3>
@@ -179,14 +179,14 @@ withdraw = my_unrefined - my_unrefined * fee   (the fee is burned)</span>
     <h3>Wealth Fund</h3>
     <p>The <strong>Wealth Fund</strong> is a jackpot in SUI that grows every round until one player takes all of it.</p>
     <ol>
-      <li><strong>It fills up.</strong> Every round, 4% of the losing pot goes in, plus what spread deposits do not keep from a win. If no one is on the winning tile, the whole pot less fees goes in.</li>
+      <li><strong>It fills up.</strong> Every round, 4% of the losing pot goes in. If no one is on the winning tile, the whole pot less fees goes in.</li>
       <li><strong>You collect tickets.</strong> When you lose SUI in a round, 10% of what you lost is paid in fees. Those fees are your tickets. The more you play, the more tickets you have. Nothing to buy or sign up for: tickets come on their own.</li>
-      <li><strong>It hits.</strong> Every round has a 1 in 100 chance to pay out. When it does, one ticket is drawn at random and its owner gets the <strong>whole fund</strong>, paid in SUI to their wallet.</li>
+      <li><strong>It hits.</strong> Every round has a 1 in 250 chance to pay out. When it does, one ticket is drawn at random and its owner gets the <strong>whole fund</strong>, paid in SUI to their wallet.</li>
       <li><strong>It starts again.</strong> After a payout all tickets reset to zero and the fund starts filling again.</li>
     </ol>
     <p>You do not need to win your tile to take the Wealth Fund: a player who lost the round can take it. Tickets count from the last payout, so a player with 10% of all tickets has a 10% chance when it hits. Every ticket costs real SUI, so splitting SUI across several wallets gives no extra tickets. GTStar bots get no tickets. Tickets are added when your round is claimed.</p>
     <span class="code">my_tickets = 10% of the SUI I lost since the last payout
-my_chance  = my_tickets / all_tickets     (when the fund pays, 1 in 100 each round)</span>
+my_chance  = my_tickets / all_tickets     (when the fund pays, 1 in 250 each round)</span>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
@@ -230,7 +230,7 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
     </table></div>
     <p>Whoever draws a round is paid up to 0.005 SUI of it from the Wealth Fund share, then the buyback share, so the draw pays for its own gas. The GTStar keeper draws every round within seconds, so this is usually paid to the keeper. In a round whose losing pot is under 0.125 SUI, the whole Wealth Fund share goes to the drawer.</p>
     <h3>Where lost SUI goes</h3>
-    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (3% buyback, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund, which pays it to one player when it hits. Spreading over many tiles wins more often, but the SUI on the other tiles is lost every time and a spread deposit keeps only part of its winnings, so a win can return much less than you put in.</p>
+    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (3% buyback, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund, which pays it to one player when it hits. Using more tiles (up to 5) wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</p>
     <h3>Staking</h3>
     <p>Stake GTS and earn SUI: stakers share 2% of every round's losing pot. Nothing is minted, so staking never dilutes holders. Withdraw any time. With nobody staked, the stakers' share goes to the Wealth Fund.</p>
     <span class="code">my_yield = round_share * my_stake / all_staked</span>
@@ -244,13 +244,13 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
     <p>The owner address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> holds two keys, with no timelock:</p>
     <ul>
       <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the game or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
-      <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share has its own cap (stakers 5%, Wealth Fund 10%, buyback 3%), and the old reserve share is fixed at 0. The buyback SUI stays in the game until the keeper spends it, and the same transaction must burn GTS for it (<code>buyback_take</code> / <code>buyback_burn</code>); every buy emits <code>BuybackDone</code> with the SUI spent and the GTS burned, so the price paid can be checked. The owner cannot take it. Wealth Fund odds can be set anywhere from 1 in 100 to 1 in 1,000,000.</li>
+      <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share has its own cap (stakers 5%, Wealth Fund 10%, buyback 3%), and the old reserve share is fixed at 0. The buyback SUI stays in the game until the keeper spends it, and the same transaction must burn GTS for it (<code>buyback_take</code> / <code>buyback_burn</code>); every buy emits <code>BuybackDone</code> with the SUI spent and the GTS burned, so the price paid can be checked. The owner cannot take it. Wealth Fund odds can be set anywhere from 1 in 100 to 1 in 1,000,000, and the tile limit from 1 to 25.</li>
     </ul>
-    <p>Current settings on-chain: Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 100, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Current settings on-chain: Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 250, at most 5 tiles per wallet a round, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
     <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
-      <li>The one-miner rule and the fair split work per wallet. Someone who covers the board with several wallets, one tile each, keeps the winning wallet's full share, so covering the board costs them only the 10% fees on the losing tiles. That only makes their GTS cheaper to mine: there is no reserve to take SUI from. Wealth Fund tickets come only from fees, so extra wallets give no extra tickets.</li>
+      <li>The one-miner rule and the 5-tile limit work per wallet. Someone who covers the board with several wallets keeps the winning wallet's full share, so covering the board costs them only the 10% fees on the losing tiles. That only makes their GTS cheaper to mine: there is no reserve to take SUI from. Wealth Fund tickets come only from fees, so extra wallets give no extra tickets.</li>
       <li>GTStar bots are exempt from the withdraw fee in the contract. That they burn the GTS they mine is done by our off-chain bot code, not enforced on-chain.</li>
 
       

@@ -76,8 +76,8 @@ fun test_launch_emission() {
 }
 
 /// A round with a winner: creator 1%, Wealth Fund 4% (0.005 of it to the drawer), no buyback, winners
-/// 95%. Spread over every tile, the winner keeps 1/25 of that share (the fair split) and the rest goes
-/// to the Wealth Fund. 1 GTS mined into the unrefined balance. No reserve. Every mist is accounted for.
+/// 95%. The winner keeps the whole share, even spread over every tile (no fair split from v10).
+/// 1 GTS mined into the unrefined balance. No reserve. Every mist is accounted for.
 #[test]
 fun test_round_with_winner() {
     let mut sc = ts::begin(@0x0);
@@ -93,11 +93,11 @@ fun test_round_with_winner() {
     let (g, s) = play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, per);
     let losing = per * 24;
     let share = losing * 95 / 100;
-    assert!(s == per + share / 25, 1);
+    assert!(s == per + share, 1);
     assert!(game::dev_fees_value(&board) == losing / 100, 2);
     assert!(game::buyback_value(&board) == 0, 3);
-    // Fund share minus 0.005 SUI to the drawer, plus the part of the share the spread deposit forfeits.
-    assert!(game::motherlode_value(&board) == losing * 4 / 100 - 5_000_000 + share - share / 25, 4);
+    // Fund share minus 0.005 SUI to the drawer; nothing forfeited.
+    assert!(game::motherlode_value(&board) == losing * 4 / 100 - 5_000_000, 4);
     assert!(gts::vault_value(&treasury) == 0, 9);
     assert!(game::pot_value(&board) == 0, 5);
     assert!(g == 0 && game::unrefined_total(&board) == GTS1, 6); // 2.5 SUI >= 1 SUI: full 1 GTS
@@ -316,8 +316,8 @@ fun test_whale_tickets_below_loss() {
     ts::end(sc);
 }
 
-/// 25 wallets of one owner, one tile each (the cheapest way to cover the board; the fair split works
-/// per wallet, so it does not apply): the winner takes the others' losses, so together they only lose
+/// 25 wallets of one owner, one tile each (the only way to cover the board with the 5-tile limit; a limit
+/// works per wallet): the winner takes the others' losses, so together they only lose
 /// the fees. Their tickets equal exactly those fees: a ticket
 /// always costs one mist of real SUI, a second wallet makes it no cheaper. GTS goes by SUI deployed:
 /// all 25 wallets share the round reward equally, the same total one wallet on every tile would mine.
@@ -922,7 +922,7 @@ fun test_no_stakers_to_fund() {
     let losing = 2_400_000_000;
     let share = losing * 92 / 100;
     // Fund 4% + stakers 3%, minus 0.005 to the drawer (Carol), plus what Carol's spread deposit forfeits.
-    assert!(game::motherlode_value(&board) == losing * 7 / 100 - 5_000_000 + share - share / 25, 1);
+    assert!(game::motherlode_value(&board) == losing * 7 / 100 - 5_000_000, 1);
     assert!(gts::vault_value(&treasury) == 0, 3);
     assert!(game::buyback_value(&board) == 0 && game::pot_value(&board) == 0, 2);
     ts::return_shared(board); ts::return_shared(treasury);
@@ -1004,7 +1004,7 @@ fun test_fund_share_every_round() {
     round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, all_tiles(per), 1_000_000);
     let losing = per * 24;
     let share = losing * 97 / 100;
-    assert!(game::motherlode_value(&board) == losing * 2 / 100 - 5_000_000 + share - share / 25, 2);
+    assert!(game::motherlode_value(&board) == losing * 2 / 100 - 5_000_000, 2);
     assert!(game::buyback_value(&board) == 0, 3);
     assert!(game::dev_fees_value(&board) == losing / 100, 4);
     assert!(game::tickets_of(&board, BOB) == losing * 3 / 100, 5);
@@ -1136,6 +1136,136 @@ fun test_sui_in_equals_gts_mined() {
     round_as(&mut sc, ALICE, &mut board, &mut treasury, &rs, &mut clk, all_tiles(10_000_000), 1_000_000);
     let (a, _) = game::unrefined_of(&board, ALICE);
     assert!(a == 250_000_000, 1);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+fun set_tiles(sc: &mut Scenario, n: u64) {
+    ts::next_tx(sc, OWNER);
+    let admin = ts::take_from_sender<AdminCap>(sc);
+    let mut board = ts::take_shared<Board>(sc);
+    game::set_max_tiles(&admin, &mut board, n);
+    assert!(game::max_tiles_per_player(&board) == n, 100);
+    ts::return_to_sender(sc, admin);
+    ts::return_shared(board);
+}
+
+fun five_tiles(per: u64): vector<u64> {
+    let mut v = vector[];
+    let mut k = 0;
+    while (k < 25) { vector::push_back(&mut v, if (k < 5) { per } else { 0 }); k = k + 1; };
+    v
+}
+
+/// With the limit at 5, five tiles are fine and a sixth in a later deposit of the same round aborts.
+#[test, expected_failure(abort_code = game::ETooManyTiles)]
+fun test_max_tiles_across_deposits() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    set_tiles(&mut sc, 5);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    let per = 10_000_000;
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per * 5, ts::ctx(&mut sc)), five_tiles(per), &clk, ts::ctx(&mut sc));
+    // More on a tile already held is fine.
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per, ts::ctx(&mut sc)), one_tile(0, per), &clk, ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per, ts::ctx(&mut sc)), one_tile(5, per), &clk, ts::ctx(&mut sc));
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// Six tiles in one deposit abort.
+#[test, expected_failure(abort_code = game::ETooManyTiles)]
+fun test_max_tiles_one_deposit() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    set_tiles(&mut sc, 5);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    let per = 10_000_000;
+    let mut v = five_tiles(per);
+    *vector::borrow_mut(&mut v, 24) = per;
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per * 6, ts::ctx(&mut sc)), v, &clk, ts::ctx(&mut sc));
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// The limit is between 1 and 25.
+#[test, expected_failure(abort_code = game::EBadParams)]
+fun test_max_tiles_bounds() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    set_tiles(&mut sc, 26);
+    ts::end(sc);
+}
+
+/// Five tiles, one wins: the winner gets their stake back plus the whole winners' share of the losing
+/// pot, nothing forfeited to the Wealth Fund.
+#[test]
+fun test_five_tiles_full_win() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    set_tiles(&mut sc, 5);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    let per = 100_000_000;
+    // Alice covers the other 20 tiles in 4 wallets of 5, Bob the first 5: someone always wins.
+    let mut bob = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut bob, coin::mint_for_testing<SUI>(per * 5, ts::ctx(&mut sc)), five_tiles(per), &clk, ts::ctx(&mut sc));
+    let mut others = vector[];
+    let mut w = 1;
+    while (w < 5) {
+        let who = sui::address::from_u256((0x7000 + w) as u256);
+        ts::next_tx(&mut sc, who);
+        let mut m = game::new_miner(ts::ctx(&mut sc));
+        let mut v = vector[];
+        let mut k = 0;
+        while (k < 25) { vector::push_back(&mut v, if (k >= w * 5 && k < w * 5 + 5) { per } else { 0 }); k = k + 1; };
+        game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(per * 5, ts::ctx(&mut sc)), v, &clk, ts::ctx(&mut sc));
+        vector::push_back(&mut others, m);
+        w = w + 1;
+    };
+    clock::set_for_testing(&mut clk, 62_000);
+    ts::next_tx(&mut sc, OWNER);
+    game::settle_with_odds_for_testing(&mut board, &mut treasury, &rs, &clk, 1_000_000, ts::ctx(&mut sc));
+    let fund_before = game::motherlode_value(&board);
+    let losing = per * 24;
+    let share = losing * 95 / 100;
+    ts::next_tx(&mut sc, BOB);
+    let (g, s) = game::claim(&mut board, &mut bob, &mut treasury, ts::ctx(&mut sc));
+    let mut paid = coin::value(&s);
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    transfer::public_transfer(bob, BOB);
+    w = 4;
+    while (!vector::is_empty(&others)) {
+        let mut m = vector::pop_back(&mut others);
+        let who = sui::address::from_u256((0x7000 + w) as u256);
+        ts::next_tx(&mut sc, who);
+        let (g, s) = game::claim(&mut board, &mut m, &mut treasury, ts::ctx(&mut sc));
+        paid = paid + coin::value(&s);
+        coin::burn_for_testing(g); coin::burn_for_testing(s);
+        transfer::public_transfer(m, who);
+        w = w - 1;
+    };
+    vector::destroy_empty(others);
+    // Exactly one wallet won: its tile's stake back plus the whole share.
+    assert!(paid == per + share, 1);
+    assert!(game::motherlode_value(&board) == fund_before, 2);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);

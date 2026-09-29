@@ -110,13 +110,16 @@ const withMl = (r, ml) => ({ ...r, ml: ml.get(r.round) || null });
 // Rounds 1-20 and from V9_FROM use the fair split (a spread deposit keeps only part of its share). Rounds
 // 21 to V9_FROM-1 (V5FromKey) kept the full share, and rounds 21-30 split GTS by SUI lost. From round 31
 // (V8FromKey) GTS goes by SUI deployed, win or lose. From V9_FROM (V9FromKey) there is no reserve: what a
-// spread deposit does not keep goes to the Wealth Fund.
+// spread deposit does not keep goes to the Wealth Fund. From V10_FROM (V10FromKey, read from the Board) there
+// is no fair split again: a winner keeps the whole share, and a player may use at most maxTiles tiles a round.
 const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31, V9_FROM = 33;
+const V10_PKG = IDS.v10;
+let V10_FROM = V10_PKG ? 0 : Infinity; // 0 until the Board says: every round not settled yet is under v10
 // SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
 const RESERVE_MOVED = 12_288_264_223;
 // Relaunch game published (deployments/mainnet.json publishedAt).
 const GAME_LAUNCH = Date.parse("2026-09-29T10:20:50Z");
-const isFair = n => (n >= FAIR_FROM && n < V5_FROM) || n >= V9_FROM;
+const isFair = n => (n >= FAIR_FROM && n < V5_FROM) || (n >= V9_FROM && (!V10_FROM || n < V10_FROM));
 // GTS a player mined in settled round r: by SUI lost in rounds V5_FROM..V8_FROM-1, by SUI deployed otherwise.
 const gtsOf = (r, onWin, tot) => r.round >= V5_FROM && r.round < V8_FROM
   ? (r.total > r.winners ? r.reward * (tot - onWin) / (r.total - r.winners) : 0)
@@ -158,7 +161,10 @@ async function loadGlobal() {
     ${STK_PKG ? `sk:object(address:"${IDS.board}"){p:dynamicField(name:{type:"${STK_PKG}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}} bp:dynamicField(name:{type:"${STK_PKG}::game::StakeBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
     sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}
     ${WF_PKG ? `wf:object(address:"${IDS.board}"){fb:dynamicField(name:{type:"${WF_PKG}::game::FundBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}} tk:dynamicField(name:{type:"${WF_PKG}::game::TicketsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
-    ww:events(filter:{type:"${EV_WF_WON}"},last:12){nodes{contents{json}}}` : ""}}`);
+    ww:events(filter:{type:"${EV_WF_WON}"},last:12){nodes{contents{json}}}` : ""}
+    ${V10_PKG ? `tl:object(address:"${IDS.board}"){mt:dynamicField(name:{type:"${V10_PKG}::game::MaxTilesKey",bcs:"AA=="}){value{... on MoveValue{json}}} vf:dynamicField(name:{type:"${V10_PKG}::game::V10FromKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}}`);
+  const v10 = num(d.tl?.vf?.value?.json);
+  if (v10) V10_FROM = v10;
   const b = pick(d, "b"), t = pick(d, "t"), m = pick(d, "m");
   // Cetus pool is Pool<GTS, SUI>, both 9 decimals: price (SUI per GTS) = (sqrt_price / 2^64)^2.
   const sq = num(m.current_sqrt_price) / 2 ** 64;
@@ -175,7 +181,7 @@ async function loadGlobal() {
   return {
     supply, minted, market: sq > 0 ? sq * sq : 0,
     motherlode: num(b.motherlode), mlOdds: num(b.ml_odds) || 1000,
-    fundBps: num(d.wf?.fb?.value?.json), tickets: tk ? { epoch: num(tk.epoch), total: num(tk.total) } : null,
+    fundBps: num(d.wf?.fb?.value?.json), maxTiles: num(d.tl?.mt?.value?.json) || 25, tickets: tk ? { epoch: num(tk.epoch), total: num(tk.total) } : null,
     refineFee: b.refine_fee_bps != null ? num(b.refine_fee_bps) / 10_000 : REFINE_FEE,
     em: emOf(b),
     stake: stakeOf(d),
@@ -593,13 +599,14 @@ function gtsCoin(tx, amount, split = amount) {
   return c;
 }
 // The site used to cap a wallet at 3 tiles a round until the v7 split; the contract never did, so the cap is off.
-const TILE_CAP = 25;
-function overCap() {
-  if (FAIR_FROM !== Infinity) return false;
-  const b = STATE?.board, m = USER?.miner, tiles = new Set(selected);
+// Most tiles one player may use in a round (game::set_max_tiles), counting tiles already deployed on.
+const tileCap = () => STATE?.maxTiles || 25;
+function tilesHeld(extra = selected) {
+  const b = STATE?.board, m = USER?.miner, tiles = new Set(extra);
   if (b && m && b.cur_started && m.round_id === b.cur_id && Date.now() < b.cur_end_ms) m.deployed.forEach((v, i) => v > 0 && tiles.add(i));
-  return tiles.size > TILE_CAP;
+  return tiles;
 }
+const overCap = () => tilesHeld().size > tileCap();
 async function play() {
   if (!account) { openWalletModal(); return; }
   const per = toMist($("amt").value);
@@ -812,7 +819,9 @@ function buildBoard() {
     c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="add" hidden></span><span class="a"></span>`;
     c.addEventListener("animationend", () => c.classList.remove("bump"));
     c.onclick = () => {
-      selected.has(i) ? selected.delete(i) : selected.add(i);
+      if (selected.has(i)) selected.delete(i);
+      else if (tilesHeld(new Set([...selected, i])).size > tileCap()) { toast(`Up to ${tileCap()} tiles per round.`); return; }
+      else selected.add(i);
       // Picking a tile with no amount set starts at the minimum, so Deploy is ready right away.
       const min = STATE ? STATE.board.min_deploy / MIST : 0.01;
       if (selected.size && parseAmt($("amt").value) < min) $("amt").value = String(min);
@@ -1077,7 +1086,7 @@ function estimate(per, p) {
   selected.forEach(i => { dep[i] += a; mine[i] += a; });
   const tot = dep.reduce((x, y) => x + y, 0), myTot = mine.reduce((x, y) => x + y, 0);
   const gts = roundReward() * Math.min(1, tot / em().full) * myTot / tot;
-  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = isFair(round);
+  const keep = 1 - (b.vault_bps + b.dev_bps + b.buyback_bps + (STATE.stake?.bps || 0) + (STATE.fundBps || 0)) / 10_000, fair = isFair(round) && !V10_PKG;
   const wins = [...selected].map(i => {
     const share = (tot - dep[i]) * keep * mine[i] / dep[i];
     return (mine[i] + (fair ? share * mine[i] / myTot : share)) / MIST;
@@ -1207,7 +1216,7 @@ function renderMine() {
     else if (p === "frozen") { label = "Round closing"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
-    else if (overCap()) { label = `Up to ${TILE_CAP} tiles per round`; dis = true; }
+    else if (overCap()) { label = `Up to ${tileCap()} tiles per round`; dis = true; }
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }
@@ -1324,7 +1333,7 @@ function minersHtml(r) {
 function renderRevenue() {
   const cfg = {
     // Settle adds the round's share; a spread deposit's forfeit is added at claim (the split).
-    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `${fmt((STATE.fundBps || 0) / 100, 2)}% of every losing pot, all of it less fees when no one wins, plus what spread deposits do not keep. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
+    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `${fmt((STATE.fundBps || 0) / 100, 2)}% of every losing pot, all of it less fees when no one wins. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);
@@ -1760,12 +1769,11 @@ $("amtClear").onclick = () => { $("amt").value = "0"; render(); };
 $("amt").addEventListener("input", render);
 $("amt").addEventListener("focus", e => { if (e.target.value === "0") e.target.value = ""; });
 $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "0"; });
-$("selAll").onclick = () => { selected = new Set([...Array(25).keys()]); render(); };
 $("selNone").onclick = () => { selected.clear(); render(); };
 $("selRepeat").onclick = () => {
   const l = lastDeploy();
   if (!l) return;
-  selected = new Set(l.tiles.filter(i => Number.isInteger(i) && i >= 0 && i < 25));
+  selected = new Set(l.tiles.filter(i => Number.isInteger(i) && i >= 0 && i < 25).slice(0, tileCap()));
   $("amt").value = l.per; render();
 };
 $("alertsBtn").onclick = async () => {

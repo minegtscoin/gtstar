@@ -5,6 +5,7 @@
 //   node scripts/admin2.mjs staking 300                    stakers' share of the losing pot, bps (creates the pool once)
 //   node scripts/admin2.mjs reserve-to-fund                move the SUI left in the old reserve into the Wealth Fund (once)
 //   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
+//   node scripts/admin2.mjs tiles 5                        most tiles one player may use in a round, 1-25 (game v10)
 // set keys: odds (Wealth Fund 1 in N), fund (no-winner share, unused from game v9), reserve (bps, must be 0 from v9),
 //   buyback (bps), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
@@ -96,6 +97,11 @@ if (mode === "wealth") {
 }
 if (mode === "reserve-to-fund") {
   await run((tx, cap) => tx.moveCall({ target: `${G}::reserve_to_fund`, arguments: [cap, tx.object(dep.board), tx.object(dep.treasury)] }));
+  console.log(await current());
+  process.exit(0);
+}
+if (mode === "tiles") {
+  await run((tx, cap) => tx.moveCall({ target: `${G}::set_max_tiles`, arguments: [cap, tx.object(dep.board), tx.pure.u64(Number(args[0]))] }));
   console.log(await current());
   process.exit(0);
 }
