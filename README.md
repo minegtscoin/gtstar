@@ -5,54 +5,49 @@
 GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and **every** participant mines GTS by their share of the round. A slice of every pot flows into an on-chain SUI reserve that backs every GTS.
 
 - App: https://minegts.fun
-- Docs and whitepaper: https://minegts.fun/docs.html
+- Docs: https://minegts.fun/docs.html
 - X: https://x.com/MineGTS1
 - Telegram: https://t.me/MineGTS
+
+> **Relaunch, 2026-09-29.** GTStar relaunched with a new GTS token and a new game. The first token and game are archived in [`legacy/`](legacy); their reserve stays immutable, so old GTS can still be redeemed there.
 
 ## Overview
 
 | | |
 |---|---|
-| Max supply | 571,897 GTS: 7 halving periods of 262,000 rounds |
+| Max supply | 1,000,000 GTS, hard cap in the contract |
 | Premine / team / presale | None |
-| Emission | Up to 1 GTS per round to miners (full reward from 1 SUI deployed in the round, less for smaller rounds), +10% to stakers, halving every 262,000 rounds (by rounds played, not by date), ending after round 1,834,000 |
-| Losing pot | Up to 95% winners · 4% reserve · 1% creator. A winner's share is scaled by the part of their own round deposit on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round. No one on the winning tile: 19.5% to the Wealth Fund, the rest to the reserve and fees |
-| Wealth Fund | Every round with a winner: 1 in 1000 chance to pay the whole Wealth Fund to the winning tile |
+| Emission | 1 GTS per round, shared by everyone in the round by SUI deployed (full reward from 1 SUI in the round, less for smaller rounds). Every 15,658 rounds the reward drops 1.425%. Mining stops at exactly 1,000,000 GTS. Counted by rounds played, not by date |
+| Losing pot | Up to 90% winners · 6% reserve · 3% stakers · 1% creator. A winner keeps the part of their own round deposit that sat on the winning tile (0.01 SUI on each of 25 tiles keeps 1/25); the rest goes to the reserve. One miner per wallet per round |
+| Wealth Fund | No one on the winning tile: 19.5% of the pot goes to the Wealth Fund. Every round with a winner has a 1 in 1000 chance to pay the whole fund to the winning tile |
+| Unrefined GTS | Mined GTS waits in your unrefined balance. Withdrawing costs 10%, shared among everyone still holding |
+| Staking | Stake GTS, earn SUI (3% of every losing pot). Flexible 1x or 7-day lock 1.5x. Nothing is minted |
 | Reserve | Burn GTS at any time for a pro-rata share of the SUI reserve |
-| Staking | Stake GTS, earn GTS. No lock-up. Rewards stream over 7 days |
-| Liquidity | GTS/SUI liquidity on Cetus is burned ([tx](https://suiscan.xyz/mainnet/tx/2YBS4d5LhNFJvGp9PQmZ8gpEEyqMxSapXDdqP1KeBy7Y)): no one can withdraw it |
+| Draw | Anyone can draw a round and is paid up to 0.005 SUI for it. The keeper draws every round |
 | Randomness | `sui::random` (validator-generated, unbiasable) |
 
-## Contracts
+## Contract
 
-The protocol is split so that the economics are locked while the product can still improve.
+One package, [`contracts/gtstar`](contracts/gtstar):
 
-| Package | Path | Contents | Upgradeable |
-|---|---|---|---|
-| `gts_token` | [`contracts/token`](contracts/token) | GTS coin, emission ceiling, SUI reserve, redemption | **No**, immutable at launch |
-| `gtstar` | [`contracts/game`](contracts/game) | Game rounds, fees, staking | Yes, for fixes and improvements, through the 48h timelock |
-| `gtstar_timelock` | [`contracts/timelock`](contracts/timelock) | Holds the game's `UpgradeCap`, 48h upgrade delay | **No**, immutable |
+| Module | Contents |
+|---|---|
+| `gts` | GTS coin, the 1,000,000 cap, the SUI reserve and redemption |
+| `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances |
+| `staking` | GTS staking with SUI yield |
 
-The token package only mints through a single `MinterCap` held by the game, and never above the published ceiling (1.1 GTS per minute, halving every 6 months, frozen from 2030). Burned GTS is never re-minted. No game upgrade can raise that ceiling. The game's round-based schedule always stays under it.
+During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract. Fixed: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
 
-The game holds the `MinterCap`, the SUI of open rounds and the Wealth Fund, so a game upgrade could mint up to the ceiling or move that SUI. The game's `UpgradeCap` is therefore locked in [`contracts/timelock`](contracts/timelock) (immutable): every upgrade must be announced on-chain with the new code's digest 48 hours before it can run, and the cap can never be taken out.
-
-Game settings (Wealth Fund odds and share, reserve fee, minimum deposit, round timing, pause of new deposits) can be adjusted by the owner at once, only within fixed limits in the contract: settings can never mint GTS or move the pot, the Wealth Fund or the reserve. See `set_params` in [`game.move`](contracts/game/sources/game.move) and [`scripts/admin.mjs`](scripts/admin.mjs).
-
-Only the latest game version can run the game: every call checks the version stored on the board, so older package versions stop working as soon as a new one is used.
-
-Deployed addresses are listed in [`deployments/`](deployments) and on the [Verify](https://minegts.fun/docs.html#verify) page.
+Deployed addresses and every upgrade transaction are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 
 ## Repository
 
 ```
-contracts/token   Immutable token package (Move)
-contracts/game    Game and staking package (Move)
-contracts/timelock  48h upgrade timelock for the game (Move)
-app/              Web app (static, non-custodial), the keeper and the X poster
-bot/              Standalone keeper that settles rounds
-scripts/          Publish (launch) and upgrade (through the timelock) scripts
-deployments/      Object IDs per network
+contracts/gtstar  GTS token, game and staking (Move)
+app/              Web app (static, non-custodial), the keeper and bots, the X poster
+scripts/          publish2.js (launch), admin2.mjs (settings)
+deployments/      Live object IDs
+legacy/           The first token and game (archived)
 ```
 
 ## Build and test
@@ -60,9 +55,7 @@ deployments/      Object IDs per network
 Requirements: [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui-install), Node.js 20+.
 
 ```sh
-cd contracts/token && sui move test
-cd contracts/game && sui move test
-cd contracts/timelock && sui move test
+cd contracts/gtstar && sui move test
 ```
 
 ```sh
@@ -72,21 +65,16 @@ node build.js mainnet
 node serve.js             # http://localhost:4173
 ```
 
-## Launch
+## Settings
 
 ```sh
-node scripts/publish.js mainnet
+node scripts/admin2.mjs show
+node scripts/admin2.mjs set odds=1000 reserve=400
 ```
-
-The script publishes the token and game packages, installs the game's minting right, starts the emission clock, freezes the token metadata and makes the token package immutable. The game's `UpgradeCap` was then locked in the timelock; upgrades run with `node scripts/upgrade.mjs announce` and, 48 hours later, `node scripts/upgrade.mjs execute`.
 
 ## Keeper
 
-Rounds are settled by a permissionless `settle` call. The keeper runs every minute as a cron job on the host (`app/keeper/`) (or locally with `node bot/crank.js mainnet`). Anyone can settle a round if the keeper is down.
-
-## Security
-
-- 46 Move unit tests across the three packages: emission ceiling, hard cap, burn accounting, redemption floor, pot solvency, double claims, freeze window, payment checks, minimum deposit, early settlement, install once, streamed staking, sniping resistance, Wealth Fund rollover and payout, spread-deposit split, one miner per wallet per round, settings bounds and pause, version guard, reward scaling, upgrade timelock.
+Rounds are drawn by a permissionless `settle` call. The keeper (`app/keeper/`) runs every minute as a cron job on the host. Anyone can draw a round if the keeper is down, and is paid for it.
 
 ## License
 

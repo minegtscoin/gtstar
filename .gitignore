@@ -24,3 +24,4 @@ app/keeper/dist/
 *.key
 *.keystore
 *.pem
+legacy/contracts/*/build/
