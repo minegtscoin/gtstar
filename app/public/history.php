@@ -1,22 +1,21 @@
 <?php
 // Game event history, cached so the site does not page through every event on each visit.
-//   GET /api/history   {at, settled:[…], deployed:[…], redeemed:[…], staked:[…], unstaked:[…], ml:[…]}
+//   GET /api/history   {at, settled:[…], deployed:[…], redeemed:[…], ml:[…]}
 // Each list is oldest first, entries {ts, sender, digest, j} exactly as Sui GraphQL returns them.
 // The cache only ever appends: each type keeps its GraphQL cursor and fetches the events after it.
 // Stored outside public_html in ~/gtstar-data/history.json; refreshed at most every 5 seconds.
 header("Content-Type: application/json; charset=utf-8");
 header("Cache-Control: no-cache");
 
-$GAME = "0x2cef85db37c28fccda8b409e2a321ee5932e1b292b596877184245972250004e";
-$TOKEN = "0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e";
-$ML = "0x18c62dc69524cfe585d2a27a08e48484e370bcfc1b57c5f882b477d85e5058a6";
+$GAME = "__GAME__";   // filled in by build.js
 $TYPES = [
-  "settled" => "$GAME::game::RoundSettled", "deployed" => "$GAME::game::Deployed", "redeemed" => "$TOKEN::gts::Redeemed",
-  "staked" => "$GAME::staking::Staked", "unstaked" => "$GAME::staking::Unstaked", "ml" => "$ML::game::MotherlodeUpdate",
+  "settled" => "$GAME::game::RoundSettled", "deployed" => "$GAME::game::Deployed", "redeemed" => "$GAME::gts::Redeemed",
+  "ml" => "$GAME::game::MotherlodeUpdate",
 ];
 
 $dir = dirname(__DIR__, 3) . "/gtstar-data";
-$file = "$dir/history.json";
+// One cache file per game package, so a new game never mixes in the old one's events.
+$file = "$dir/history-" . substr($GAME, 2, 8) . ".json";
 $body = function () use ($file) {
   if (!is_file($file)) { http_response_code(503); return json_encode(["error" => "unavailable"]); }
   $h = json_decode(file_get_contents($file), true);

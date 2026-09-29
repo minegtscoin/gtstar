@@ -2,19 +2,18 @@
 // Plain-number GTS supply for listing sites (CoinMarketCap, CoinGecko).
 //   /api/supply/total        total GTS in existence (minted minus burned)
 //   /api/supply/circulating  same as total: no premine, no team or locked tokens
-//   /api/supply/max          most GTS that can ever exist: 7 halving periods of 262,000 rounds
-//                            (below the 1,000,000 hard cap, which is never reached)
+//   /api/supply/max          most GTS that can ever exist: the 1,000,000 hard cap
 // Read live from the Treasury object on Sui, cached for 60 seconds.
 header("Content-Type: text/plain; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
 header("Cache-Control: public, max-age=60");
 
 $q = $_GET["q"] ?? "total";
-if ($q === "max") { echo "571896.875"; exit; }
+if ($q === "max") { echo "1000000"; exit; }
 if ($q !== "total" && $q !== "circulating") { http_response_code(404); echo "unknown"; exit; }
 
-$treasury = "0x1dfef30cd82739d4b70f71fdbe15dd9ad218324054401a3751ac7b91dcd1b786";
-$cache = sys_get_temp_dir() . "/gtstar_supply.txt";
+$treasury = "__TREASURY__";
+$cache = sys_get_temp_dir() . "/gtstar_supply_" . substr($treasury, 2, 8) . ".txt";
 if (is_file($cache) && time() - filemtime($cache) < 60) { echo file_get_contents($cache); exit; }
 
 $body = json_encode(["query" => "{object(address:\"$treasury\"){asMoveObject{contents{json}}}}"]);

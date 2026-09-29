@@ -14,9 +14,9 @@
   var rows = [
     ["GTS token", C.ids.token + "::gts::GTS", "coin", "The official coin type. Check it before you buy GTS anywhere."],
     ["Reserve", C.ids.treasury, "object", "The SUI that backs every GTS."],
-    ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and staking."],
-    ["Upgrade timelock", A.timelock, "object", "Every game upgrade is announced here 48 hours in advance."],
-    ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool. Its liquidity is burned."]
+    ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and emission."],
+    ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund and unrefined GTS."],
+    ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool."]
   ].filter(function (r) { return r[1]; });
   var list0 = document.getElementById("addrList");
   rows.forEach(function (r) {

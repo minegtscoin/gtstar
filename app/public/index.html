@@ -37,7 +37,6 @@
     </a>
     <nav class="tabs" aria-label="Main">
       <a href="#mine" data-view="mine">Mine</a>
-      <a href="#stake" data-view="stake">Stake</a>
       <a href="#trade" data-view="trade">Trade</a>
       <div class="more" id="more">
         <button type="button" class="more-btn" id="moreBtn" aria-label="More" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
@@ -161,7 +160,6 @@
           <div class="rw-h"><span class="lbl">Rewards</span><span class="rw-bal">Wallet <b id="mySui">—</b> SUI · <b id="myGts">—</b> GTS</span></div>
           <div class="rw"><span><i class="tok sui" aria-hidden="true"></i>SUI to claim</span><b id="rwSui">0</b></div>
           <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Mined GTS</span><b id="rwGts">0</b></div>
-          <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Staking yield</span><b id="rwYield">0</b></div>
           <button class="gold-btn" id="btnClaimAll" type="button">Claim all</button>
           <div class="refine" id="refine" hidden>
             <div class="rw"><span><i class="tok gts" aria-hidden="true"></i>Unrefined GTS</span><b id="rfAmt">0</b></div>
@@ -244,17 +242,16 @@
           <div><dt>Miners</dt><dd id="gMiners">—</dd></div>
           <div><dt>Production cost per GTS</dt><dd id="gCost">—</dd></div>
         </dl></div>
-      <div class="group"><h2>Staking</h2>
+      <div class="group"><h2>Emission</h2>
         <dl class="dl">
-          <div><dt>APR</dt><dd id="gApr">—</dd></div>
-          <div><dt>Staked</dt><dd id="gStaked">—</dd></div>
-          <div><dt>Stakers</dt><dd id="gStakers">—</dd></div>
+          <div><dt>Reward per round</dt><dd id="gReward">—</dd></div>
+          <div><dt>Next cut (-1.425%)</dt><dd id="gNextCut">—</dd></div>
         </dl></div>
       <div class="group"><h2>Supply</h2>
         <dl class="dl">
           <div><dt>Mined</dt><dd id="gMined">—</dd></div>
           <div><dt>Circulating</dt><dd id="gSupply">—</dd></div>
-          <div><dt>Max</dt><dd>571,897 GTS</dd></div>
+          <div><dt>Max</dt><dd>1,000,000 GTS</dd></div>
           <div><dt>Burned</dt><dd id="gBurned">—</dd></div>
         </dl></div>
     </div>
@@ -269,7 +266,7 @@
 
     <div class="block">
       <div class="block-h"><h2>Revenue</h2>
-        <div class="tabset" data-set="rev"><button type="button" data-t="reserve" class="on">Reserve</button><button type="button" data-t="supernova">Wealth Fund</button><button type="button" data-t="stakers">Stakers</button></div></div>
+        <div class="tabset" data-set="rev"><button type="button" data-t="reserve" class="on">Reserve</button><button type="button" data-t="supernova">Wealth Fund</button></div></div>
       <div class="rev-sum" id="revSum"></div>
       <div class="tbl-wrap"><table class="tbl" id="revTbl"></table></div>
       <button class="load-more" id="moreRev" type="button" hidden>Load more</button>
@@ -277,7 +274,7 @@
 
     <div class="block">
       <div class="block-h"><h2>Leaderboard</h2>
-        <div class="tabset" data-set="lb"><button type="button" data-t="miners" class="on">Miners</button><button type="button" data-t="winners">Winners</button><button type="button" data-t="stakers">Stakers</button></div></div>
+        <div class="tabset" data-set="lb"><button type="button" data-t="miners" class="on">Miners</button><button type="button" data-t="winners">Winners</button></div></div>
       <p class="block-sub" id="lbSub"></p>
       <div class="tbl-wrap"><table class="tbl" id="lbTbl"></table></div>
       <button class="load-more" id="moreLb" type="button" hidden>Load more</button>
@@ -292,11 +289,11 @@
     </div>
     <div class="ca">
       <span class="ca-l">Contract address</span>
-      <code class="mono" id="caAddr">0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e::gts::GTS</code>
+      <code class="mono" id="caAddr"></code>
       <button type="button" class="icon-btn" id="caCopy" aria-label="Copy contract address">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
       </button>
-      <a id="caScan" href="https://suiscan.xyz/mainnet/coin/0x39019f183d8d19df19bd7c3e14fed735c7a1b11e2aa02669eba1089602394c3e::gts::GTS" target="_blank" rel="noopener">Suiscan</a>
+      <a id="caScan" href="https://suiscan.xyz/mainnet/coin/" target="_blank" rel="noopener">Suiscan</a>
     </div>
     <div class="kpis kpis4">
       <div><span>Max supply</span><b id="kSchedMax">—</b></div>
@@ -308,21 +305,21 @@
       <div class="panel">
         <div class="panel-h"><h2>Emission schedule</h2><span class="muted" id="kEpochLbl"></span></div>
         <div class="chart" id="chart"></div>
-        <div class="chart-foot"><span>Reward halves every 262,000 rounds</span><span class="now-key"><i></i>Now</span></div>
+        <div class="chart-foot"><span>Reward drops 1.425% every 15,658 rounds</span><span class="now-key"><i></i>Now</span></div>
         <dl class="dl t-dl">
           <div><dt>Current round</dt><dd id="kRound">—</dd></div>
           <div><dt>Reward per round</dt><dd id="kReward">—</dd></div>
-          <div><dt>Next halving</dt><dd id="kToHalving">—</dd></div>
+          <div><dt>Next cut</dt><dd id="kToHalving">—</dd></div>
         </dl>
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Why GTS</h2><a class="muted" href="docs.html">Full rules</a></div>
         <ul class="why">
           <li><b>0% team, 0% presale</b><span>Every GTS is mined by players.</span></li>
-          <li><b>Hard cap</b><span>571,897 GTS, locked in an immutable contract.</span></li>
+          <li><b>Hard cap</b><span>1,000,000 GTS. Mining stops for good once it is reached.</span></li>
           <li><b>Backed by SUI</b><span>Burn GTS anytime and get the floor price from the reserve.</span></li>
           <li><b>Reserve grows every round</b><span>At least 4% of every pot goes into it.</span></li>
-          <li><b>Liquidity burned</b><span>The trading pool can never be pulled.</span></li>
+          <li><b>No halving shock</b><span>The reward falls a little every 15,658 rounds instead of halving.</span></li>
         </ul>
       </div>
       <div class="panel t-wide">
@@ -337,7 +334,6 @@
     </div>
   </section>
 
-  <!-- STAKE -->
   <!-- LEARN -->
   <section class="view" id="view-learn" hidden>
     <div class="learn">
@@ -360,52 +356,12 @@
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
         <li><b>Hold:</b> every GTS is backed by SUI in an on-chain reserve, so it always has a floor price.</li>
-        <li><b>Stake:</b> earn more GTS. No lock-up, withdraw any time.</li>
         <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
       </ul>
       <h2>Getting started</h2>
       <p>Sign in with Google or a Sui wallet. New Google players get 2 free rounds.</p>
       <a class="primary learn-cta" href="#mine">Start mining</a>
       <p class="note-sm">Full rules and contract addresses are in the <a href="docs.html">Docs</a>.</p>
-    </div>
-  </section>
-
-  <!-- STAKE -->
-  <section class="view" id="view-stake" hidden>
-    <div class="ore-card">
-      <div class="ore-head"><h1>Stake</h1><p class="sub">Earn GTS yield on your GTS. No lock-up.</p></div>
-      <div class="pilltabs" id="stakeSeg" role="tablist" aria-label="Stake action">
-        <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
-        <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
-      </div>
-      <div class="amount big">
-        <input id="stakeAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount of GTS" autocomplete="off" />
-        <span class="unit" id="stakeBal">0 GTS</span>
-      </div>
-      <div class="quick">
-        <button type="button" data-pct="25">25%</button>
-        <button type="button" data-pct="50">50%</button>
-        <button type="button" data-pct="75">75%</button>
-        <button type="button" data-pct="100">MAX</button>
-      </div>
-      <button class="primary" id="btnStake" type="button">Deposit</button>
-
-      <h2 class="sum-h">Account</h2>
-      <dl class="dl">
-        <div><dt>Wallet</dt><dd id="sWallet">—</dd></div>
-        <div><dt>Staked</dt><dd id="sMyStaked">—</dd></div>
-        <div><dt>Yield</dt><dd id="sPending" class="gold">—</dd></div>
-      </dl>
-      <button class="gold-btn" id="btnStakeClaim" type="button">Claim</button>
-      <button class="text-btn" id="btnCompound" type="button">Claim and deposit</button>
-
-      <h2 class="sum-h">Summary</h2>
-      <dl class="dl">
-        <div><dt>APR</dt><dd id="sApr">—</dd></div>
-        <div><dt>Deposits</dt><dd id="sStaked">—</dd></div>
-        <div><dt>TVL</dt><dd id="sTvl">—</dd></div>
-      </dl>
-      <p class="note-sm">Every round mints an extra 10% of its GTS reward to stakers, streamed over 7 days so yield accrues every second. APR is paid in GTS. TVL values staked GTS at the reserve floor price.</p>
     </div>
   </section>
 

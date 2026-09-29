@@ -18,6 +18,7 @@ const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 // Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
 // raise the bar if dust rounds ever start draining the keeper; smaller rounds are then drawn by players.
 const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST ?? 0);
+const SETTLE_GAS = 50_000_000; // 0.05 SUI ceiling; unused gas is refunded
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async () => {
@@ -28,12 +29,15 @@ export default async () => {
   const T = f => `${CFG.package}::${f}`;
   const start = Date.now();
   const log = [];
-  const bots = makeBots(client, CFG, log, process.env.BOTS_DIR || ".");
-  const house = makeHouse(client, CFG, log, bots?.botsIn);
-  const matcher = makeMatcher(client, CFG, log);
-  const shield = makeShield(client, CFG, log, process.env.BOTS_DIR || ".");
+  // Relaunch game: settle, creator-fee sweep and the free first round only. The House, Bots, Matcher,
+  // Shield and Floor bot were written for the first game's calls and stay off.
+  const extras = !CFG.relaunch;
+  const bots = extras ? makeBots(client, CFG, log, process.env.BOTS_DIR || ".") : null;
+  const house = extras ? makeHouse(client, CFG, log, bots?.botsIn) : null;
+  const matcher = extras ? makeMatcher(client, CFG, log) : null;
+  const shield = extras ? makeShield(client, CFG, log, process.env.BOTS_DIR || ".") : null;
   const welcome = makeWelcome(client, log);
-  const floor = makeFloor(client, CFG, log);
+  const floor = extras ? makeFloor(client, CFG, log) : null;
 
   async function board() {
     const r = await client.query({ query: `{object(address:"${CFG.board}"){asMoveObject{contents{json}}}}` });
@@ -79,10 +83,16 @@ export default async () => {
       if (b.cur_started === true && !worth) {
         await sleep(2000);
       } else if (b.cur_started === true && Date.now() >= end + 300) {
-        await run(`settle #${b.cur_id}`, tx => tx.moveCall({
-          target: T("game::settle"),
-          arguments: [tx.object(CFG.board), tx.object(CFG.treasury), tx.object(CFG.pool), tx.object.random(), tx.object.clock()],
-        }));
+        await run(`settle #${b.cur_id}`, tx => {
+          // Fixed budget: the dry run usually takes the no-jackpot path, and a jackpot settle needs more gas.
+          tx.setGasBudget(SETTLE_GAS);
+          tx.moveCall({
+            target: T("game::settle"),
+            arguments: CFG.relaunch
+              ? [tx.object(CFG.board), tx.object(CFG.treasury), tx.object.random(), tx.object.clock()]
+              : [tx.object(CFG.board), tx.object(CFG.treasury), tx.object(CFG.pool), tx.object.random(), tx.object.clock()],
+          });
+        });
       } else if (b.cur_started === true && end - Date.now() < WINDOW_MS - (Date.now() - start)) {
         await sleep(Math.max(300, end + 400 - Date.now()));
       } else {
