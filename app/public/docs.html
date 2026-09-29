@@ -181,12 +181,12 @@ withdraw = my_unrefined - my_unrefined * fee   (the fee is burned)</span>
     <ol>
       <li><strong>It fills up.</strong> Every round, 4% of the losing pot goes in, plus what spread deposits do not keep from a win. If no one is on the winning tile, the whole pot less fees goes in.</li>
       <li><strong>You collect tickets.</strong> When you lose SUI in a round, 10% of what you lost is paid in fees. Those fees are your tickets. The more you play, the more tickets you have. Nothing to buy or sign up for: tickets come on their own.</li>
-      <li><strong>It hits.</strong> Every round has a 1 in 500 chance to pay out. When it does, one ticket is drawn at random and its owner gets the <strong>whole fund</strong>, paid in SUI to their wallet.</li>
+      <li><strong>It hits.</strong> Every round has a 1 in 100 chance to pay out. When it does, one ticket is drawn at random and its owner gets the <strong>whole fund</strong>, paid in SUI to their wallet.</li>
       <li><strong>It starts again.</strong> After a payout all tickets reset to zero and the fund starts filling again.</li>
     </ol>
     <p>You do not need to win your tile to take the Wealth Fund: a player who lost the round can take it. Tickets count from the last payout, so a player with 10% of all tickets has a 10% chance when it hits. Every ticket costs real SUI, so splitting SUI across several wallets gives no extra tickets. GTStar bots get no tickets. Tickets are added when your round is claimed.</p>
     <span class="code">my_tickets = 10% of the SUI I lost since the last payout
-my_chance  = my_tickets / all_tickets     (when the fund pays, 1 in 500 each round)</span>
+my_chance  = my_tickets / all_tickets     (when the fund pays, 1 in 100 each round)</span>
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
@@ -246,7 +246,7 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
       <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the game or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
       <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share has its own cap (stakers 5%, Wealth Fund 10%, buyback 3%), and the old reserve share is fixed at 0. The buyback SUI stays in the game until the keeper spends it, and the same transaction must burn GTS for it (<code>buyback_take</code> / <code>buyback_burn</code>); every buy emits <code>BuybackDone</code> with the SUI spent and the GTS burned, so the price paid can be checked. The owner cannot take it. Wealth Fund odds can be set anywhere from 1 in 100 to 1 in 1,000,000.</li>
     </ul>
-    <p>Current settings on-chain: Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 500, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Current settings on-chain: Wealth Fund 4%, buyback 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 100, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
     <p>Fixed in the contract: the 1% creator fee, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
