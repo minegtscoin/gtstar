@@ -320,27 +320,51 @@ async function allEvents(type) {
 async function cachedEvents() {
   const h = await getJson(`/api/history?t=${Date.now()}`, 6000);
   if (!(h.at > Date.now() / 1000 - 120)) throw new Error("history cache stale");
-  const ev = k => ({ list: (h[k] || []).slice().reverse(), capped: false });
-  return topUp([ev("settled"), ev("deployed"), ev("redeemed"), ev("ml")]);
+  return Object.fromEntries(BASE_KEYS.map(k => [k, { list: (h[k] || []).slice().reverse(), capped: false }]));
 }
-// The cache can be up to 2 minutes behind: add the newest events straight from Sui (one request), so every
-// page counts the same rounds as the live board.
-const HIST_KEYS = ["settled", "deployed", "redeemed", "ml"];
-async function topUp(lists) {
-  const q = HIST_KEYS.map((k, i) => EV[k] ? `e${i}:events(filter:{type:"${EV[k]}"},last:50){nodes{timestamp sender{address} transaction{digest} contents{json}}}` : "").join(" ");
-  const d = await gql(`{${q}}`).catch(() => null);
-  if (!d) return lists;
-  return lists.map((l, i) => {
+// Every event type the history uses. The first four are in the site's cache, the other two are read from Sui.
+const BASE_KEYS = ["settled", "deployed", "redeemed", "ml"];
+const ALL_EV = { ...EV, won: EV_WF_WON, buyback: EV_BUYBACK };
+const HIST_KEYS = Object.keys(ALL_EV).filter(k => ALL_EV[k]);
+// The whole history once: the cache and the two other types all at the same time.
+async function fullEvents() {
+  const extra = HIST_KEYS.filter(k => !BASE_KEYS.includes(k)), latest = latestEvents();
+  const [base, ...ex] = await Promise.all([
+    cachedEvents().catch(async () => Object.fromEntries(await Promise.all(BASE_KEYS.map(async k => [k, await allEvents(EV[k])])))),
+    ...extra.map(k => allEvents(ALL_EV[k]).catch(() => ({ list: [], capped: false }))),
+  ]);
+  const raw = { ...base };
+  extra.forEach((k, i) => { raw[k] = ex[i]; });
+  return (await topUp(raw, latest)).raw;
+}
+// The newest 50 events of every type straight from Sui, in one request, added to what is already known.
+// `gap`: a type whose 50 newest events are all new, so events may be missing in between (reload everything).
+const latestEvents = () => gql(`{${HIST_KEYS.map(k => `${k}:events(filter:{type:"${ALL_EV[k]}"},last:50){nodes{timestamp sender{address} transaction{digest} contents{json}}}`).join(" ")}}`).catch(() => null);
+async function topUp(raw, latest = latestEvents()) {
+  const d = await latest;
+  if (!d) return { raw, gap: false };
+  let gap = false;
+  const out = { ...raw };
+  HIST_KEYS.forEach(k => {
+    const l = raw[k] || { list: [], capped: false };
     const key = e => `${e.digest}:${JSON.stringify(e.j)}`, have = new Set(l.list.slice(0, 200).map(key));
-    const fresh = (d[`e${i}`]?.nodes || []).map(n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} }))
+    const nodes = d[k]?.nodes || [];
+    const fresh = nodes.map(n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} }))
       .filter(e => !have.has(key(e))).reverse();
-    return { ...l, list: fresh.concat(l.list) };
+    if (l.list.length && nodes.length === 50 && fresh.length === 50) gap = true;
+    out[k] = { ...l, list: fresh.concat(l.list) };
   });
+  return { raw: out, gap };
 }
+// The raw events, kept after the first load so a refresh only fetches what is new (one small request).
+let RAW = null;
 async function loadHistory() {
-  const [settled, deployed, redeemed, mlEv] = await cachedEvents().catch(() =>
-    Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.ml)]));
-  const [wonEv, buyEv] = await Promise.all([EV_WF_WON, EV_BUYBACK].map(t => t ? allEvents(t).catch(() => ({ list: [] })) : { list: [] }));
+  if (RAW) {
+    const t = await topUp(RAW);
+    RAW = t.gap ? await fullEvents() : t.raw;
+  } else RAW = await fullEvents();
+  const { settled, deployed, redeemed, ml: mlEv } = RAW;
+  const wonEv = RAW.won || { list: [] }, buyEv = RAW.buyback || { list: [] };
   const ml = mlRows(mlEv.list.map(e => e.j), wonRows(wonEv.list.map(e => e.j)));
   const byRound = new Map();
   deployed.list.forEach(e => {
@@ -898,6 +922,7 @@ function trackRounds() {
   if (lastSeen === null) { lastSeen = L.round; return; }
   if (L.round <= lastSeen) return;
   lastSeen = L.round;
+  if (HIST) { refreshHistory(); setTimeout(refreshHistory, 3000); }
   roundAlert(L);
   stopScan();
   reveal = { round: L.round, landing: !reduceMotion && view === "mine", at: 0 };
@@ -1623,11 +1648,14 @@ async function refresh() {
   const m = USER?.miner;
   if (STATE && !HIST && m && m.round_id !== 0 && m.round_id < STATE.board.cur_id && !STATE.recent.some(r => r.round === m.round_id)) refreshHistory();
 }
-let histBusy = false;
+// A refresh asked for while one is running runs right after it, so a round that just ended is never skipped.
+let histBusy = false, histAgain = false;
 async function refreshHistory() {
-  if (histBusy) return; histBusy = true;
+  if (histBusy) { histAgain = true; return; }
+  histBusy = true;
   try { HIST = await loadHistory(); render(); } catch (e) { console.warn("history failed", e); }
   histBusy = false;
+  if (histAgain) { histAgain = false; refreshHistory(); }
 }
 
 // ---------- routing ----------
@@ -1928,6 +1956,6 @@ buildBoard(); buildArt(); loadSnap(); route(); autoReconnect();
 (function price() { loadPrice().then(ok => setTimeout(price, ok || PRICE.sui ? 60_000 : 10_000)); })();
 // Poll faster on the board, fastest while a finished round is waiting to be drawn.
 (function poll() { refresh().finally(() => setTimeout(poll, view !== "mine" ? 4000 : phase() === "ended" ? 1000 : 2000)); })();
-setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 15000);
+setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 8000);
 setInterval(() => { if (view === "mine" && !document.hidden) pollBoard(); }, 1000);
 setInterval(() => { if (view === "mine") { renderBoard(); renderMine(); } }, 1000);
