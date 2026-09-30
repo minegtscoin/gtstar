@@ -1320,6 +1320,7 @@ function minersHtml(r) {
   }).join("") + `</div>`;
 }
 function renderRevenue() {
+  $("revTbl").classList.toggle("wins", revTab === "winners");
   if (revTab === "winners") {
     // Every Wealth Fund payout, newest first.
     const wins = HIST.rounds.filter(r => r.ml?.paid > 0);
