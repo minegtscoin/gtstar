@@ -39,7 +39,7 @@ if (fs.existsSync(path.join(dir, ".env"))) {
   }
 }
 const num = (k, d) => Number(process.env[k] ?? d);
-const ROUND_PCT = num("PLAYER_ROUND_PCT", 1);                  // % of the bankroll a round at most
+const ROUND_PCT = num("PLAYER_ROUND_PCT", 3);                  // % of the bankroll a round at most
 const GAS_EST = num("PLAYER_GAS_MIST", 4_000_000);             // deploy + claim, net of rebates
 const MARGIN = num("PLAYER_MARGIN_MIST", 3_000_000);           // EV must beat gas by this much
 const KEEP = num("PLAYER_KEEP_MIST", 50_000_000);              // never deposit the last 0.05 SUI (gas)
