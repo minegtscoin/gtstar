@@ -3,7 +3,9 @@
 // When no round is live it opens one; when a round is live without it, it joins. It draws its own rounds
 // right at the end (the keeper waits a few seconds while this runs, so the draw's storage cost and the
 // refund when the round record is removed at the last claim land in the same wallet), then claims in the
-// same transaction as its next deposit. Stops below KEEP.
+// same transaction as its next deposit. Mined GTS is merged into one coin in that transaction (a new coin
+// object every round would cost storage). Rounds other players joined are left to the keeper to draw
+// (someone else may claim last and get the refund). Stops below KEEP.
 // Runs as its own long process (started by cron.mjs); signs with BOT1_KEY. Log: runner-log.jsonl.
 import fs from "fs";
 import path from "path";
@@ -30,6 +32,7 @@ const me = signer.toSuiAddress();
 const node = new SuiGrpcClient({ network: CFG.network, baseUrl: `https://fullnode.${CFG.network}.sui.io:443` });
 const C = f => `${CFG.package}::${f}`;
 const MINER = `${CFG.origin}::game::Miner`;
+const GTS = `${CFG.origin}::gts::GTS`;
 const sleep = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 const sui = m => Math.round(Number(m) / 1e5) / 1e4;
 
@@ -57,7 +60,8 @@ async function wallet() {
   const bal = BigInt((await node.getBalance({ owner: me })).balance.balance);
   const r = await node.listOwnedObjects({ owner: me, type: MINER, include: { json: true } });
   const o = r.objects[0];
-  return { balance: bal, miner: o ? { id: o.objectId, round: Number(o.json.round_id) } : null };
+  const g = await node.listCoins({ owner: me, coinType: GTS, limit: 100 });
+  return { balance: bal, miner: o ? { id: o.objectId, round: Number(o.json.round_id) } : null, gts: g.objects.map(c => c.objectId) };
 }
 async function send(label, gas, build) {
   const tx = new Transaction();
@@ -82,8 +86,10 @@ async function play(b, w) {
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur;
   return send(`play #${cur} tile ${tile + 1}`, DEPLOY_GAS, tx => {
     if (pending) {
-      const s = tx.moveCall({ target: C("game::claim_sui"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx)] });
+      const [g, s] = tx.moveCall({ target: C("game::claim"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx)] });
       tx.mergeCoins(tx.gas, [s]);
+      if (w.gts.length) tx.mergeCoins(tx.object(w.gts[0]), [g, ...w.gts.slice(1, 60).map(id => tx.object(id))]);
+      else tx.transferObjects([g], me);
     }
     let m = w.miner ? tx.object(w.miner.id) : null, fresh = false;
     if (!m) { [m] = tx.moveCall({ target: C("game::new_miner") }); fresh = true; }
@@ -104,13 +110,15 @@ async function main() {
       const now = Date.now();
       if (b.paused === true) { await sleep(5000); continue; }
       if (!low) touch(liveFile);
-      if (b.cur_started && now >= end + 300 && !low) {
+      const w = await wallet();
+      const inRound = b.cur_started && w.miner?.round === cur;
+      if (b.cur_started && now >= end + 300) {
+        // Draw only a round we hold alone; the keeper draws the rest.
+        if (low || !inRound || Number(b.cur_players) !== 1) { await sleep(1000); continue; }
         const ok = await send(`settle #${cur}`, SETTLE_GAS, tx => tx.moveCall({ target: C("game::settle"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.random(), tx.object.clock()] }));
         if (!ok) await sleep(1500);
         continue;
       }
-      const w = await wallet();
-      const inRound = b.cur_started && w.miner?.round === cur;
       if (low && w.balance >= BigInt(b.min_deploy) + KEEP) low = false;
       if (!inRound && (!b.cur_started || now < end - freeze - 1000)) {
         if (await play(b, w)) { low = false; errors = 0; continue; }
