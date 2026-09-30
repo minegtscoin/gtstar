@@ -1,7 +1,8 @@
-// GTStar Player: a strategy wallet that joins only rounds other players started, in the last seconds
-// before the deploy freeze, and only on tiles that hold too little SUI for the pot around them.
+// GTStar Player: the strategy wallet. It joins every round within seconds of its start (the minimum on
+// one empty tile, whoever started it), then tops up in the last seconds before the deploy freeze, only
+// on tiles that hold too little SUI for the pot around them.
 //
-// Each round: read the board from a fullnode, wait until LEAD before the round end, and pick up to
+// The top-up: read the board from a fullnode, wait until LEAD before the round end, and pick up to
 // max_tiles tiles by the exact expected value of the whole deposit (one tile at a time, 0.01 SUI steps):
 //   EV = 1/25 * sum over our tiles w of [x_w + win * (total - D_w - x_w) * x_w / (D_w + x_w)] - sum x
 //        + Wealth Fund tickets (fee * expected SUI lost), valued at DILUTION * fund * mine / (all + mine)
@@ -107,7 +108,7 @@ async function wallet() {
   let miner = null;
   for (let cursor = null; ;) {
     const r = await node.listOwnedObjects({ owner: me, type: MINER, include: { json: true }, cursor });
-    for (const o of r.objects) if (!miner) miner = { id: o.objectId, round: Number(o.json.round_id), total: BigInt(o.json.total_deployed) };
+    for (const o of r.objects) if (!miner) miner = { id: o.objectId, round: Number(o.json.round_id), total: BigInt(o.json.total_deployed), deployed: o.json.deployed.map(Number) };
     if (!r.hasNextPage) break;
     cursor = r.cursor;
   }
@@ -143,9 +144,11 @@ function expected(x, D, S, win, fee, fund, tickets) {
   const bonus = fund > 0 ? DILUTION * fund * mine / (tickets + mine) : 0;
   return pay / 25 - sum + bonus;
 }
-function plan(D, S, budget, step, maxTiles, win, fee, fund, tickets) {
-  const x = Array(25).fill(0);
-  let used = 0, tiles = 0, base = 0;
+// Starts from what we already hold this round (x0); budget counts it.
+function plan(D, S, budget, step, maxTiles, win, fee, fund, tickets, x0) {
+  const x = x0.slice();
+  let used = x.reduce((a, v) => a + v, 0), tiles = x.filter(Boolean).length;
+  let base = expected(x, D, S, win, fee, fund, tickets);
   while (used + step <= budget) {
     let best = -1, gain = 0;
     for (let i = 0; i < 25; i++) {
@@ -186,8 +189,10 @@ function claimInto(tx, minerId) {
 }
 
 // ---------- round flow ----------
-let joined = 0;        // round deployed in
+let entered = 0;       // round joined at its start
+let joined = 0;        // round topped up in (or decided not to)
 let skipped = 0;       // round decided not to join
+let topped = 0;        // round the late top-up landed in
 let recorded = 0;      // round whose final board is logged
 let pick = null;       // what was read and deployed this round
 let lastChores = 0;
@@ -199,11 +204,39 @@ function lead(freeze) {
   return Math.max(LEAD_MIN, freeze + p90 + 700);
 }
 
+// Every round, within seconds of its start: the minimum on one empty tile (a random one; the thinnest
+// tile when none is empty). Always, whoever started it, apart from the caps on the late top-up.
+async function enter(b) {
+  const cur = Number(b.cur_id);
+  entered = cur;
+  const w = await wallet();
+  if (w.miner && w.miner.round === cur) return;
+  const step = Number(b.min_deploy);
+  if (Number(w.balance) < step + KEEP + GAS_BUDGET) { log({ ev: "skip", round: cur, why: "bankroll", balance: sui(w.balance) }); return; }
+  const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
+  const D = b.cur_deployed.map(Number);
+  const low = Math.min(...D);
+  const pool = D.map((d, i) => d === low ? i : -1).filter(i => i >= 0);
+  const tile = pool[Math.floor(Math.random() * pool.length)];
+  const x = Array(25).fill(0);
+  x[tile] = step;
+  const r = await send(`enter #${cur}`, tx => {
+    if (pending) claimInto(tx, pending.id);
+    let m = w.miner ? tx.object(w.miner.id) : null, fresh = false;
+    if (!m) { [m] = tx.moveCall({ target: C("game::new_miner") }); fresh = true; }
+    const [pay] = tx.splitCoins(tx.gas, [step]);
+    tx.moveCall({ target: C("game::deploy"), arguments: [boardArg(tx), m, pay, tx.pure.vector("u64", x), tx.object.clock()] });
+    if (fresh) tx.transferObjects([m], me);
+  });
+  log({ ev: "entered", round: cur, ok: r.ok, tile: tile + 1, afterStartMs: Date.now() - Number(b.cur_start_ms) });
+  if (r.ok) owe = true;
+}
+
 async function decide(cur) {
   const [b, x, w] = await Promise.all([board(), extras(), wallet()]);
   if (Number(b.cur_id) !== cur || !b.cur_started) return;
   if (!(await guard(b, x))) return;
-  if (w.miner && w.miner.round === cur) { joined = cur; return; }
+  const x0 = w.miner && w.miner.round === cur ? w.miner.deployed : Array(25).fill(0);
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
 
   // Daily loss cap, by UTC day.
@@ -216,33 +249,38 @@ async function decide(cur) {
   budget = Math.min(budget, Math.floor((Number(w.balance) - KEEP - GAS_BUDGET) / step) * step);
   if (budget < step) { skipped = cur; log({ ev: "skip", round: cur, why: "bankroll", balance: sui(w.balance) }); return; }
 
-  const D = b.cur_deployed.map(Number);
-  const S = Number(b.cur_total);
+  // Others only: the board less what we already hold.
+  const D = b.cur_deployed.map((d, i) => Number(d) - x0[i]);
+  const S = Number(b.cur_total) - x0.reduce((a, v) => a + v, 0);
   const fee = (DEV_BPS + Number(b.vault_bps) + BUYBACK_BPS + LIQ_BPS + x.stakeBps + x.fundBps) / 10_000;
   // Expected late money is added to every tile we might pick (and to the round total with it).
   const late = Math.round(state.late);
   const Dl = D.map(d => d + late);
-  const p = plan(Dl, S + late, budget, step, x.maxTiles, 1 - fee, fee, Number(b.motherlode), Number(x.tickets));
+  const args = [Dl, S + late, budget, step, x.maxTiles, 1 - fee, fee, Number(b.motherlode), Number(x.tickets)];
+  const p = plan(...args, x0);
+  const add = p.x.map((v, i) => v - x0[i]);
+  const used = add.reduce((a, v) => a + v, 0);
+  const gain = p.ev - expected(x0, ...args.slice(0, 2), ...args.slice(5));
   const need = GAS_EST + MARGIN;
-  pick = { round: cur, D, x: p.x, ev: p.ev };
-  if (p.ev <= need) {
-    skipped = cur;
-    log({ ev: "skip", round: cur, why: "ev", evSui: sui(p.ev), pot: sui(S), late: sui(late) });
+  pick = { round: cur, D, x: p.x, x0 };
+  if (!used || gain <= need) {
+    joined = cur;
+    log({ ev: "skip", round: cur, why: "ev", evSui: sui(gain), pot: sui(S), late: sui(late) });
     return;
   }
-  const tiles = p.x.map((a, i) => a ? `${i + 1}:${sui(a)}` : "").filter(Boolean).join(" ");
+  const tiles = add.map((a, i) => a ? `${i + 1}:${sui(a)}` : "").filter(Boolean).join(" ");
   const r = await send(`deploy #${cur}`, tx => {
     if (pending) claimInto(tx, pending.id);
     let m = w.miner ? tx.object(w.miner.id) : null, fresh = false;
     if (!m) { [m] = tx.moveCall({ target: C("game::new_miner") }); fresh = true; }
-    const [pay] = tx.splitCoins(tx.gas, [p.used]);
-    tx.moveCall({ target: C("game::deploy"), arguments: [boardArg(tx), m, pay, tx.pure.vector("u64", p.x), tx.object.clock()] });
+    const [pay] = tx.splitCoins(tx.gas, [used]);
+    tx.moveCall({ target: C("game::deploy"), arguments: [boardArg(tx), m, pay, tx.pure.vector("u64", add), tx.object.clock()] });
     if (fresh) tx.transferObjects([m], me);
   });
   state.lat = [...state.lat, r.ms].slice(-20);
   save();
-  log({ ev: "pick", round: cur, ok: r.ok, tiles, evSui: sui(p.ev), used: sui(p.used), pot: sui(S), fund: sui(b.motherlode), late: sui(late), lead: lead(Number(b.freeze_ms)) });
-  if (r.ok) { joined = cur; owe = true; } else skipped = cur;
+  log({ ev: "pick", round: cur, ok: r.ok, tiles, evSui: sui(gain), used: sui(used), pot: sui(S), fund: sui(b.motherlode), late: sui(late), lead: lead(Number(b.freeze_ms)) });
+  if (r.ok) { joined = topped = cur; owe = true; } else skipped = cur;
 }
 
 // After the freeze: what others added after our read.
@@ -251,7 +289,7 @@ async function record(b) {
   recorded = cur;
   if (!pick || pick.round !== cur) return;
   const F = b.cur_deployed.map(Number);
-  const mine = joined === cur ? pick.x : Array(25).fill(0);
+  const mine = topped === cur ? pick.x : pick.x0;
   let onOurs = 0, ours = 0, all = 0;
   for (let i = 0; i < 25; i++) {
     const add = F[i] - pick.D[i] - mine[i];
@@ -261,7 +299,7 @@ async function record(b) {
   // Moving average of late SUI on one of the tiles we picked.
   if (ours) state.late = state.late * 0.8 + (onOurs / ours) * 0.2;
   save();
-  log({ ev: "final", round: cur, joined: joined === cur, lateOnOurs: sui(onOurs), lateAll: sui(all), finalPot: sui(b.cur_total), lateAvg: sui(state.late) });
+  log({ ev: "final", round: cur, topped: topped === cur, lateOnOurs: sui(onOurs), lateAll: sui(all), finalPot: sui(b.cur_total), lateAvg: sui(state.late) });
 }
 
 // Claim as soon as the round is drawn; draw it ourselves only if nobody did.
@@ -310,6 +348,7 @@ async function main() {
       const b = await board();
       const cur = Number(b.cur_id), end = Number(b.cur_end_ms), freeze = Number(b.freeze_ms);
       const now = Date.now();
+      if (b.cur_started && entered !== cur && now < end - freeze - 1000) { await enter(b); continue; }
       if (b.cur_started && now < end - freeze) {
         const at = end - lead(freeze);
         if (joined !== cur && skipped !== cur) {
@@ -325,7 +364,7 @@ async function main() {
       if ((!b.cur_started || now >= end) && await afterRound(b)) continue;
       if (!b.cur_started && Date.now() - lastChores > 6 * 3600_000) { await chores(); continue; }
       errors = 0;
-      await sleep(b.cur_started ? 500 : 1000);
+      await sleep(b.cur_started ? 500 : 300);
     } catch (e) {
       log({ ev: "error", msg: String(e.message || e).slice(0, 300) });
       await sleep(Math.min(30_000, 1000 * 2 ** Math.min(5, errors++)));
