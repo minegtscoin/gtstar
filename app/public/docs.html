@@ -235,9 +235,9 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
     <h3>Where lost SUI goes</h3>
     <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (2% buyback, 1% liquidity, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund (less the draw reward), which pays it to one player when it hits. Using more tiles (up to 5) wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</p>
     <h3>Staking</h3>
-    <p>Stake GTS and earn SUI and GTS. Stakers share 2% of every round's losing pot in SUI, and every GTS the 2% buyback buys. Both are split by stake weight. Nothing is minted, so staking never dilutes holders. Staking on the site is flexible: weight 1x, withdraw any time. The contract also has a 7-day lock with weight 1.5x (adding to it restarts the lock), which the site does not offer. With nobody staked, the SUI share goes to the Wealth Fund and the bought GTS waits for the next stakers.</p>
-    <span class="code">my_sui_yield = round_share * my_weight / all_weight
-my_gts_yield = gts_bought * my_weight / all_weight</span>
+    <p>Stake GTS and earn SUI and GTS. Stakers share 2% of every round's losing pot in SUI, and every GTS the 2% buyback buys. Both are split by how much each staker has staked. Nothing is minted, so staking never dilutes holders. Withdraw any time. With nobody staked, the SUI share goes to the Wealth Fund and the bought GTS waits for the next stakers.</p>
+    <span class="code">my_sui_yield = round_share * my_stake / all_staked
+my_gts_yield = gts_bought * my_stake / all_staked</span>
     <h3>Buyback and liquidity</h3>
     <p>Both shares are saved in the game every round and fixed in the contract: no one can change them. The GTStar keeper spends them on the Cetus GTS/SUI pool, and only in ways the contract enforces.</p>
     <ul>
