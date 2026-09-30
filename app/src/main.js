@@ -116,6 +116,8 @@ const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31, V9_FROM = 33;
 const V10_PKG = IDS.v10;
 // Stakers also get the GTS bought back (v12): the accumulator and each position's snapshot sit on the Board.
 const V12_PKG = IDS.v12;
+// Every buyback on Cetus (game v11): SUI spent and GTS bought, all of it paid to stakers.
+const EV_BUYBACK = IDS.v11 ? `${IDS.v11}::game::BuybackKept` : "";
 let V10_FROM = V10_PKG ? 0 : Infinity; // 0 until the Board says: every round not settled yet is under v10
 // SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
 const RESERVE_MOVED = 12_288_264_223;
@@ -344,7 +346,7 @@ async function topUp(lists) {
 async function loadHistory() {
   const [settled, deployed, redeemed, mlEv] = await cachedEvents().catch(() =>
     Promise.all([allEvents(EV.settled), allEvents(EV.deployed), allEvents(EV.redeemed), allEvents(EV.ml)]));
-  const wonEv = WF_PKG ? await allEvents(EV_WF_WON).catch(() => ({ list: [] })) : { list: [] };
+  const [wonEv, buyEv] = await Promise.all([EV_WF_WON, EV_BUYBACK].map(t => t ? allEvents(t).catch(() => ({ list: [] })) : { list: [] }));
   const ml = mlRows(mlEv.list.map(e => e.j), wonRows(wonEv.list.map(e => e.j)));
   const byRound = new Map();
   deployed.list.forEach(e => {
@@ -356,6 +358,7 @@ async function loadHistory() {
   rounds.forEach(r => { r.split = splitOf(r, byRound.get(r.round) || []); });
   return {
     rounds, byRound, deployed: deployed.list, redeemed: redeemed.list,
+    buybacks: buyEv.list.map(e => ({ ts: e.ts, digest: e.digest, sui: num(e.j.sui_spent), gts: num(e.j.gts_kept) })),
     capped: settled.capped || deployed.capped,
     totals: {
       rounds: rounds.length,
@@ -1320,7 +1323,20 @@ function minersHtml(r) {
   }).join("") + `</div>`;
 }
 function renderRevenue() {
-  $("revTbl").classList.toggle("wins", revTab === "winners");
+  $("revTbl").classList.toggle("wins", revTab !== "supernova");
+  if (revTab === "buyback") {
+    // Every buyback, newest first: SUI spent on Cetus and the GTS it bought for stakers.
+    const rows = HIST.buybacks, day = Date.now() - 86_400_000;
+    const spent = rows.reduce((a, b) => a + b.sui, 0), bought = rows.reduce((a, b) => a + b.gts, 0);
+    const d24 = rows.filter(b => new Date(b.ts).getTime() >= day).reduce((a, b) => a + b.sui, 0);
+    $("revSum").innerHTML = `<div><span>SUI spent all time</span><b>${sui(spent, 4)} SUI</b></div><div><span>GTS bought for stakers</span><b>${sui(bought, 2)} GTS</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} SUI</b></div>`;
+    $("revTbl").innerHTML = `<thead><tr><th>SUI spent</th><th>GTS bought</th><th class="r">Price</th><th class="r">Time</th></tr></thead><tbody>` +
+      (rows.slice(0, revShown).map(b => `<tr><td>${sui(b.sui, 5)} SUI</td><td>${sui(b.gts, 3)} GTS</td>
+        <td class="r muted">${b.gts ? fmt(b.sui / b.gts, 6) : "–"} SUI</td><td class="r muted"><a href="${SCAN}/tx/${b.digest}" target="_blank" rel="noopener">${ago(b.ts)}</a></td></tr>`).join("")
+        || `<tr><td colspan="4" class="muted">No buyback yet.</td></tr>`) + `</tbody>`;
+    $("moreRev").hidden = rows.length <= revShown;
+    return;
+  }
   if (revTab === "winners") {
     // Every Wealth Fund payout, newest first.
     const wins = HIST.rounds.filter(r => r.ml?.paid > 0);
