@@ -5,7 +5,8 @@
 // with 49% of it, and adds that GTS with the matching SUI to the same pool as a new full-range position, all in one
 // transaction: liquidity_take hands out the SUI with a receipt that only liquidity_lock closes, and liquidity_lock
 // locks the position in the game for good. SUI not used goes back to the game, GTS not used joins the bought GTS.
-// Each buy moves the pool price at most MAX_IMPACT; SUI it could not spend under that limit goes back to the game.
+// The buyback has no price limit: all the saved SUI buys GTS every time. The liquidity buy moves the pool price at
+// most MAX_IMPACT; SUI it could not spend under that limit goes back to the game.
 const CETUS_PKG = "0x260693ec785a6e6c9d81d58c7d2ff72f1288ae0fa6a9725abe05a6478b11f084";
 const CETUS_CFG = "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f";
 const CETUS_POSITION = "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
@@ -56,7 +57,7 @@ export function makeBuyback(client, CFG, log, run) {
   async function tick(b) {
     if (!tried && BigInt(b.buyback || 0) >= MIN) {
       tried = true;
-      const lim = await limit();
+      const lim = MAX_SQRT; // no price limit: the whole saved SUI always buys GTS, whatever the price
       await run(`buyback ${Number(b.buyback) / 1e9} SUI`, tx => {
         const [sui, receipt] = tx.moveCall({ target: T("game::buyback_take"), arguments: [tx.object(CFG.board)] });
         const amt = tx.moveCall({ target: "0x2::coin::value", typeArguments: [SUI], arguments: [sui] });

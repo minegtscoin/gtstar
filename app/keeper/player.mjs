@@ -19,7 +19,8 @@
 // who comes after us still sees our deposit).
 // Mined GTS: once its 7-day clock has passed (no withdraw fee) it is withdrawn and staked (7-day lock),
 // never sold. SUI yield from staking is claimed back into the bankroll once a day.
-// Limits: at most ROUND_PCT of the bankroll a round, stops for the UTC day after DAILY_LOSS, and stops
+// No daily loss cap: in a round a real player is in it always deploys at least the minimum. Limits: at most
+// ROUND_PCT of the bankroll a round, and stops
 // for good when the game package, the UpgradeCap or any game setting changes (restart: delete
 // "stopped" from .player-state.json).
 // Runs as its own long process (started by cron.mjs); signs with PLAYER_KEY.
@@ -39,7 +40,6 @@ if (fs.existsSync(path.join(dir, ".env"))) {
 }
 const num = (k, d) => Number(process.env[k] ?? d);
 const ROUND_PCT = num("PLAYER_ROUND_PCT", 1);                  // % of the bankroll a round at most
-const DAILY_LOSS = num("PLAYER_DAILY_LOSS_MIST", 250_000_000); // 0.25 SUI down in a UTC day: pause to 00:00
 const GAS_EST = num("PLAYER_GAS_MIST", 4_000_000);             // deploy + claim, net of rebates
 const MARGIN = num("PLAYER_MARGIN_MIST", 3_000_000);           // EV must beat gas by this much
 const KEEP = num("PLAYER_KEEP_MIST", 50_000_000);              // never deposit the last 0.05 SUI (gas)
@@ -265,11 +265,6 @@ async function decide(cur) {
   const x0 = w.miner && w.miner.round === cur ? w.miner.deployed : Array(25).fill(0);
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
 
-  // Daily loss cap, by UTC day.
-  const day = new Date().toISOString().slice(0, 10);
-  if (state.day !== day) { state.day = day; state.dayStart = Number(w.balance) + (pending ? Number(pending.total) : 0); save(); }
-  if (Number(w.balance) < state.dayStart - DAILY_LOSS) { skipped = cur; log({ ev: "skip", round: cur, why: "daily loss cap" }); return; }
-
   const step = Number(b.min_deploy);
   let budget = Math.floor(Number(w.balance) * ROUND_PCT / 100 / step) * step;
   budget = Math.min(budget, Math.floor((Number(w.balance) - KEEP - GAS_BUDGET) / step) * step);
@@ -285,15 +280,28 @@ async function decide(cur) {
   const args = [Dl, S + late, budget, step, x.maxTiles, 1 - fee, fee, Number(b.motherlode), Number(x.tickets)];
   const p = plan(...args, x0);
   const add = p.x.map((v, i) => v - x0[i]);
-  const used = add.reduce((a, v) => a + v, 0);
+  let used = add.reduce((a, v) => a + v, 0);
   const gain = p.ev - expected(x0, ...args.slice(0, 2), ...args.slice(5));
   const need = GAS_EST + MARGIN;
-  pick = { round: cur, D, x: p.x, x0 };
   if (!used || gain <= need) {
-    joined = cur;
-    log({ ev: "skip", round: cur, why: "ev", evSui: sui(gain), pot: sui(S), late: sui(late) });
-    return;
+    // A real player is in: never leave them alone. Not in yet (joined after our start entry): the minimum
+    // on the tile with the best EV for one step.
+    if (x0.some(Boolean)) {
+      pick = { round: cur, D, x: p.x, x0 };
+      joined = cur;
+      log({ ev: "skip", round: cur, why: "ev", evSui: sui(gain), pot: sui(S), late: sui(late) });
+      return;
+    }
+    const one = plan(Dl, S + late, step, step, x.maxTiles, 1 - fee, fee, Number(b.motherlode), Number(x.tickets), x0);
+    if (!one.used) {
+      const low = Math.min(...Dl);
+      one.x[Dl.indexOf(low)] = step;
+    }
+    p.x = one.x;
+    add.splice(0, 25, ...one.x);
+    used = step;
   }
+  pick = { round: cur, D, x: p.x, x0 };
   const tiles = add.map((a, i) => a ? `${i + 1}:${sui(a)}` : "").filter(Boolean).join(" ");
   const r = await send(`deploy #${cur}`, tx => {
     if (pending) claimInto(tx, pending.id);
