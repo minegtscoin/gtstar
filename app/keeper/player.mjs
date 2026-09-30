@@ -1,6 +1,7 @@
-// GTStar Player: the strategy wallet. It joins every round within seconds of its start (the minimum on
-// one empty tile, whoever started it), then tops up in the last seconds before the deploy freeze, only
-// on tiles that hold too little SUI for the pot around them.
+// GTStar Player: the strategy wallet. It plays only rounds a real player is in (never rounds that hold
+// only our own bots, the Runner and the Pulse): the minimum on one empty tile within seconds of the start,
+// then a top-up in the last seconds before the deploy freeze, only on tiles that hold too little SUI for
+// the pot around them.
 //
 // The top-up: read the board from a fullnode, wait until LEAD before the round end, and pick up to
 // max_tiles tiles by the exact expected value of the whole deposit (one tile at a time, 0.01 SUI steps):
@@ -62,6 +63,7 @@ const KEY = {
 };
 const WEEK = 604_800_000;
 const RUNNER = "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa";
+const PULSE = "0xb5a4e8803b347c52b8ad0a144f23da825e80f7db2777e608a2dbaf9b5006bc08";
 const SEAT = `${CFG.origin}::game::SeatKey`;
 const seatBcs = (round, a) => { const r = new Uint8Array(40); let v = BigInt(round); for (let i = 0; i < 8; i++) { r[i] = Number(v & 255n); v >>= 8n; } r.set(Uint8Array.from(Buffer.from(a.slice(2), "hex")), 8); return r; };
 const DEV_BPS = 100, BUYBACK_BPS = 200, LIQ_BPS = 100;
@@ -126,6 +128,13 @@ async function wallet() {
   return cache;
 }
 let cache = null; // last wallet read, kept current after our own transactions (saves a read at a round start)
+
+// Players in the round other than our own wallets (this one, the Runner, the Pulse).
+async function realPlayers(b) {
+  const cur = Number(b.cur_id);
+  const seated = await Promise.all([me, RUNNER, PULSE].map(a => field(SEAT, seatBcs(cur, a))));
+  return Number(b.cur_players) - seated.filter(Boolean).length;
+}
 
 // ---------- kill switch ----------
 // Package version, UpgradeCap version and every game setting. Any change stops the bot for good.
@@ -217,8 +226,8 @@ function lead(freeze) {
   return Math.max(LEAD_MIN, freeze + p90 + 700);
 }
 
-// Every round, within seconds of its start: the minimum on one empty tile (a random one; the thinnest
-// tile when none is empty). Always, whoever started it, apart from the caps on the late top-up.
+// Within seconds of the start of a round a real player is in: the minimum on one empty tile (a random
+// one; the thinnest tile when none is empty).
 async function enter(b) {
   const cur = Number(b.cur_id);
   entered = cur;
@@ -226,8 +235,8 @@ async function enter(b) {
   if (w.miner && w.miner.round === cur) return;
   const step = Number(b.min_deploy);
   if (Number(w.balance) < step + KEEP + GAS_BUDGET) { log({ ev: "skip", round: cur, why: "bankroll", balance: sui(w.balance) }); return; }
-  // Not in a round the Runner (Bot 1) holds alone.
-  if (Number(b.cur_players) === 1 && await field(SEAT, seatBcs(cur, RUNNER))) { log({ ev: "skip", round: cur, why: "runner alone" }); return; }
+  // Not in a round that holds only our own bots (a real player may still join: decide() looks again).
+  if (await realPlayers(b) < 1) { log({ ev: "skip", round: cur, why: "no real player" }); return; }
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
   const D = b.cur_deployed.map(Number);
   const low = Math.min(...D);
@@ -252,6 +261,7 @@ async function decide(cur) {
   const [b, x, w] = await Promise.all([board(), extras(), wallet()]);
   if (Number(b.cur_id) !== cur || !b.cur_started) return;
   if (!(await guard(b, x))) return;
+  if (await realPlayers(b) < 1) { skipped = cur; log({ ev: "skip", round: cur, why: "no real player" }); return; }
   const x0 = w.miner && w.miner.round === cur ? w.miner.deployed : Array(25).fill(0);
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
 
