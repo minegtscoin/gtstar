@@ -1832,6 +1832,10 @@ async function checkVersion() {
   } catch {}
 }
 setInterval(checkVersion, 60_000);
+// Tells the server someone has the game open (the Pulse opens a round for them when none is live).
+const visit = () => { if (!document.hidden) fetch("/api/visit", { method: "POST", keepalive: true }).catch(() => {}); };
+visit(); setInterval(visit, 60_000);
+document.addEventListener("visibilitychange", visit);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVersion().then(reloadIfStale); });
 
 // Install as an app: phones only, never once installed. Closed, it comes back after 3 more visits

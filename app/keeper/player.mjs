@@ -71,6 +71,13 @@ const node = new SuiGrpcClient({ network: CFG.network, baseUrl: `https://fullnod
 const sleep = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
 const sui = m => Math.round(Number(m) / 1e6) / 1e3;
 
+// One instance only: a second copy exits while the first one runs.
+const pidFile = path.join(dir, ".player-pid");
+try {
+  const pid = fs.readFileSync(pidFile, "utf8").trim();
+  if (fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("player.mjs")) { console.log("player already running"); process.exit(0); }
+} catch {}
+fs.writeFileSync(pidFile, String(process.pid));
 const stateFile = path.join(dir, ".player-state.json");
 const logFile = path.join(dir, "player-log.jsonl");
 const hbFile = path.join(dir, ".player-hb");
@@ -112,8 +119,10 @@ async function wallet() {
     if (!r.hasNextPage) break;
     cursor = r.cursor;
   }
-  return { balance: BigInt(bal.balance), miner };
+  cache = { balance: BigInt(bal.balance), miner };
+  return cache;
 }
+let cache = null; // last wallet read, kept current after our own transactions (saves a read at a round start)
 
 // ---------- kill switch ----------
 // Package version, UpgradeCap version and every game setting. Any change stops the bot for good.
@@ -177,9 +186,10 @@ async function send(label, build) {
   const ms = Date.now() - t0;
   const change = (r.balanceChanges || []).filter(c => c.address === me && c.coinType.endsWith("::sui::SUI")).reduce((a, c) => a + BigInt(c.amount), 0n);
   const ok = r.status.success;
+  const done = Date.now();
   log({ ev: label, ok, digest: r.digest, ms, sui: sui(change), err: ok ? undefined : r.status.error?.message || String(r.status.error) });
   await node.waitForTransaction({ digest: r.digest }).catch(() => {});
-  return { ok, ms, change };
+  return { ok, ms, change, done };
 }
 const boardArg = tx => tx.sharedObjectRef({ objectId: BOARD, initialSharedVersion: 1, mutable: true });
 const treasuryArg = tx => tx.sharedObjectRef({ objectId: TREASURY, initialSharedVersion: 1, mutable: true });
@@ -209,7 +219,7 @@ function lead(freeze) {
 async function enter(b) {
   const cur = Number(b.cur_id);
   entered = cur;
-  const w = await wallet();
+  const w = cache || await wallet();
   if (w.miner && w.miner.round === cur) return;
   const step = Number(b.min_deploy);
   if (Number(w.balance) < step + KEEP + GAS_BUDGET) { log({ ev: "skip", round: cur, why: "bankroll", balance: sui(w.balance) }); return; }
@@ -228,8 +238,9 @@ async function enter(b) {
     tx.moveCall({ target: C("game::deploy"), arguments: [boardArg(tx), m, pay, tx.pure.vector("u64", x), tx.object.clock()] });
     if (fresh) tx.transferObjects([m], me);
   });
-  log({ ev: "entered", round: cur, ok: r.ok, tile: tile + 1, afterStartMs: Date.now() - Number(b.cur_start_ms) });
+  log({ ev: "entered", round: cur, ok: r.ok, tile: tile + 1, afterStartMs: r.done - Number(b.cur_start_ms) });
   if (r.ok) owe = true;
+  await wallet();
 }
 
 async function decide(cur) {
@@ -281,6 +292,7 @@ async function decide(cur) {
   save();
   log({ ev: "pick", round: cur, ok: r.ok, tiles, evSui: sui(gain), used: sui(used), pot: sui(S), fund: sui(b.motherlode), late: sui(late), lead: lead(Number(b.freeze_ms)) });
   if (r.ok) { joined = topped = cur; owe = true; } else skipped = cur;
+  await wallet();
 }
 
 // After the freeze: what others added after our read.
@@ -309,6 +321,7 @@ async function afterRound(b) {
   const cur = Number(b.cur_id);
   if (w.miner && w.miner.round !== 0 && w.miner.round < cur) {
     await send(`claim #${w.miner.round}`, tx => claimInto(tx, w.miner.id));
+    await wallet();
     return true;
   }
   if (!w.miner || w.miner.round === 0) { owe = false; return false; }
@@ -364,7 +377,7 @@ async function main() {
       if ((!b.cur_started || now >= end) && await afterRound(b)) continue;
       if (!b.cur_started && Date.now() - lastChores > 6 * 3600_000) { await chores(); continue; }
       errors = 0;
-      await sleep(b.cur_started ? 500 : 300);
+      await sleep(b.cur_started ? 500 : 150);
     } catch (e) {
       log({ ev: "error", msg: String(e.message || e).slice(0, 300) });
       await sleep(Math.min(30_000, 1000 * 2 ** Math.min(5, errors++)));
