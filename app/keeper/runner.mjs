@@ -113,8 +113,8 @@ async function main() {
       const w = await wallet();
       const inRound = b.cur_started && w.miner?.round === cur;
       if (b.cur_started && now >= end + 300) {
-        // Draw only a round we hold alone; the keeper draws the rest.
-        if (low || !inRound || Number(b.cur_players) !== 1) { await sleep(1000); continue; }
+        // Draw a round we hold alone at once; one others joined only if nobody drew it within 15s.
+        if (low || !inRound || (Number(b.cur_players) !== 1 && now < end + 15_000)) { await sleep(1000); continue; }
         const ok = await send(`settle #${cur}`, SETTLE_GAS, tx => tx.moveCall({ target: C("game::settle"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.random(), tx.object.clock()] }));
         if (!ok) await sleep(1500);
         continue;
