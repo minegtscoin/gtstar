@@ -31,7 +31,6 @@ const VIEWS = ["home", "mine", "trade", "stake", "explorer", "tokenomics", "lear
 // Staking (game v3): its types were introduced by that version.
 const STK_PKG = IDS.stake;
 const STAKE_SCALE = 10n ** 18n;
-const EV_STAKE_REWARD = STK_PKG ? `${STK_PKG}::staking::StakeRewarded` : "";
 // Wealth Fund tickets (game v4): its types were introduced by that version. The fund pays one ticket,
 // drawn by weight; a ticket is one mist of fee paid on SUI lost since the last payout.
 const WF_PKG = IDS.wf;
@@ -162,8 +161,7 @@ async function loadGlobal() {
     st:events(filter:{type:"${EV.settled}"},last:12){nodes{timestamp contents{json}}}
     dp:events(filter:{type:"${EV.deployed}"},last:50){nodes{timestamp transaction{digest} contents{json}}}
     mu:events(filter:{type:"${EV.ml}"},last:12){nodes{contents{json}}}
-    ${STK_PKG ? `sk:object(address:"${IDS.board}"){p:dynamicField(name:{type:"${STK_PKG}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}} bp:dynamicField(name:{type:"${STK_PKG}::game::StakeBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
-    sr:events(filter:{type:"${EV_STAKE_REWARD}"},last:50){nodes{timestamp contents{json}}}` : ""}
+    ${STK_PKG ? `sk:object(address:"${IDS.board}"){p:dynamicField(name:{type:"${STK_PKG}::game::StakeKey",bcs:"AA=="}){value{... on MoveValue{json}}} bp:dynamicField(name:{type:"${STK_PKG}::game::StakeBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}
     ${WF_PKG ? `wf:object(address:"${IDS.board}"){fb:dynamicField(name:{type:"${WF_PKG}::game::FundBpsKey",bcs:"AA=="}){value{... on MoveValue{json}}} tk:dynamicField(name:{type:"${WF_PKG}::game::TicketsKey",bcs:"AA=="}){value{... on MoveValue{json}}}}
     ww:events(filter:{type:"${EV_WF_WON}"},last:12){nodes{contents{json}}}` : ""}
     ${V10_PKG ? `tl:object(address:"${IDS.board}"){mt:dynamicField(name:{type:"${V10_PKG}::game::MaxTilesKey",bcs:"AA=="}){value{... on MoveValue{json}}} vf:dynamicField(name:{type:"${V10_PKG}::game::V10FromKey",bcs:"AA=="}){value{... on MoveValue{json}}}}` : ""}
@@ -189,22 +187,18 @@ async function loadGlobal() {
     fundBps: num(d.wf?.fb?.value?.json), maxTiles: num(d.tl?.mt?.value?.json) || 25, tickets: tk ? { epoch: num(tk.epoch), total: num(tk.total) } : null,
     refineFee: b.refine_fee_bps != null ? num(b.refine_fee_bps) / 10_000 : REFINE_FEE,
     em: emOf(b),
-    stake: stakeOf(d), gtsAcc: BigInt(d.gy?.y?.value?.json?.acc || 0),
+    stake: stakeOf(d), gtsAcc: BigInt(d.gy?.y?.value?.json?.acc || 0), gtsPaid: num(d.gy?.y?.value?.json?.paid_total),
     last: recent[0] || null, recent, deploys,
     board,
   };
 }
-// Staking pool (a dynamic field of the Board) and the SUI it earned in the last hour.
+// Staking pool (a dynamic field of the Board). paid = all SUI ever paid to stakers.
 function stakeOf(d) {
   const p = d.sk?.p?.value?.json;
   if (!p) return null;
-  // APR right now: the SUI paid to stakers in the last hour, scaled to a year. No rounds in the last hour = 0.
-  const hour = 3600_000, now = Date.now();
-  const lastHour = (d.sr?.nodes || []).filter(n => now - new Date(n.timestamp).getTime() < hour).reduce((a, n) => a + num(n.contents?.json?.amount), 0);
-  const yearly = lastHour * (365.25 * 86_400_000 / hour);
   return {
     bps: num(d.sk?.bp?.value?.json), amount: num(p.total_amount), weight: num(p.total_weight), paid: num(p.paid_total),
-    acc: BigInt(p.acc || 0), table: p.positions?.id, yearly,
+    acc: BigInt(p.acc || 0), table: p.positions?.id,
   };
 }
 // Emission state on the Board: the full reward of a round in this step, the step length, the cut at its
@@ -1482,12 +1476,10 @@ function renderStake() {
     g.classList.remove("show"); void g.offsetWidth; g.classList.add("show");
   }
   if (USER) lastYield = { who, v: pending };
-  // APR: yearly SUI per staked GTS (weight is GTS x 10), over the GTS price in SUI.
-  const px = gtsSui();
-  const apr = S && S.weight > 0 && px > 0 ? S.yearly * 10 / S.weight / px * 100 : null;
-  $("sAprFlex").textContent = apr == null ? "—" : apr === 0 ? "0% · no rounds in the last hour" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
+  // What stakers really got so far, no projection: every SUI and GTS ever paid into the pool.
+  $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI + ${sui(STATE.gtsPaid || 0, 4)} GTS` : "—";
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake. APR counts only the SUI from the last hour of rounds, so it rises when the game is busy and falls to 0 when no one plays.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake, so your part is your stake out of the total staked. Nothing is fixed: stakers earn only when people play.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
