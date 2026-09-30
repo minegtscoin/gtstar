@@ -2,7 +2,7 @@
   "network": "mainnet",
   "relaunch": true,
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
-  "package": "0x30b34ced63d98027d29aa031ff00b0dd605eb950d74f1aebf1e3c5b61f7ee1bf",
+  "package": "0xf59b4ae0062e22f6cba29c5bad00a6803ef7b01ae6fc619feab2b34418c0e8a5",
   "origin": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "liqPkg": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",

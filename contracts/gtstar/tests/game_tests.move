@@ -204,7 +204,7 @@ fun test_cap_stops_mining() {
 }
 
 /// No one on the winning tile: creator 1%, the Wealth Fund's 4% (all of it to the drawer here:
-/// 0.004 < 0.005, and 0.001 more from the buyback's 2%), liquidity 1%, and the whole rest to the
+/// 0.004 < 0.005, and 0.001 more from the liquidity's 1%), the buyback's full 2%, and the whole rest to the
 /// Wealth Fund. Nothing to a reserve.
 #[test]
 fun test_round_without_winner() {
@@ -234,8 +234,8 @@ fun test_round_without_winner() {
         let round = game::current_round(&board) - 1;
         if (game::winning_square_for_testing(&board, round) != 0) {
             assert!(game::dev_fees_value(&board) - dev_before == amt / 100, 1);
-            assert!(game::buyback_value(&board) - buy_before == amt * 2 / 100 - 1_000_000, 2);
-            assert!(game::liquidity_value(&board) - liq_before == amt / 100, 7);
+            assert!(game::buyback_value(&board) - buy_before == amt * 2 / 100, 2);
+            assert!(game::liquidity_value(&board) - liq_before == amt / 100 - 1_000_000, 7);
             assert!(game::motherlode_value(&board) - fund_before == amt * 92 / 100, 3);
             assert!(gts::vault_value(&treasury) == vault_before, 4);
             done = true;
@@ -962,6 +962,32 @@ fun test_draw_reward() {
     let (g, s) = game::claim(&mut board, &mut m, &mut treasury, ts::ctx(&mut sc));
     coin::burn_for_testing(g); coin::burn_for_testing(s);
     assert!(game::pot_value(&board) == 0, 2);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// A small round: the drawer's reward takes the whole Wealth Fund share, yet the buyback still gets its full 2%.
+#[test]
+fun test_draw_reward_keeps_buyback() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    let amounts = vector[10_000_000, 10_000_000, 10_000_000, 10_000_000, 10_000_000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(50_000_000, ts::ctx(&mut sc)), amounts, &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 62_000);
+    ts::next_tx(&mut sc, ALICE);
+    game::settle_for_testing(&mut board, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
+    // Losing pot is 0.05 SUI, or 0.04 when one of the five tiles won: 2% of it, untouched.
+    let bb = game::buyback_value(&board);
+    assert!(bb == 1_000_000 || bb == 800_000, 1);
     transfer::public_transfer(m, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);

@@ -117,7 +117,7 @@ const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda53
 const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
 /// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's Wealth
-/// Fund share, then its buyback share, then its liquidity share, so the draw pays its gas.
+/// Fund share, then its liquidity share, so the draw pays its gas. The 2% buyback is never touched (v13).
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Precision of the per-GTS withdraw-fee accumulator.
@@ -127,7 +127,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 12;
+const VERSION: u64 = 13;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -835,15 +835,13 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
     // No reserve (v9): any reserve share goes to the Wealth Fund with its own share. The drawer is paid
-    // from that first, then from the buyback share, then from the liquidity share.
+    // from that first, then from the liquidity share. The buyback always keeps its full 2% (v13).
     let fund_full = vault_full + fund_part;
     let from_fund = if (fund_full < DRAW_REWARD_MAX) { fund_full } else { DRAW_REWARD_MAX };
     let rest = DRAW_REWARD_MAX - from_fund;
-    let from_buyback = if (buyback_full < rest) { buyback_full } else { rest };
-    let rest = rest - from_buyback;
     let from_liq = if (liq_full < rest) { liq_full } else { rest };
-    let draw_reward = from_buyback + from_fund + from_liq;
-    let buyback_part = buyback_full - from_buyback;
+    let draw_reward = from_fund + from_liq;
+    let buyback_part = buyback_full;
     let liq_part = liq_full - from_liq;
     let mut fund_in = fund_full - from_fund;
     let mut losing_after_fee = losing_pot - vault_full - dev_part - buyback_full - liq_full - stake_part - fund_part;
