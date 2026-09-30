@@ -1257,7 +1257,7 @@ function renderMine() {
 
 // ---------- render: explorer ----------
 const ROWS = 10;
-let actShown = ROWS, revShown = ROWS, lbShown = ROWS, actTab = "rounds", revTab = "supernova", lbTab = "miners";
+let actShown = ROWS, revShown = ROWS, lbShown = ROWS, revTab = "supernova", lbTab = "miners";
 const openRounds = new Set();
 const txLink = d => `<a href="${SCAN}/tx/${d}" target="_blank" rel="noopener" data-stop>${d.slice(0, 6)}…</a>`;
 const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener"${nameOf(a) ? "" : ' class="mono"'} data-stop>${esc(label(a))}</a>`;
@@ -1286,7 +1286,7 @@ function renderExplorer() {
   // Every GTS ever minted that is no longer in supply was burned (withdraw fees, the old buyback, old redemptions).
   $("gBurned").textContent = `${sui(STATE.minted - STATE.supply, 3)} GTS`;
   document.querySelectorAll(".tabset").forEach(ts => {
-    const cur = { act: actTab, rev: revTab, lb: lbTab }[ts.dataset.set];
+    const cur = { rev: revTab, lb: lbTab }[ts.dataset.set];
     ts.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === cur));
   });
   if (!HIST) { $("actTbl").innerHTML = `<tbody><tr><td class="muted">Loading…</td></tr></tbody>`; return; }
@@ -1295,43 +1295,32 @@ function renderExplorer() {
 }
 function renderActivity() {
   const tbl = $("actTbl");
-  if (actTab === "rounds") {
-    $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
-    const rows = HIST.rounds.slice(0, actShown);
-    const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Won from others</th><th class="r">Wealth Fund</th><th class="r">GTS mined</th><th class="r">Time</th></tr></thead>`;
-    const body = rows.map(r => {
-      const w = winnersOf(r);
-      const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
-      // A payout goes to a ticket holder, not the tile winner: name who got it right in the cell.
-      const hit = r.ml?.paid > 0;
-      const sn = hit ? `<span class="fund-hit"><b>Won ${sui(r.ml.paid, 4)} SUI</b>${r.ml.winner ? acctLink(r.ml.winner) : `<span>tile winners</span>`}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
-      const winnings = wonFromOthers(r);
-      let html = `<tr class="round${hit ? " jackpot" : ""}" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
-        <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
-        <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td>
-        <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sn}</td><td class="r">${sui(r.reward, 3)}</td>
-        <td class="r muted">${txLinkAgo(r)}</td></tr>`;
-      if (openRounds.has(r.round)) html += `<tr class="detail"><td colspan="9">${minersHtml(r)}</td></tr>`;
-      return html;
-    }).join("");
-    tbl.innerHTML = head + `<tbody>${body || `<tr><td colspan="9" class="muted">No rounds settled yet.</td></tr>`}</tbody>`;
-    tbl.querySelectorAll("a[data-stop]").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
-    tbl.querySelectorAll("tr.round").forEach(tr => {
-      const toggle = () => { const n = +tr.dataset.r; openRounds.has(n) ? openRounds.delete(n) : openRounds.add(n); renderActivity(); };
-      tr.onclick = toggle;
-      tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
-    });
-    $("moreAct").hidden = HIST.rounds.length <= actShown;
-  } else {
-    $("actSub").textContent = "Every deploy, newest first.";
-    const rows = HIST.deployed.slice(0, actShown);
-    tbl.innerHTML = `<thead><tr><th>Miner</th><th>Round</th><th class="r">Tiles</th><th class="r">Deployed</th><th class="r">Time</th></tr></thead><tbody>` +
-      (rows.map(e => `<tr><td>${acctLink(e.j.player)}</td><td>#${fmt(num(e.j.round_id), 0)}</td>
-        <td class="r">${(e.j.amounts || []).filter(a => num(a) > 0).length}</td><td class="r">${sui(num(e.j.total), 3)}</td>
-        <td class="r muted"><a href="${SCAN}/tx/${e.digest}" target="_blank" rel="noopener">${ago(e.ts)}</a></td></tr>`).join("")
-        || `<tr><td colspan="5" class="muted">No deploys yet.</td></tr>`) + `</tbody>`;
-    $("moreAct").hidden = HIST.deployed.length <= actShown;
-  }
+  $("actSub").textContent = "Recent mining rounds and winners. Select a round to see every miner.";
+  const rows = HIST.rounds.slice(0, actShown);
+  const head = `<thead><tr><th>Round</th><th>Tile</th><th>Winner</th><th class="r">Winners</th><th class="r">Deployed</th><th class="r">Won from others</th><th class="r">Wealth Fund</th><th class="r">GTS mined</th><th class="r">Time</th></tr></thead>`;
+  const body = rows.map(r => {
+    const w = winnersOf(r);
+    const winner = w.size === 0 ? `<span class="muted">No winner</span>` : w.size === 1 ? acctLink([...w.keys()][0]) : "Split";
+    // A payout goes to a ticket holder, not the tile winner: name who got it right in the cell.
+    const hit = r.ml?.paid > 0;
+    const sn = hit ? `<span class="fund-hit"><b>Won ${sui(r.ml.paid, 4)} SUI</b>${r.ml.winner ? acctLink(r.ml.winner) : `<span>tile winners</span>`}</span>` : r.ml?.added > 0 ? `+${sui(r.ml.added, 4)}` : "–";
+    const winnings = wonFromOthers(r);
+    let html = `<tr class="round${hit ? " jackpot" : ""}" data-r="${r.round}" tabindex="0" aria-expanded="${openRounds.has(r.round)}">
+      <td><b>#${fmt(r.round, 0)}</b></td><td><span class="tile-badge${w.size ? "" : " none"}">#${r.tile + 1}</span></td><td>${winner}</td>
+      <td class="r">${w.size}</td><td class="r">${sui(r.total, 3)}</td>
+      <td class="r">${winnings ? sui(winnings, 3) : "–"}</td><td class="r">${sn}</td><td class="r">${sui(r.reward, 3)}</td>
+      <td class="r muted">${txLinkAgo(r)}</td></tr>`;
+    if (openRounds.has(r.round)) html += `<tr class="detail"><td colspan="9">${minersHtml(r)}</td></tr>`;
+    return html;
+  }).join("");
+  tbl.innerHTML = head + `<tbody>${body || `<tr><td colspan="9" class="muted">No rounds settled yet.</td></tr>`}</tbody>`;
+  tbl.querySelectorAll("a[data-stop]").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
+  tbl.querySelectorAll("tr.round").forEach(tr => {
+    const toggle = () => { const n = +tr.dataset.r; openRounds.has(n) ? openRounds.delete(n) : openRounds.add(n); renderActivity(); };
+    tr.onclick = toggle;
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+  });
+  $("moreAct").hidden = HIST.rounds.length <= actShown;
 }
 const txLinkAgo = r => `<a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener" data-stop>${ago(r.ts)}</a>`;
 function minersHtml(r) {
@@ -1866,7 +1855,7 @@ document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = ()
 $("stakeAmt").addEventListener("input", renderStake);
 document.querySelectorAll(".tabset").forEach(ts => ts.querySelectorAll("button").forEach(b => (b.onclick = () => {
   const set = ts.dataset.set, t = b.dataset.t;
-  if (set === "act") { actTab = t; actShown = ROWS; } else if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }
+  if (set === "rev") { revTab = t; revShown = ROWS; } else { lbTab = t; lbShown = ROWS; }
   renderExplorer();
 })));
 $("moreAct").onclick = () => { actShown += ROWS; renderExplorer(); };
