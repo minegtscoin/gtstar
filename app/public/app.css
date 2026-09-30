@@ -231,8 +231,10 @@ body.on-home .hero{padding:8px 0 32px}
 .board.drawing .tile:not(.scan){opacity:.55}
 .board.settled .tile:not(.win){opacity:.45}
 .board.settled .tile:not(.win):hover{opacity:.8}
-.tile.win{border-color:var(--gold);background:#1d1a12;box-shadow:0 0 0 1px var(--gold) inset,0 0 36px rgba(230,196,134,.3);animation:winpop .7s cubic-bezier(.2,1.4,.4,1)}
-.tile.win .n,.tile.win .a{color:var(--gold)}
+.tile.win{border-color:var(--win);background:#11201a;box-shadow:0 0 0 1px var(--win) inset,0 0 36px rgba(127,220,180,.32);animation:winpop .7s cubic-bezier(.2,1.4,.4,1)}
+.tile.win .n,.tile.win .a{color:var(--win)}
+.tile.win.lose{border-color:var(--bad);background:#221313;box-shadow:0 0 0 1px var(--bad) inset,0 0 36px rgba(240,138,138,.3)}
+.tile.win.lose .n,.tile.win.lose .a{color:var(--bad)}
 @keyframes winpop{0%{transform:scale(.9)}60%{transform:scale(1.07)}100%{transform:scale(1)}}
 @media(max-width:520px){.tile .pc{top:4px;right:6px;font-size:10px}.tile .pc svg{display:none}.tile .me{left:7px;bottom:8px}}
 
@@ -510,7 +512,8 @@ button.sw-bal:hover{color:var(--text)}
 @keyframes gain{0%{opacity:0;transform:translateY(4px)}10%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0}}
 /* Round result held on the board after the draw */
 .board-wrap{position:relative}
-.tile.win::after{content:"WINNER";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--disp);font-weight:700;font-size:11px;letter-spacing:.12em;color:#14110a;background:var(--gold);border-radius:6px;padding:3px 7px;box-shadow:0 0 16px rgba(230,196,134,.6)}
+.tile.win::after{content:"WINNER";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--disp);font-weight:700;font-size:12px;letter-spacing:.12em;color:#08140f;background:var(--win);border-radius:6px;padding:4px 8px;box-shadow:0 0 16px rgba(127,220,180,.6)}
+.tile.win.lose::after{content:"LOSE";color:#1a0909;background:var(--bad);box-shadow:0 0 16px rgba(240,138,138,.6)}
 .tile.win .add{visibility:hidden}
 .verdict{position:absolute;left:50%;top:80%;transform:translate(-50%,-50%);z-index:3;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:220px;max-width:calc(100% - 16px);padding:12px 22px;border-radius:14px;border:1px solid var(--gold);background:rgba(20,17,10,.96);box-shadow:0 10px 40px rgba(0,0,0,.55),0 0 30px rgba(230,196,134,.25);text-align:center;pointer-events:none}
 .verdict.up{top:20%}

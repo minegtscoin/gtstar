@@ -984,11 +984,13 @@ function renderBoard() {
     c.classList.toggle("has", v > 0);
     c.classList.toggle("sel", sel);
     c.classList.toggle("win", i === showWin);
+    // The drawn tile reads LOSE (red) when no one was on it, WINNER (green) when someone takes the pot.
+    c.classList.toggle("lose", i === showWin && !(v > 0));
     // Every played tile shows a visible fill; bigger stakes fill more (sqrt, so small ones are not lost).
     c.style.setProperty("--fill", v > 0 ? (0.22 + 0.78 * Math.sqrt(dep[i] / max)).toFixed(3) : 0);
     c.classList.toggle("mine", !!(mine && mine[i] > 0));
     c.setAttribute("aria-pressed", sel);
-    c.setAttribute("aria-label", `Tile ${i + 1}, ${fmt(v, 3)} SUI, ${counts[i]} miners`);
+    c.setAttribute("aria-label", `Tile ${i + 1}, ${fmt(v, 3)} SUI, ${counts[i]} miners${i === showWin ? (v > 0 ? ", winning tile" : ", drawn tile, no winner") : ""}`);
     c.querySelector(".a").textContent = fmt(v, 3);
     const pc = c.querySelector(".pc");
     pc.hidden = !counts[i]; pc.querySelector("b").textContent = counts[i];
