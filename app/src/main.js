@@ -115,8 +115,10 @@ const FAIR_FROM = 1, V5_FROM = 21, V8_FROM = 31, V9_FROM = 33;
 const V10_PKG = IDS.v10;
 // Stakers also get the GTS bought back (v12): the accumulator and each position's snapshot sit on the Board.
 const V12_PKG = IDS.v12;
-// Every buyback on Cetus (game v11): SUI spent and GTS bought, all of it paid to stakers.
+// Every buyback on Cetus: until 2026-09-30 the GTS bought went to stakers (BuybackKept, game v11); from then
+// it is burned (BuybackDone, a type from game v7, which also burned).
 const EV_BUYBACK = IDS.v11 ? `${IDS.v11}::game::BuybackKept` : "";
+const EV_BURN = IDS.v7 ? `${IDS.v7}::game::BuybackDone` : "";
 let V10_FROM = V10_PKG ? 0 : Infinity; // 0 until the Board says: every round not settled yet is under v10
 // SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
 const RESERVE_MOVED = 12_288_264_223;
@@ -213,7 +215,7 @@ const boardOf = (b, tGenesis) => ({
   round_ms: num(b.round_ms) || 60_000,
   cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
   freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
-  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 300, // liquidity 3%, fixed
+  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 200, // liquidity 2%, fixed (3% until 2026-09-30)
 });
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
 // a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
@@ -340,7 +342,7 @@ async function cachedEvents() {
 }
 // Every event type the history uses. The first four are in the site's cache, the other two are read from Sui.
 const BASE_KEYS = ["settled", "deployed", "redeemed", "ml"];
-const ALL_EV = { ...EV, won: EV_WF_WON, buyback: EV_BUYBACK };
+const ALL_EV = { ...EV, won: EV_WF_WON, buyback: EV_BUYBACK, burn: EV_BURN };
 const HIST_KEYS = Object.keys(ALL_EV).filter(k => ALL_EV[k]);
 // The whole history once: the cache and the two other types all at the same time.
 async function fullEvents() {
@@ -380,7 +382,7 @@ async function loadHistory() {
     RAW = t.gap ? await fullEvents() : t.raw;
   } else RAW = await fullEvents();
   const { settled, deployed, redeemed, ml: mlEv } = RAW;
-  const wonEv = RAW.won || { list: [] }, buyEv = RAW.buyback || { list: [] };
+  const wonEv = RAW.won || { list: [] }, buyEv = RAW.buyback || { list: [] }, burnEv = RAW.burn || { list: [] };
   const ml = mlRows(mlEv.list.map(e => e.j), wonRows(wonEv.list.map(e => e.j)));
   const byRound = new Map();
   deployed.list.forEach(e => {
@@ -392,7 +394,9 @@ async function loadHistory() {
   rounds.forEach(r => { r.split = splitOf(r, byRound.get(r.round) || []); });
   return {
     rounds, byRound, deployed: deployed.list, redeemed: redeemed.list,
-    buybacks: buyEv.list.map(e => ({ ts: e.ts, digest: e.digest, sui: num(e.j.sui_spent), gts: num(e.j.gts_kept) })),
+    buybacks: [...buyEv.list.map(e => ({ ts: e.ts, digest: e.digest, sui: num(e.j.sui_spent), gts: num(e.j.gts_kept), burned: false })),
+      ...burnEv.list.map(e => ({ ts: e.ts, digest: e.digest, sui: num(e.j.sui_spent), gts: num(e.j.gts_burned), burned: true }))]
+      .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)),
     capped: settled.capped || deployed.capped,
     totals: {
       rounds: rounds.length,
@@ -536,7 +540,8 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again." },
+  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again." },
+  daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
 };
@@ -544,7 +549,7 @@ function friendlyError(e) {
   const m = String(e?.message || e);
   // e.g. "MoveAbort in 1st command, abort code: 9, in '0x…::game::settle'" or "MoveAbort(…::game::…, 9)"
   const a1 = m.match(/abort code:\s*(\d+)[^']*'0x[0-9a-f]+::(\w+)::/i);
-  const a2 = m.match(/::(game|gts|staking)::[^,]*?,\s*(\d+)\)/);
+  const a2 = m.match(/::(game|gts|staking|daily)::[^,]*?,\s*(\d+)\)/);
   const mod = a1 ? a1[2] : a2 && a2[1], code = a1 ? +a1[1] : a2 && +a2[2];
   if (mod && ERRORS[mod]?.[code]) return ERRORS[mod][code];
   if (/reject|cancel/i.test(m)) return "Transaction cancelled.";
@@ -605,8 +610,8 @@ async function exec(label, btnId, build, needMist = 0) {
 }
 // Mined GTS goes to the unrefined balance, so only the SUI comes back.
 function claimInto(tx, minerArg) {
-  const args = [tx.object(IDS.board), minerArg, tx.object(IDS.treasury)];
-  tx.transferObjects([tx.moveCall({ target: C("game::claim_sui_v2"), arguments: args })[0]], account.address);
+  const args = [tx.object(IDS.board), minerArg, tx.object(IDS.treasury), tx.object.clock()];
+  tx.transferObjects([tx.moveCall({ target: C("game::claim_sui_v3"), arguments: args })[0]], account.address);
 }
 // Withdraw fee as a fraction right now: the full fee at the clock's start, 0 after 7 days.
 function withdrawFee(U, now = chainNow()) {
@@ -1375,15 +1380,15 @@ function minersHtml(r) {
 function renderRevenue() {
   $("revTbl").classList.toggle("wins", revTab !== "supernova");
   if (revTab === "buyback") {
-    // Every buyback, newest first: SUI spent on Cetus and the GTS it bought for stakers.
+    // Every buyback, newest first: SUI spent on Cetus and the GTS it bought, burned (from 2026-09-30) or paid to stakers (before).
     const rows = HIST.buybacks, day = Date.now() - 86_400_000;
-    const spent = rows.reduce((a, b) => a + b.sui, 0), bought = rows.reduce((a, b) => a + b.gts, 0);
+    const spent = rows.reduce((a, b) => a + b.sui, 0), burned = rows.filter(b => b.burned).reduce((a, b) => a + b.gts, 0);
     const d24 = rows.filter(b => new Date(b.ts).getTime() >= day).reduce((a, b) => a + b.sui, 0);
-    $("revSum").innerHTML = `<div><span>SUI spent all time</span><b>${sui(spent, 4)} SUI</b></div><div><span>GTS bought for stakers</span><b>${sui(bought, 2)} GTS</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} SUI</b></div>`;
-    $("revTbl").innerHTML = `<thead><tr><th>SUI spent</th><th>GTS bought</th><th class="r">Price</th><th class="r">Time</th></tr></thead><tbody>` +
-      (rows.slice(0, revShown).map(b => `<tr><td>${sui(b.sui, 5)} SUI</td><td>${sui(b.gts, 3)} GTS</td>
+    $("revSum").innerHTML = `<div><span>SUI spent all time</span><b>${sui(spent, 4)} SUI</b></div><div><span>GTS bought and burned</span><b>${sui(burned, 2)} GTS</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} SUI</b></div>`;
+    $("revTbl").innerHTML = `<thead><tr><th>SUI spent</th><th>GTS bought</th><th>Went to</th><th class="r">Price</th><th class="r">Time</th></tr></thead><tbody>` +
+      (rows.slice(0, revShown).map(b => `<tr><td>${sui(b.sui, 5)} SUI</td><td>${sui(b.gts, 3)} GTS</td><td class="muted">${b.burned ? "Burned" : "Stakers"}</td>
         <td class="r muted">${b.gts ? fmt(b.sui / b.gts, 6) : "–"} SUI</td><td class="r muted"><a href="${SCAN}/tx/${b.digest}" target="_blank" rel="noopener">${ago(b.ts)}</a></td></tr>`).join("")
-        || `<tr><td colspan="4" class="muted">No buyback yet.</td></tr>`) + `</tbody>`;
+        || `<tr><td colspan="5" class="muted">No buyback yet.</td></tr>`) + `</tbody>`;
     $("moreRev").hidden = rows.length <= revShown;
     return;
   }
@@ -1510,8 +1515,9 @@ function renderStake() {
   const pending = posYield(f) + posYield(l), pendingGts = posGts(f) + posGts(l);
   // Yield is paid when a round is drawn: a fresh stake shows 0 until the next one.
   $("sPending").textContent = !USER ? "—" : total > 0 && pending === 0n ? "Starts next round" : `${sui(Number(pending), 6)} SUI`;
-  // GTS arrives with each buyback, not every round.
-  $("sPendingGts").textContent = !USER ? "—" : total > 0 && pendingGts === 0n ? "Starts with the next buyback" : `${sui(Number(pendingGts), 6)} GTS`;
+  // GTS yield came from the buyback until 2026-09-30 (it is burned since): shown only while some is left to claim.
+  $("sPendingGts").textContent = !USER ? "—" : `${sui(Number(pendingGts), 6)} GTS`;
+  $("sPendingGts").parentElement.hidden = !(pendingGts > 0n);
   // Yield grows once per round: flash what the last round added.
   const who = account?.address;
   if (USER && lastYield.who === who && pending > lastYield.v) {
@@ -1526,11 +1532,11 @@ function renderStake() {
   const apr = stakedSui > 0 && days > 0 ? got / days * 365 / stakedSui * 100 : null;
   $("sApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 1% buyback buys, paid in GTS. Both are split by stake. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 1}% of every round's losing pot, paid in SUI, split by stake. Until 2026-09-30 stakers also got the GTS the buyback bought; since then that GTS is burned, and GTS yield earned before stays claimable. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
-  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI and GTS. Withdraw any time." : "Withdraw any time.";
+  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI from every round. Withdraw any time." : "Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
     let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;

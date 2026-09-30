@@ -50,7 +50,7 @@ b = await board();
 console.log("after settle: round", b.cur_id, "committed", +b.committed / 1e9, "GTS, fund", +b.motherlode / 1e9, "SUI");
 const mid = await minerId();
 await run("claim", tx => {
-  const [s] = tx.moveCall({ target: G("claim_sui_v2"), arguments: [tx.object(dep.board), tx.object(mid), tx.object(dep.treasury)] });
+  const [s] = tx.moveCall({ target: G("claim_sui_v3"), arguments: [tx.object(dep.board), tx.object(mid), tx.object(dep.treasury), tx.object.clock()] });
   tx.transferObjects([s], addr);
 });
 b = await board();

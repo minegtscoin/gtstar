@@ -25,7 +25,7 @@ for (const f of fs.readdirSync(path.join(__dirname, "public"))) {
   else fs.copyFileSync(src, path.join(out, f));
 }
 fs.writeFileSync(path.join(out, "version.json"), JSON.stringify({ v: V }));
-const config = { network, relaunch: !!dep.relaunch, ids: { package: dep.package, latest: dep.latest || dep.package, token: dep.token || dep.package, board: dep.board, treasury: dep.treasury, supplyLock: dep.supplyLock, pool: dep.pool, market: dep.market, motherlode: dep.motherlodePkg, fair: dep.fairPkg, refine: dep.refinePkg, stake: dep.stakePkg, wf: dep.wfPkg, v6: dep.v6Pkg, v10: dep.v10Pkg, v11: dep.v11Pkg, v12: dep.v12Pkg }, accounts: { dev: dep.dev, keeper: dep.keeper, upgradeCap: dep.upgradeCap, timelock: dep.timelock, timelockPkg: dep.timelockPkg, lpBurn: dep.lpBurnProof }, proof: dep.siteProof || dep.proof || [] };
+const config = { network, relaunch: !!dep.relaunch, ids: { package: dep.package, latest: dep.latest || dep.package, token: dep.token || dep.package, board: dep.board, treasury: dep.treasury, supplyLock: dep.supplyLock, mintLimit: dep.mintLimit, mintLimiter: dep.mintLimiter, pool: dep.pool, market: dep.market, motherlode: dep.motherlodePkg, fair: dep.fairPkg, refine: dep.refinePkg, stake: dep.stakePkg, wf: dep.wfPkg, v6: dep.v6Pkg, v10: dep.v10Pkg, v7: dep.v7Pkg, v11: dep.v11Pkg, v12: dep.v12Pkg }, accounts: { dev: dep.dev, keeper: dep.keeper, upgradeCap: dep.upgradeCap, timelock: dep.timelock, timelockPkg: dep.timelockPkg, lpBurn: dep.lpBurnProof }, proof: dep.siteProof || dep.proof || [] };
 fs.writeFileSync(path.join(out, "config.js"), `window.GTSTAR_VERSION = "${V}";\nwindow.GTSTAR_CONFIG = ${JSON.stringify(config, null, 2)};\n`);
 
 // Contract IDs for the keeper.

@@ -7,6 +7,7 @@
 //   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
 //   node scripts/admin2.mjs tiles 5                        most tiles one player may use in a round, 1-25 (game v10)
 //   node scripts/admin2.mjs lock-supply                    seal the GTS mint in the immutable supply lock, once (game v15)
+//   node scripts/admin2.mjs limit-mint-rate                seal the mint in the immutable 2,000 GTS a day limit, once (game v16)
 // set keys: odds (Wealth Fund 1 in N), fund (no-winner share, unused from game v9), reserve (bps, must be 0 from v9),
 //   buyback (bps, fixed: 200 from game v11, 100 from game v14), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
@@ -103,6 +104,10 @@ if (mode === "reserve-to-fund") {
 }
 if (mode === "lock-supply") {
   await run((tx, cap) => tx.moveCall({ target: `${G}::lock_supply`, arguments: [cap, tx.object(dep.board), tx.object(dep.oldTreasury || dep.treasury)] }));
+  process.exit(0);
+}
+if (mode === "limit-mint-rate") {
+  await run((tx, cap) => tx.moveCall({ target: `${G}::limit_mint_rate`, arguments: [cap, tx.object(dep.board)] }));
   process.exit(0);
 }
 if (mode === "tiles") {

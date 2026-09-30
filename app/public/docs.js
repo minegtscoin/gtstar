@@ -14,6 +14,8 @@
   var rows = [
     ["GTS token", C.ids.token + "::gts::GTS", "coin", "The official coin type. Check it before you buy GTS anywhere."],
     ["Supply lock", C.ids.supplyLock, "object", "Immutable contract that holds the right to mint GTS. It never lets the total pass 1,000,000, and no one can change it."],
+    ["Daily mint limit", C.ids.mintLimit, "object", "Immutable contract that holds the only key to the supply lock and lets at most 2,000 GTS through per UTC day. No one can change it."],
+    ["Daily limiter", C.ids.mintLimiter, "object", "The limiter itself, kept in the game board: the 2,000 GTS a day limit and what was minted today."],
     ["Capped treasury", C.ids.treasury, "object", "The GTS mint authority, sealed in the supply lock: minted so far and the 1,000,000 limit. Holds no SUI."],
     ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and emission."],
     ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund and unrefined GTS."],

@@ -86,7 +86,7 @@ async function play(b, w) {
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur;
   return send(`play #${cur} tile ${tile + 1}`, DEPLOY_GAS, tx => {
     if (pending) {
-      const [g, s] = tx.moveCall({ target: C("game::claim_v2"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx)] });
+      const [g, s] = tx.moveCall({ target: C("game::claim_v3"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx), tx.object.clock()] });
       tx.mergeCoins(tx.gas, [s]);
       if (w.gts.length) tx.mergeCoins(tx.object(w.gts[0]), [g, ...w.gts.slice(1, 60).map(id => tx.object(id))]);
       else tx.transferObjects([g], me);

@@ -1,13 +1,11 @@
 [package]
-name = "gtstar"
+name = "mint_limit"
 edition = "2024.beta"
-version = "2.0.0"
+version = "1.0.0"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
-
 supply_lock = { local = "../supply_lock" }
-mint_limit = { local = "../mint_limit" }
 
 [addresses]
-gtstar = "0x0"
+mint_limit = "0x0"

@@ -95,7 +95,7 @@
     </div>
     <div class="strip">
       <div><b id="hMotherlode" class="gold">—</b><span>Wealth Fund, SUI</span></div>
-      <div><b id="hBuyback">—</b><span>Buyback every round</span></div>
+      <div><b id="hBuyback">—</b><span>Buyback &amp; burn every round</span></div>
       <div><b id="hSupply">—</b><span>GTS circulating</span></div>
       <div><b id="hPrice">—</b><span>GTS price</span></div>
     </div>
@@ -309,10 +309,10 @@
         <div class="panel-h"><h2>Why GTS</h2><a class="muted" href="docs.html">Full rules</a></div>
         <ul class="why">
           <li><b>0% team, 0% presale</b><span>Every GTS is mined by players.</span></li>
-          <li><b>Hard cap</b><span>1,000,000 GTS at most, locked in an immutable contract: no one can raise it, the owner included. Rounds below 1 SUI mint less, so the final supply can end below it.</span></li>
-          <li><b>Buyback to stakers</b><span>1% of every losing pot buys GTS on the market, and all of it goes to GTS stakers.</span></li>
-          <li><b>Liquidity that grows</b><span>1% of every losing pot adds to the Cetus GTS/SUI pool: half buys GTS, then both halves go in together, locked in the game for good.</span></li>
-          <li><b>Wealth Fund grows with play</b><span>4% of every losing pot (less the up to 0.005 SUI paid to whoever draws the round), and the whole pot less fees when no one is on the winning tile.</span></li>
+          <li><b>Hard cap</b><span>1,000,000 GTS at most, and at most 2,000 GTS minted a day, both locked in immutable contracts: no one can raise them, the owner included. Rounds below 1 SUI mint less, so the final supply can end below it.</span></li>
+          <li><b>Buyback &amp; burn</b><span>3% of every losing pot buys GTS on the market and burns it for good.</span></li>
+          <li><b>Liquidity that grows</b><span>2% of every losing pot adds to the Cetus GTS/SUI pool: half buys GTS, then both halves go in together, locked in the game for good.</span></li>
+          <li><b>Wealth Fund grows with play</b><span>3% of every losing pot (less the up to 0.005 SUI paid to whoever draws the round), and the whole pot less fees when no one is on the winning tile.</span></li>
           <li><b>No halving shock</b><span>The reward falls a little every 15,658 rounds instead of halving.</span></li>
         </ul>
       </div>
@@ -322,7 +322,7 @@
   <!-- STAKE -->
   <section class="view" id="view-stake" hidden>
     <div class="ore-card">
-      <div class="ore-head"><h1>Stake</h1><p class="sub">Earn SUI from every round and GTS from every buyback. Nothing is minted.</p></div>
+      <div class="ore-head"><h1>Stake</h1><p class="sub">Earn SUI from every round. Nothing is minted.</p></div>
       <div class="pilltabs" id="stakeSeg" role="tablist" aria-label="Stake action">
         <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
         <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
@@ -350,10 +350,10 @@
 
       <h2 class="sum-h">Summary</h2>
       <dl class="dl">
-        <div><dt>APR · paid in SUI + GTS</dt><dd id="sApr" class="gold">—</dd></div>
+        <div><dt>APR · since launch</dt><dd id="sApr" class="gold">—</dd></div>
         <div><dt>Total staked</dt><dd id="sStaked">—</dd></div>
       </dl>
-      <p class="note-sm" id="stakeNote">Stakers share 2% of every round's losing pot, paid in SUI, and all the GTS the 1% buyback buys, paid in GTS. Withdraw any time.</p>
+      <p class="note-sm" id="stakeNote">Stakers share 1% of every round's losing pot, paid in SUI, split by stake. Withdraw any time.</p>
     </div>
   </section>
 
@@ -378,7 +378,7 @@
       <p>Part of every losing pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
-        <li><b>Stake:</b> earn SUI from every round and GTS from every buyback. Withdraw any time.</li>
+        <li><b>Stake:</b> earn SUI from every round. Withdraw any time.</li>
         <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
       </ul>
       <h2>Getting started</h2>

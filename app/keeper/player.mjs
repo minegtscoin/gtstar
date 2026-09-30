@@ -66,7 +66,7 @@ const RUNNER = "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268
 const PULSE = "0xb5a4e8803b347c52b8ad0a144f23da825e80f7db2777e608a2dbaf9b5006bc08";
 const SEAT = `${CFG.origin}::game::SeatKey`;
 const seatBcs = (round, a) => { const r = new Uint8Array(40); let v = BigInt(round); for (let i = 0; i < 8; i++) { r[i] = Number(v & 255n); v >>= 8n; } r.set(Uint8Array.from(Buffer.from(a.slice(2), "hex")), 8); return r; };
-const DEV_BPS = 100, BUYBACK_BPS = 200, LIQ_BPS = 100;
+const DEV_BPS = 100, BUYBACK_BPS = 300, LIQ_BPS = 200; // fixed in the game from 2026-09-30
 
 const key = process.env.PLAYER_KEY;
 if (!key) { console.log("PLAYER_KEY not set"); process.exit(0); }
@@ -206,7 +206,7 @@ async function send(label, build) {
 const boardArg = tx => tx.sharedObjectRef({ objectId: BOARD, initialSharedVersion: 1, mutable: true });
 const treasuryArg = tx => tx.sharedObjectRef({ objectId: TREASURY, initialSharedVersion: CFG.treasuryIsv, mutable: true });
 function claimInto(tx, minerId) {
-  const s = tx.moveCall({ target: C("game::claim_sui_v2"), arguments: [boardArg(tx), tx.object(minerId), treasuryArg(tx)] });
+  const s = tx.moveCall({ target: C("game::claim_sui_v3"), arguments: [boardArg(tx), tx.object(minerId), treasuryArg(tx), tx.object.clock()] });
   tx.mergeCoins(tx.gas, [s]);
 }
 

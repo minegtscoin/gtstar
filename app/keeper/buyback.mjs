@@ -1,10 +1,10 @@
-// Buyback: 1% of every losing pot is saved in the game. Once it reaches MIN, the keeper takes it and buys GTS on the
-// Cetus GTS/SUI pool, all in one transaction: buyback_take hands out the SUI with a receipt that only buyback_keep
-// closes, and buyback_keep keeps the GTS in the game for good (it is not burned), so the SUI can only leave as GTS.
-// Liquidity: 3% of every losing pot is saved in the game. Once it reaches LIQ_MIN, the keeper takes it, buys GTS
+// Buyback and burn: 3% of every losing pot is saved in the game. Once it reaches MIN, the keeper takes it and buys GTS
+// on the Cetus GTS/SUI pool, all in one transaction: buyback_take hands out the SUI with a receipt that only
+// buyback_burn_v2 closes, and buyback_burn_v2 burns the GTS for good, so the SUI can only leave as burned GTS.
+// Liquidity: 2% of every losing pot is saved in the game. Once it reaches LIQ_MIN, the keeper takes it, buys GTS
 // with 49% of it, and adds that GTS with the matching SUI to the same pool as a new full-range position, all in one
 // transaction: liquidity_take hands out the SUI with a receipt that only liquidity_lock closes, and liquidity_lock
-// locks the position in the game for good. SUI not used goes back to the game, GTS not used joins the bought GTS.
+// locks the position in the game for good. SUI not used goes back to the game, GTS not used is burned with the next buyback.
 // The buyback has no price limit: all the saved SUI buys GTS every time. The liquidity buy moves the pool price at
 // most MAX_IMPACT; SUI it could not spend under that limit goes back to the game.
 const CETUS_PKG = "0x260693ec785a6e6c9d81d58c7d2ff72f1288ae0fa6a9725abe05a6478b11f084";
@@ -63,7 +63,7 @@ export function makeBuyback(client, CFG, log, run) {
         const amt = tx.moveCall({ target: "0x2::coin::value", typeArguments: [SUI], arguments: [sui] });
         const gts = buy(tx, sui, amt, lim);
         const gtsCoin = tx.moveCall({ target: "0x2::coin::from_balance", typeArguments: [GTS], arguments: [gts] });
-        tx.moveCall({ target: T("game::buyback_keep"), arguments: [tx.object(CFG.board), receipt, gtsCoin, sui] });
+        tx.moveCall({ target: T("game::buyback_burn_v2"), arguments: [tx.object(CFG.board), tx.object(CFG.treasury), receipt, gtsCoin, sui] });
       });
       return true;
     }

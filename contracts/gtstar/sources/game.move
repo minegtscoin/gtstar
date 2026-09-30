@@ -1,8 +1,8 @@
 /// GTStar game (relaunch): a 5x5 grid, 60s rounds, on Sui.
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
-/// losing pot pays: creator DEV_BPS (1%, fixed), buyback BUYBACK_BPS (1%, fixed), liquidity LIQ_BPS (3%,
-/// fixed), stakers `stake_bps`, Wealth Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
+/// losing pot pays: creator DEV_BPS (1%, fixed), buyback and burn BUYBACK_BPS (3%, fixed), liquidity LIQ_BPS
+/// (2%, fixed), stakers `stake_bps`, Wealth Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
 /// the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
 /// part matching the part of their round deposit on the winning square, the fair split). A player may
 /// deposit on at most `max_tiles` squares a round (5; see `set_max_tiles`). With no one on the winning
@@ -25,28 +25,38 @@
 ///
 /// Mined GTS waits in the player's unrefined balance. Withdrawing it is free once 7 days have passed
 /// since the player's last withdrawal (or first mining); before that the fee falls linearly from
-/// `refine_fee_bps` to 0 over the 7 days, and the fee GTS is burned.
+/// `refine_fee_bps` to 0 over the 7 days. From v16 half the fee GTS is burned and half is shared by
+/// everyone still holding unrefined GTS, by their unrefined amount (paid when they withdraw); with no
+/// one else holding, all of it is burned. (v6 to v15 burned all of it.)
 ///
-/// Buyback (v11): 1% of every losing pot (2% until v14) is saved in the game. Only the keeper may take it
-/// (`buyback_take`), and the same transaction must hand back GTS for it (`buyback_keep` closes the
-/// receipt). The GTS bought is not burned: from v12 it goes to the GTS stakers, split by stake weight
-/// like their SUI (`claim_gts`). With nobody staked it waits in the game (`bought_value`) for the next
-/// buyback. `BuybackKept` shows the SUI spent and the GTS bought.
+/// Buyback and burn (v16): 3% of every losing pot is saved in the game (1% in v14-v15, 2% in v11-v13).
+/// Only the keeper may take it (`buyback_take`), and the same transaction must hand back GTS for it
+/// (`buyback_burn_v2` closes the receipt), which is burned for good, together with any GTS left from
+/// liquidity. `BuybackDone` shows the SUI spent and the GTS burned. (v12 to v15 paid the GTS bought to the
+/// stakers instead; GTS already credited to stakers stays claimable with `claim_gts`.)
 ///
-/// Liquidity (v11): 3% of every losing pot (1% until v14) is saved in the game. Only the keeper may take it
+/// Liquidity (v11): 2% of every losing pot (v16; 3% in v14-v15, 1% before) is saved in the game. Only the keeper may take it
 /// (`liquidity_take`); in the same transaction it buys GTS with about half, adds both halves to the
 /// Cetus GTS/SUI pool as a new position, and `liquidity_lock` closes the receipt: the position (a Cetus
 /// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
-/// balance and GTS not used goes to the stakers with the next buyback. No function can take a position out.
+/// balance and GTS not used is burned with the next buyback (v16). No function can take a position out.
 ///
 /// Supply lock (v15): `lock_supply` moved the GTS TreasuryCap into `supply_lock::capped`, a separate
 /// package made immutable, and deleted the old Treasury. GTS can only be minted through its
 /// `CappedTreasury`, and never past 1,000,000 in total: no upgrade of this game, and no one (the owner
-/// included), can change that limit. The game keeps the `MinterCap` and mints only round rewards.
+/// included), can change that limit.
+///
+/// Daily mint limit (v16): `limit_mint_rate` sealed the `MinterCap` in `mint_limit::daily`, another
+/// package made immutable. GTS can only be minted through that `DailyLimiter`, at most 2,000 GTS per UTC
+/// day (by the on-chain clock), and no upgrade of this game can change or bypass that. A claim that would
+/// pass the day's limit aborts and can be retried the next UTC day; nothing is lost. The emission
+/// settings can still be lowered (a longer curve), never raised past 2,000 GTS a day in effect.
 ///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
-/// cap (enforced by the immutable supply lock from v15), the buyback (1%), the liquidity share (3%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
+/// cap (enforced by the immutable supply lock from v15), at most 2,000 GTS minted per UTC day (immutable
+/// daily mint limit from v16), the buyback and burn (3%), the liquidity share (2%), emission that can only
+/// go down (v16: `set_emission` can lower the reward, never raise it or slow its decay), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
 /// deposits.
 #[allow(lint(self_transfer))]
 module gtstar::game;
@@ -64,6 +74,7 @@ use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
 use gtstar::staking::{Self, Pool as StakePool};
 use supply_lock::capped::{Self, CappedTreasury, MinterCap};
+use mint_limit::daily::{Self, DailyLimiter};
 
 // ===== Constants =====
 const GRID: u64 = 25;
@@ -79,16 +90,16 @@ const DEFAULT_FULL_REWARD_DEPLOY: u64 = 1_000_000_000; // full reward from 1 SUI
 const DEV_BPS: u64 = 100;
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
-/// Buyback: 1% of the losing pot, fixed (v14; 2% from v11). The GTS bought is paid to stakers.
-const BUYBACK_BPS: u64 = 100;
-/// Liquidity: 3% of the losing pot, fixed (v14; 1% from v11). Added to the Cetus GTS/SUI pool and locked in the game.
-const LIQ_BPS: u64 = 300;
+/// Buyback and burn: 3% of the losing pot, fixed (v16; 1% in v14-v15, 2% in v11-v13). The GTS bought is burned.
+const BUYBACK_BPS: u64 = 300;
+/// Liquidity: 2% of the losing pot, fixed (v16; 3% in v14-v15, 1% in v11-v13). Added to the Cetus GTS/SUI pool and locked in the game.
+const LIQ_BPS: u64 = 200;
 /// The only object type `liquidity_lock` accepts: a Cetus CLMM position.
 const CETUS_POSITION: vector<u8> = b"1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
 
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 0;          // no reserve (v9)
-const DEFAULT_BUYBACK_BPS: u64 = 100;      // fixed (v14)
+const DEFAULT_BUYBACK_BPS: u64 = 300;      // fixed (v16)
 const DEFAULT_ML_ODDS: u64 = 1_000;        // Wealth Fund: 1 in 1000
 const DEFAULT_ML_SHARE_BPS: u64 = 1_950;   // 19.5% of a no-winner round
 const DEFAULT_REFINE_FEE_BPS: u64 = 1_000; // 10%
@@ -126,6 +137,9 @@ const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb3
 /// Fund share, then its liquidity share, so the draw pays its gas. The buyback is never touched (v13).
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
+/// Daily mint limit (v16): at most 2,000 GTS minted per UTC day, sealed in the immutable `mint_limit` package.
+const DAILY_MINT_MAX: u64 = 2_000_000_000_000;
+
 /// Precision of the per-GTS withdraw-fee accumulator.
 const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 
@@ -133,7 +147,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 15;
+const VERSION: u64 = 16;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -164,6 +178,9 @@ const EUseBuybackKeep: u64 = 30;
 const ENoLiquidity: u64 = 31;
 const ENotPosition: u64 = 32;
 const EUseLockedSupply: u64 = 33;
+const EUseClaimV3: u64 = 34;
+const EUseBuybackBurn: u64 = 35;
+const EEmissionUp: u64 = 36;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -282,6 +299,9 @@ public struct StakeBpsKey has copy, drop, store {}
 /// Dynamic field on the Board (v15): the `MinterCap` of the immutable supply lock.
 public struct MinterKey has copy, drop, store {}
 
+/// Dynamic object field on the Board (v16): the `DailyLimiter` holding the MinterCap for good.
+public struct LimiterKey has copy, drop, store {}
+
 /// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
 
@@ -367,6 +387,10 @@ public struct LiquidityLocked has copy, drop { sui_spent: u64, gts_left: u64, po
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 /// The GTS TreasuryCap was sealed in the immutable supply lock (v15, once).
 public struct SupplyLocked has copy, drop { capped_treasury: ID, minted: u64, max: u64 }
+/// Half of a withdraw fee shared by everyone still holding unrefined GTS (v16).
+public struct WithdrawFeeShared has copy, drop { player: address, amount: u64, holders_total: u64 }
+/// The MinterCap was sealed in the immutable daily mint limit (v16, once).
+public struct MintRateLimited has copy, drop { limiter: ID, per_day: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
 
@@ -506,7 +530,7 @@ fun v8_from(board: &Board): u64 {
 
 // ===== Admin =====
 
-/// Change the settings at once. Fee changes apply from the next settle. `buyback_bps` must be 200 (fixed).
+/// Change the settings at once. Fee changes apply from the next settle. `buyback_bps` must be 300 (fixed).
 public fun set_params(
     _: &AdminCap,
     board: &mut Board,
@@ -541,7 +565,10 @@ public fun set_params(
     event::emit(ParamsChanged { ml_odds, ml_share_bps, vault_bps, buyback_bps, refine_fee_bps, min_deploy, round_ms, freeze_ms, paused });
 }
 
-/// Change the emission at once, from the next settle. The 1,000,000 cap cannot change.
+/// Lower the emission, from the next settle (v16: only down). The reward per round can only fall, the cut
+/// per step can only grow, steps can only get shorter, and the step can only move forward; the SUI needed
+/// for the full reward can only grow. So the reward of every future round stays at or below the current
+/// schedule. The 1,000,000 cap and the 2,000 GTS a day limit cannot change.
 public fun set_emission(
     _: &AdminCap,
     board: &mut Board,
@@ -556,6 +583,8 @@ public fun set_emission(
     assert!(step_rounds >= 1 && step_count < step_rounds, EBadParams);
     assert!(decay_ppm <= MAX_DECAY_PPM, EBadParams);
     assert!(full_reward_deploy >= MIN_FULL_REWARD_DEPLOY && full_reward_deploy <= MAX_FULL_REWARD_DEPLOY, EBadParams);
+    assert!(reward <= board.reward && decay_ppm >= board.decay_ppm && step_rounds <= board.step_rounds, EEmissionUp);
+    assert!(step_count >= board.step_count && full_reward_deploy >= board.full_reward_deploy, EEmissionUp);
     board.reward = reward;
     board.step_rounds = step_rounds;
     board.decay_ppm = decay_ppm;
@@ -591,9 +620,20 @@ public fun lock_supply(_: &AdminCap, board: &mut Board, treasury: Treasury, ctx:
     df::add(&mut board.id, MinterKey {}, m);
 }
 
-/// Mint up to `amount` GTS through the supply lock (clamped to the 1,000,000 cap).
-fun mint_gts(board: &Board, t: &mut CappedTreasury<GTS>, amount: u64, ctx: &mut TxContext): Coin<GTS> {
-    capped::mint(t, df::borrow<MinterKey, MinterCap<GTS>>(&board.id, MinterKey {}), amount, ctx)
+/// Seal the MinterCap in the immutable daily mint limit for good (v16, once): from here at most 2,000 GTS
+/// can be minted per UTC day, by anyone, through any code.
+public fun limit_mint_rate(_: &AdminCap, board: &mut Board, ctx: &mut TxContext) {
+    check_version(board);
+    let m: MinterCap<GTS> = df::remove(&mut board.id, MinterKey {});
+    let l = daily::wrap(m, DAILY_MINT_MAX, ctx);
+    event::emit(MintRateLimited { limiter: object::id(&l), per_day: DAILY_MINT_MAX });
+    dof::add(&mut board.id, LimiterKey {}, l);
+}
+
+/// Mint `amount` GTS through the daily mint limit and the supply lock (clamped to the 1,000,000 cap;
+/// aborts past 2,000 GTS in a UTC day).
+fun mint_gts(board: &mut Board, t: &mut CappedTreasury<GTS>, amount: u64, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
+    daily::mint(dof::borrow_mut<LimiterKey, DailyLimiter<GTS>>(&mut board.id, LimiterKey {}), t, amount, clock, ctx)
 }
 
 /// Set the stakers' share of the losing pot (bps), creating the staking pool the first time.
@@ -729,20 +769,6 @@ fun settle_gts(board: &mut Board, player: address, locked: bool) {
 fun settle_gts_both(board: &mut Board, player: address) {
     settle_gts(board, player, false);
     settle_gts(board, player, true);
-}
-
-/// Pay all waiting bought GTS to the stakers by weight; with nobody staked it keeps waiting.
-fun pay_bought_to_stakers(board: &mut Board) {
-    if (!df::exists(&board.id, StakeKey {})) { return };
-    let tw = staking::total_weight(pool_ref(board));
-    let amount = bought_value(board);
-    if (tw == 0 || amount == 0) { return };
-    let b = balance::withdraw_all(bought_mut(board));
-    let y = gts_yield_mut(board);
-    y.acc = y.acc + (amount as u256) * REFINE_SCALE / (tw as u256);
-    y.paid_total = y.paid_total + amount;
-    balance::join(&mut y.rewards, b);
-    event::emit(GtsYieldAdded { amount, total_weight: tw });
 }
 
 // ===== Play =====
@@ -993,12 +1019,18 @@ public fun claim(_board: &mut Board, _miner: &mut Miner, _treasury: &mut Treasur
     abort EUseLockedSupply
 }
 
+/// Replaced by `claim_v3` (v16: minting needs the clock for the daily limit).
+public fun claim_v2(_board: &mut Board, _miner: &mut Miner, _treasury: &mut CappedTreasury<GTS>, _ctx: &mut TxContext): (Coin<GTS>, Coin<SUI>) {
+    abort EUseClaimV3
+}
+
 /// Claim a settled round: GTS mining reward (everyone) + SUI winnings (if on the winning square).
 /// Mined GTS goes to the unrefined balance (a House bot gets it here). Returns (GTS, SUI).
-public fun claim_v2(
+public fun claim_v3(
     board: &mut Board,
     miner: &mut Miner,
     treasury: &mut CappedTreasury<GTS>,
+    clock: &Clock,
     ctx: &mut TxContext,
 ): (Coin<GTS>, Coin<SUI>) {
     check_version(board);
@@ -1019,7 +1051,7 @@ public fun claim_v2(
         let lost_total = round_total - winners_total;
         if (lost_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed - my_win, lost_total) }
     } else if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
-    let mined = mint_gts(board, treasury, gts_amt, ctx);
+    let mined = mint_gts(board, treasury, gts_amt, clock, ctx);
     let mined_amt = coin::value(&mined);
     let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
         add_unrefined(board, player, coin::into_balance(mined), ctx);
@@ -1099,9 +1131,14 @@ public fun claim_sui(_board: &mut Board, _miner: &mut Miner, _treasury: &mut Tre
     abort EUseLockedSupply
 }
 
-/// `claim_v2` that sends any GTS to the sender and returns the SUI.
-public fun claim_sui_v2(board: &mut Board, miner: &mut Miner, treasury: &mut CappedTreasury<GTS>, ctx: &mut TxContext): Coin<SUI> {
-    let (g, s) = claim_v2(board, miner, treasury, ctx);
+/// Replaced by `claim_sui_v3` (v16: minting needs the clock for the daily limit).
+public fun claim_sui_v2(_board: &mut Board, _miner: &mut Miner, _treasury: &mut CappedTreasury<GTS>, _ctx: &mut TxContext): Coin<SUI> {
+    abort EUseClaimV3
+}
+
+/// `claim_v3` that sends any GTS to the sender and returns the SUI.
+public fun claim_sui_v3(board: &mut Board, miner: &mut Miner, treasury: &mut CappedTreasury<GTS>, clock: &Clock, ctx: &mut TxContext): Coin<SUI> {
+    let (g, s) = claim_v3(board, miner, treasury, clock, ctx);
     if (coin::value(&g) == 0) { coin::destroy_zero(g) } else { transfer::public_transfer(g, tx_context::sender(ctx)) };
     s
 }
@@ -1135,8 +1172,9 @@ public fun withdraw_gts_v6(_board: &mut Board, _treasury: &mut Treasury, _clock:
     abort EUseLockedSupply
 }
 
-/// Withdraw the whole unrefined balance plus any holder bonus earned before v6. The fee (see
-/// `fee_bps_at`) is burned; the 7-day clock restarts now.
+/// Withdraw the whole unrefined balance plus the holder bonus (the shared half of other players' withdraw
+/// fees). Of the fee (see `fee_bps_at`) half is burned and half shared by everyone still holding (v16);
+/// the 7-day clock restarts now.
 public fun withdraw_gts_v7(board: &mut Board, treasury: &mut CappedTreasury<GTS>, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
     let player = tx_context::sender(ctx);
@@ -1149,11 +1187,19 @@ public fun withdraw_gts_v7(board: &mut Board, treasury: &mut CappedTreasury<GTS>
     let fee = mul_div(amount, fee_bps, 10_000);
     board.unrefined_total = board.unrefined_total - amount;
     let out = balance::split(&mut board.unrefined, amount - fee + bonus);
-    if (fee > 0) { capped::burn(treasury, coin::from_balance(balance::split(&mut board.unrefined, fee), ctx)) };
+    // Half the fee to everyone still holding unrefined GTS (it stays in `unrefined`), half burned (v16).
+    let holders = board.unrefined_total;
+    let shared = if (holders > 0) { fee / 2 } else { 0 };
+    let burned = fee - shared;
+    if (shared > 0) {
+        board.acc = board.acc + (shared as u256) * REFINE_SCALE / (holders as u256);
+        event::emit(WithdrawFeeShared { player, amount: shared, holders_total: holders });
+    };
+    if (burned > 0) { capped::burn(treasury, coin::from_balance(balance::split(&mut board.unrefined, burned), ctx)) };
     let ck = RefineClockKey { player };
     if (df::exists(&board.id, ck)) { *df::borrow_mut<RefineClockKey, u64>(&mut board.id, ck) = now }
     else { df::add(&mut board.id, ck, now) };
-    event::emit(GtsWithdrawn { player, amount, fee, bonus, paid: amount - fee + bonus, burned: fee });
+    event::emit(GtsWithdrawn { player, amount, fee, bonus, paid: amount - fee + bonus, burned });
     coin::from_balance(out, ctx)
 }
 
@@ -1186,20 +1232,26 @@ public fun buyback_burn(_board: &mut Board, _treasury: &mut Treasury, receipt: B
     abort EUseBuybackKeep
 }
 
-/// Buyback, step 2: pay the GTS bought to the stakers (with any GTS waiting) and return any SUI not spent.
-/// Closes the receipt.
-public fun buyback_keep(board: &mut Board, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>) {
+/// Replaced by `buyback_burn_v2` (v16: the GTS bought is burned, not paid to stakers).
+public fun buyback_keep(_board: &mut Board, receipt: BuybackReceipt, _gts: Coin<GTS>, _left: Coin<SUI>) {
+    let BuybackReceipt { sui: _ } = receipt;
+    abort EUseBuybackBurn
+}
+
+/// Buyback, step 2 (v16): burn the GTS bought for good, with any GTS left from liquidity, and return any
+/// SUI not spent. Closes the receipt.
+public fun buyback_burn_v2(board: &mut Board, treasury: &mut CappedTreasury<GTS>, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>, ctx: &mut TxContext) {
     check_version(board);
     let BuybackReceipt { sui } = receipt;
     let back = coin::value(&left);
     assert!(back <= sui, EAmountMismatch);
-    let gts_kept = coin::value(&gts);
-    assert!(gts_kept > 0, ENothingBought);
+    assert!(coin::value(&gts) > 0, ENothingBought);
     balance::join(&mut board.buyback, coin::into_balance(left));
-    balance::join(bought_mut(board), coin::into_balance(gts));
-    pay_bought_to_stakers(board);
-    // `gts_total`: bought GTS still waiting (only with nobody staked).
-    event::emit(BuybackKept { sui_spent: sui - back, gts_kept, gts_total: bought_value(board) });
+    let mut all = coin::into_balance(gts);
+    balance::join(&mut all, balance::withdraw_all(bought_mut(board)));
+    let gts_burned = balance::value(&all);
+    capped::burn(treasury, coin::from_balance(all, ctx));
+    event::emit(BuybackDone { sui_spent: sui - back, gts_burned });
 }
 
 /// Liquidity, step 1 (keeper only): take all the saved liquidity SUI to add to the Cetus pool in the
@@ -1277,6 +1329,13 @@ public fun lp_position_id(board: &Board, i: u64): ID { *dof::id(&board.id, LpKey
 /// (step reward, rounds per step, decay ppm, rounds into the step, full-reward deposit, GTS committed).
 public fun emission(board: &Board): (u64, u64, u64, u64, u64, u64) {
     (board.reward, board.step_rounds, board.decay_ppm, board.step_count, board.full_reward_deploy, board.committed)
+}
+/// ID of the DailyLimiter (v16) that holds the right to mint GTS.
+public fun mint_limiter_id(board: &Board): ID { *dof::id(&board.id, LimiterKey {}).borrow() }
+/// (GTS that can still be minted today, the daily limit) (v16).
+public fun mint_room_today(board: &Board, clock: &Clock): (u64, u64) {
+    let l = dof::borrow<LimiterKey, DailyLimiter<GTS>>(&board.id, LimiterKey {});
+    (daily::room_today(l, clock), daily::per_day(l))
 }
 /// Full GTS reward of the round now open.
 public fun current_reward(board: &Board): u64 { next_full_reward(board) }
@@ -1374,6 +1433,11 @@ public fun ticket_holder_for_testing(board: &Board, r: u64): address {
 public fun liquidity_lock_for_testing<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
     let LiquidityReceipt { sui } = receipt;
     lock_position(board, sui, position, left_sui, left_gts)
+}
+
+#[test_only]
+public fun mint_for_testing(board: &mut Board, t: &mut CappedTreasury<GTS>, amount: u64, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
+    mint_gts(board, t, amount, clock, ctx)
 }
 
 #[test_only]
