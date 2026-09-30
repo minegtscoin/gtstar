@@ -218,11 +218,28 @@ const boardOf = (b, tGenesis) => ({
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
 // a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
 const NODE = new SuiGrpcClient({ network: CFG.network, baseUrl: `https://fullnode.${CFG.network}.sui.io:443` });
+// Device clocks are often seconds off, so two devices showed different countdowns. The game runs on Sui's
+// Clock (0x6): its offset from this device is measured with every board read (a quick read only, the middle
+// of the request taken as the moment of the reading), and the median of the last 15 is used for every countdown.
+let CLOCK_OFF = 0;
+const clockOffs = [];
+const chainNow = () => Date.now() + CLOCK_OFF;
+function clockSample(obj, t0, t1) {
+  const ts = num(obj?.json?.timestamp_ms);
+  if (!ts || t1 - t0 > 1500) return;
+  clockOffs.push(ts - (t0 + t1) / 2); if (clockOffs.length > 15) clockOffs.shift();
+  const s = [...clockOffs].sort((a, b) => a - b); CLOCK_OFF = s[s.length >> 1];
+}
+// The Board and the Clock in one fullnode read.
+async function nodeBoard(ms) {
+  const t0 = Date.now(), r = await within(NODE.getObjects({ objectIds: [IDS.board, "0x6"], include: { json: true } }), ms);
+  clockSample(r.objects[1], t0, Date.now());
+  return r.objects[0].json;
+}
 async function freshBoard(board, tGenesis) {
-  if (!board.cur_started || Date.now() < board.cur_end_ms + 5000) return board;
+  if (!board.cur_started || chainNow() < board.cur_end_ms + 5000) return board;
   try {
-    const r = await within(NODE.getObject({ objectId: IDS.board, include: { json: true } }), 5000);
-    const f = boardOf(r.object.json, tGenesis);
+    const f = boardOf(await nodeBoard(5000), tGenesis);
     return f.cur_id > board.cur_id || !f.cur_started ? f : board;
   } catch (e) { console.warn("fullnode board read failed", e); return board; }
 }
@@ -235,8 +252,7 @@ let boardBusy = false;
 async function pollBoard() {
   if (boardBusy || !STATE) return; boardBusy = true;
   try {
-    const r = await within(NODE.getObject({ objectId: IDS.board, include: { json: true } }), 3000);
-    const f = boardOf(r.object.json, STATE.board.genesis);
+    const f = boardOf(await nodeBoard(3000), STATE.board.genesis);
     if (newerBoard(f, STATE.board)) { STATE.board = f; render(); }
   } catch (e) { console.warn("fullnode board read failed", e); }
   finally { boardBusy = false; }
@@ -541,7 +557,7 @@ function friendlyError(e) {
 // The keeper draws every round within seconds of its end, so players never draw. Only if it has not after
 // 2 minutes (keeper down) does the board offer the draw to the player as a fallback.
 const KEEPER_GRACE_MS = 120_000;
-const keeperDrawing = b => Date.now() < b.cur_end_ms + KEEPER_GRACE_MS;
+const keeperDrawing = b => chainNow() < b.cur_end_ms + KEEPER_GRACE_MS;
 const GAS_RESERVE = 5_000_000; // ~0.005 SUI kept for gas
 function lowBalance(needMist) {
   if (!USER || USER.sui >= needMist + GAS_RESERVE) return false;
@@ -593,7 +609,7 @@ function claimInto(tx, minerArg) {
   tx.transferObjects([tx.moveCall({ target: C("game::claim_sui"), arguments: args })[0]], account.address);
 }
 // Withdraw fee as a fraction right now: the full fee at the clock's start, 0 after 7 days.
-function withdrawFee(U, now = Date.now()) {
+function withdrawFee(U, now = chainNow()) {
   if (!U?.start) return STATE.refineFee;
   const left = Math.max(0, U.start + REFINE_WINDOW_MS - now);
   return STATE.refineFee * Math.min(left, REFINE_WINDOW_MS) / REFINE_WINDOW_MS;
@@ -631,7 +647,7 @@ function gtsCoin(tx, amount, split = amount) {
 const tileCap = () => STATE?.maxTiles || 25;
 function tilesHeld(extra = selected) {
   const b = STATE?.board, m = USER?.miner, tiles = new Set(extra);
-  if (b && m && b.cur_started && m.round_id === b.cur_id && Date.now() < b.cur_end_ms) m.deployed.forEach((v, i) => v > 0 && tiles.add(i));
+  if (b && m && b.cur_started && m.round_id === b.cur_id && chainNow() < b.cur_end_ms) m.deployed.forEach((v, i) => v > 0 && tiles.add(i));
   return tiles;
 }
 const overCap = () => tilesHeld().size > tileCap();
@@ -675,7 +691,7 @@ const settle = () => exec("Draw", "btnPlay", tx => {
 });
 let stakeMode = "deposit";
 // Old locked stakes (the lock option is gone) can leave once their 7 days are over.
-const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= Date.now() ? l.amount : 0; };
+const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= chainNow() ? l.amount : 0; };
 const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
   const amt = toMist($("stakeAmt").value);
   if (amt <= 0) throw new Error("Enter an amount.");
@@ -800,7 +816,7 @@ function toast(msg, err = false, html = false) {
 }
 function phase() {
   const b = STATE?.board; if (!b) return "loading";
-  const now = Date.now();
+  const now = chainNow();
   if (!b.cur_started) return "open";
   if (now >= b.cur_end_ms) return "ended";
   if (now > b.cur_end_ms - b.freeze_ms) return "frozen";
@@ -1170,7 +1186,7 @@ function renderRewards() {
   const U = USER?.unrefined || { amount: 0, bonus: 0, start: 0 };
   $("refine").hidden = !USER;
   if (USER && STATE) {
-    const now = Date.now(), fee = withdrawFee(U, now), full = `${fmt(STATE.refineFee * 100, 2)}%`;
+    const now = chainNow(), fee = withdrawFee(U, now), full = `${fmt(STATE.refineFee * 100, 2)}%`;
     const out = U.amount - Math.floor(U.amount * fee) + U.bonus;
     const left = U.start ? U.start + REFINE_WINDOW_MS - now : REFINE_WINDOW_MS;
     $("rfAmt").textContent = sui(U.amount, 4);
@@ -1217,7 +1233,7 @@ function renderMine() {
   let t = "—", lbl = "Time left", prog = 0;
   if (p === "open") { t = `${b.round_ms / 60_000}:00`; lbl = "Waiting"; prog = 1; }
   else if (p === "live" || p === "frozen") {
-    const ms = Math.max(0, b.cur_end_ms - Date.now()), s = Math.ceil(ms / 1000);
+    const ms = Math.max(0, b.cur_end_ms - chainNow()), s = Math.ceil(ms / 1000);
     t = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; prog = ms / b.round_ms;
     if (p === "frozen") lbl = "Closing";
   } else if (p === "ended") {
@@ -1228,7 +1244,7 @@ function renderMine() {
   $("sProg").style.transform = `scaleX(${Math.min(1, prog).toFixed(4)})`;
   const bar = document.querySelector(".round-bar");
   bar.dataset.phase = p;
-  bar.toggleAttribute("data-urgent", p === "live" && b.cur_end_ms - Date.now() <= 10_000);
+  bar.toggleAttribute("data-urgent", p === "live" && b.cur_end_ms - chainNow() <= 10_000);
   // Countdown in the tab title brings players back from other tabs.
   setTitle(p === "live" || p === "frozen" ? `${t} · Round #${b.cur_id} · GTStar` : p === "ended" ? `${t === "Ready" ? "Ready to draw" : "Drawing"} · GTStar` : "GTStar");
 
@@ -1958,4 +1974,11 @@ buildBoard(); buildArt(); loadSnap(); route(); autoReconnect();
 (function poll() { refresh().finally(() => setTimeout(poll, view !== "mine" ? 4000 : phase() === "ended" ? 1000 : 2000)); })();
 setInterval(() => { if (["home", "explorer", "tokenomics"].includes(view)) refreshHistory(); }, 8000);
 setInterval(() => { if (view === "mine" && !document.hidden) pollBoard(); }, 1000);
-setInterval(() => { if (view === "mine") { renderBoard(); renderMine(); } }, 1000);
+// The Sui clock on every page: a few quick reads at start, then every 30 seconds (the board page reads it every second).
+(function sync() { nodeBoard(3000).catch(() => {}).finally(() => setTimeout(sync, clockOffs.length < 3 ? 1500 : 30_000)); })();
+// The countdown turns at the same moment on every device: each tick lands just after the next whole second to the round's end.
+(function tick() {
+  if (view === "mine") { renderBoard(); renderMine(); }
+  const e = STATE?.board?.cur_end_ms, ms = e ? ((e - chainNow()) % 1000 + 1000) % 1000 : 1000;
+  setTimeout(tick, (ms || 1000) + 20);
+})();
