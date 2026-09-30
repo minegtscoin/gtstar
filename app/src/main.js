@@ -831,6 +831,8 @@ function buildBoard() {
     c.innerHTML = `<span class="n">${i + 1}</span><span class="pc" hidden>${PERSON}<b></b></span><span class="me" hidden></span><span class="add" hidden></span><span class="a"></span>`;
     c.addEventListener("animationend", () => c.classList.remove("bump"));
     c.onclick = () => {
+      // Picking a tile while the last result is on the board jumps straight to the live round.
+      if (holding()) reveal.skip = true;
       if (selected.has(i)) selected.delete(i);
       else if (tilesHeld(new Set([...selected, i])).size > tileCap()) { toast(`Up to ${tileCap()} tiles per round.`); return; }
       else selected.add(i);
@@ -862,6 +864,10 @@ const profitOf = (p, r) => winOf(p, r) - (p.amounts[r.tile] || 0);
 // Round reveal: tiles flicker while the round is being drawn, then slow down and land on the winner.
 let lastSeen = null, reveal = null, scanT = null;
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+// After the draw the board stays on the finished round for a few seconds, even when the next round
+// already has deploys, so the winning tile and your result are clearly seen before the board moves on.
+const HOLD_MS = 8_000;
+const holding = () => !!(reveal && reveal.at && !reveal.skip && Date.now() - reveal.at < HOLD_MS);
 function clearScan() { tileEls.forEach(c => c.classList.remove("scan")); }
 function startScan() {
   if (scanT || reduceMotion) return;
@@ -918,13 +924,12 @@ function renderBoard() {
   const b = STATE?.board, p = phase();
   const L = STATE?.last;
   const landing = reveal?.landing;
-  // The winner lights up only for a few seconds after the draw; otherwise the board shows the current round only.
-  const revealing = !!(reveal && reveal.at && Date.now() - reveal.at < 8_000);
-  const showWin = L && b && !b.cur_started && !landing && revealing ? L.tile : -1;
-  const shown = b?.cur_started || showWin < 0 ? b?.cur_id : L.round;
+  // The winner lights up for a few seconds after the draw; otherwise the board shows the current round only.
+  const showWin = L && b && !landing && holding() ? L.tile : -1;
+  const shown = showWin < 0 ? b?.cur_id : L.round;
   const players = shown ? roundPlayers(shown) : [];
-  let dep = b?.cur_started && b.cur_deployed?.length ? b.cur_deployed : Array(25).fill(0);
-  if (b && !b.cur_started && players.length) { dep = Array(25).fill(0); players.forEach(pl => pl.amounts.forEach((v, i) => (dep[i] += v))); }
+  let dep = showWin < 0 && b?.cur_started && b.cur_deployed?.length ? b.cur_deployed : Array(25).fill(0);
+  if (b && (showWin >= 0 || !b.cur_started) && players.length) { dep = Array(25).fill(0); players.forEach(pl => pl.amounts.forEach((v, i) => (dep[i] += v))); }
   const counts = Array(25).fill(0);
   players.forEach(pl => pl.amounts.forEach((v, i) => { if (v > 0) counts[i]++; }));
   const mine = USER?.miner && USER.miner.round_id === shown ? USER.miner.deployed : null;
@@ -937,6 +942,7 @@ function renderBoard() {
   const auto = p === "ended" && keeperDrawing(b);
   if (auto && !landing) startScan(); else if (!landing) stopScan();
   $("board").classList.toggle("settled", showWin >= 0);
+  renderVerdict(showWin >= 0 ? L : null, mine);
   $("board").classList.toggle("drawing", auto || !!landing);
   tileEls.forEach(c => {
     const i = +c.dataset.i, v = dep[i] / MIST, sel = selected.has(i);
@@ -961,6 +967,23 @@ function renderBoard() {
   });
 }
 let bumpRound = null, bumpDep = [];
+// Banner over the board while the result is held: the winning tile, and whether you won or lost.
+function renderVerdict(L, mine) {
+  const el = $("verdict");
+  if (!L) { el.hidden = true; el.dataset.round = ""; return; }
+  const m = USER?.miner, played = !!(mine && m?.total > 0);
+  const back = played ? rewards().sui : 0, net = back - (played ? m.total : 0);
+  const cls = !played ? "" : net > 0 ? "won" : back > 0 ? "even" : "lost";
+  const head = !played ? `Tile ${L.tile + 1} wins` : net > 0 ? "You won" : back > 0 ? "Your tile won" : "Not this time";
+  const line = !played ? (L.winners > 0 ? `${sui(L.total, 3)} SUI pot · round #${fmt(L.round, 0)}` : `No one was on tile ${L.tile + 1}`)
+    : net > 0 ? `+${sui(net, 4)} SUI · tile ${L.tile + 1}` : back > 0 ? `${sui(back, 4)} SUI back · tile ${L.tile + 1}` : `-${sui(m.total, 4)} SUI · tile ${L.tile + 1} won`;
+  const left = Math.max(0, Math.ceil((HOLD_MS - (Date.now() - reveal.at)) / 1000));
+  if (el.dataset.round !== String(L.round)) { el.dataset.round = L.round; el.classList.remove("in"); void el.offsetWidth; el.classList.add("in"); }
+  // Sit over the half of the board away from the winning tile, so the tile itself stays in view.
+  el.className = `verdict in ${cls}${L.tile >= 15 ? " up" : ""}`;
+  el.hidden = false;
+  el.innerHTML = `<b>${head}</b><span>${line}</span><small>Next round in ${left}s · tap a tile to skip</small>`;
+}
 
 function renderResult() {
   const box = $("result"), b = STATE?.board, L = STATE?.last;
@@ -981,6 +1004,7 @@ function renderResult() {
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
   const m = USER?.miner, back = m && m.round_id === L.round ? rewards().sui : 0, net = back - (m?.total || 0);
+  if (m && m.round_id === L.round && m.total > 0 && back === 0) me = `<div class="res-me lost">Not this time · <b>-${sui(m.total, 4)} SUI</b></div>`;
   if (back > 0) me = `<div class="res-me won">${net > 0 ? `You won <b>+${sui(net, 4)} SUI</b>` : `Your tile won · <b>${sui(back, 4)} SUI back</b>`}</div>${shareRow(net, back, L)}`;
   const youWon = back > 0 && net > 0;
   if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}. ${shareLink(net, L)}`, false, true); }

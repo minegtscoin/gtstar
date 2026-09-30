@@ -508,3 +508,20 @@ button.sw-bal:hover{color:var(--text)}
 .gain{color:#6fd49a;font-size:12px;margin-right:8px;opacity:0}
 .gain.show{animation:gain 4s ease-out}
 @keyframes gain{0%{opacity:0;transform:translateY(4px)}10%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0}}
+/* Round result held on the board after the draw */
+.board-wrap{position:relative}
+.tile.win::after{content:"WINNER";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--disp);font-weight:700;font-size:11px;letter-spacing:.12em;color:#14110a;background:var(--gold);border-radius:6px;padding:3px 7px;box-shadow:0 0 16px rgba(230,196,134,.6)}
+.tile.win .add{visibility:hidden}
+.verdict{position:absolute;left:50%;top:80%;transform:translate(-50%,-50%);z-index:3;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:220px;max-width:calc(100% - 16px);padding:12px 22px;border-radius:14px;border:1px solid var(--gold);background:rgba(20,17,10,.96);box-shadow:0 10px 40px rgba(0,0,0,.55),0 0 30px rgba(230,196,134,.25);text-align:center;pointer-events:none}
+.verdict.up{top:20%}
+.verdict b{font-family:var(--disp);font-size:22px;color:var(--gold);line-height:1.15}
+.verdict span{font-family:var(--disp);font-size:15px;color:var(--text)}
+.verdict small{font-size:11.5px;color:var(--muted);margin-top:4px}
+.verdict.won{border-color:var(--win);background:rgba(10,24,19,.96);box-shadow:0 10px 40px rgba(0,0,0,.55),0 0 40px rgba(127,220,180,.4)}
+.verdict.won b,.verdict.won span{color:var(--win)}
+.verdict.lost{border-color:rgba(240,138,138,.6);background:rgba(26,14,14,.96);box-shadow:0 10px 40px rgba(0,0,0,.55)}
+.verdict.lost b{color:var(--bad)}
+.verdict.in{animation:verdictin .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes verdictin{0%{opacity:0;transform:translate(-50%,-50%) scale(.9)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.res-me.lost b{color:var(--bad)}
+@media (prefers-reduced-motion:reduce){.verdict.in{animation:none}}
