@@ -4,6 +4,7 @@
 // spends the game's buyback SUI on GTS kept in the game, and adds its liquidity SUI to the Cetus pool as a position
 // locked in the game (buyback.mjs). The Pulse opens a round when someone has the site open (pulse.mjs). The first game's House, Shield, Matcher,
 // Bots and Floor bot are archived in legacy/app/keeper.
+// The Market Maker keeps a small buy and sell order for GTS on the DeepBook GTS/SUI book (mm.mjs).
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
@@ -11,6 +12,7 @@ import CFG from "./keeper-config.json" with { type: "json" };
 import { makeBuyback } from "./buyback.mjs";
 import { makeWelcome } from "./welcome.mjs";
 import { makePulse } from "./pulse.mjs";
+import { makeMM } from "./mm.mjs";
 
 const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 // Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
@@ -29,6 +31,7 @@ export default async () => {
   const log = [];
   const welcome = makeWelcome(client, log);
   const pulse = process.env.BOTS_DIR ? makePulse(client, CFG, log, process.env.BOTS_DIR) : null;
+  const mm = process.env.BOTS_DIR ? makeMM(client, CFG, log, process.env.BOTS_DIR) : null;
 
   async function board() {
     const r = await client.query({ query: `{object(address:"${CFG.board}"){asMoveObject{contents{json}}}}` });
@@ -87,6 +90,7 @@ export default async () => {
       if (!b) b = await board();
       if (welcome && await welcome()) continue;
       if (pulse && await pulse(b)) { b = await board(); continue; }
+      if (mm && await mm()) continue;
       if (await buyback.tick(b)) { b = await board(); continue; }
       const end = Number(b.cur_end_ms);
       const worth = Number(b.cur_total) >= MIN_POT;
