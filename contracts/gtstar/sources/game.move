@@ -353,7 +353,7 @@ public struct GtsYieldAdded has copy, drop { amount: u64, total_weight: u128 }
 public struct GtsYieldClaimed has copy, drop { player: address, gts: u64 }
 /// Liquidity SUI added to the Cetus pool as a position locked in the game (v11).
 public struct LiquidityLocked has copy, drop { sui_spent: u64, gts_left: u64, position: ID, positions: u64 }
-/// SUI paid to whoever settled a round, out of its Wealth Fund share, then buyback, then liquidity.
+/// SUI paid to whoever settled a round, out of its Wealth Fund share, then its liquidity share (never the buyback, v13).
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
