@@ -38,6 +38,16 @@ if (fs.existsSync(alert) && now.getUTCMinutes() % 10 === 0) {
   spawn("/usr/bin/php", [alert], { detached: true, stdio: "ignore" }).unref();
 }
 
+// The Player (player.mjs) is its own long-running process: started again whenever its heartbeat
+// is older than 30s (not running, or stuck).
+const player = path.join(dir, "player.mjs"), hb = path.join(dir, ".player-hb");
+if (process.env.PLAYER_KEY && fs.existsSync(player) && (!fs.existsSync(hb) || Date.now() - fs.statSync(hb).mtimeMs > 30_000)) {
+  fs.writeFileSync(hb, "");
+  const { spawn } = await import("child_process");
+  const out = fs.openSync(path.join(dir, "player-out.txt"), "a");
+  spawn(process.execPath, [player], { detached: true, stdio: ["ignore", out, out], env: { ...process.env, BOTS_DIR: dir } }).unref();
+}
+
 try {
   const { default: keeper } = await import("./keeper.mjs");
   await keeper();

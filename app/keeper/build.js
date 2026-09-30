@@ -1,9 +1,9 @@
-// Bundle the keeper into one self-contained file for the Hostinger cron.
+// Bundle the keeper and the Player into self-contained files for the Hostinger cron.
 //   node keeper/build.js
 const path = require("path");
-require("esbuild").buildSync({
-  entryPoints: [path.join(__dirname, "cron.mjs")],
-  outfile: path.join(__dirname, "dist", "keeper.mjs"),
+for (const [entry, out] of [["cron.mjs", "keeper.mjs"], ["player.mjs", "player.mjs"]]) require("esbuild").buildSync({
+  entryPoints: [path.join(__dirname, entry)],
+  outfile: path.join(__dirname, "dist", out),
   bundle: true,
   platform: "node",
   target: "node22",
