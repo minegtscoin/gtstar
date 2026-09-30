@@ -860,7 +860,7 @@ let lastSeen = null, reveal = null, scanT = null;
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // After the draw the board stays on the finished round for a few seconds, even when the next round
 // already has deploys, so the winning tile and your result are clearly seen before the board moves on.
-const HOLD_MS = 8_000;
+const HOLD_MS = 5_000;
 const holding = () => !!(reveal && reveal.at && !reveal.skip && Date.now() - reveal.at < HOLD_MS);
 function clearScan() { tileEls.forEach(c => c.classList.remove("scan")); }
 function startScan() {
