@@ -1476,10 +1476,14 @@ function renderStake() {
     g.classList.remove("show"); void g.offsetWidth; g.classList.add("show");
   }
   if (USER) lastYield = { who, v: pending };
-  // What stakers really got so far, no projection: every SUI and GTS ever paid into the pool.
-  $("sPaid").textContent = S ? `${sui(S.paid, 4)} SUI + ${sui(STATE.gtsPaid || 0, 4)} GTS` : "—";
+  // APR on the SUI value of staked GTS: everything stakers got since launch (SUI, plus GTS at today's
+  // price), averaged per day and scaled to a year. Not one busy hour, so it does not jump round to round.
+  const px = gtsSui(), days = (Date.now() - GAME_LAUNCH) / 86_400_000;
+  const got = S ? S.paid / MIST + (STATE.gtsPaid || 0) / MIST * px : 0, stakedSui = S ? S.amount / MIST * px : 0;
+  const apr = stakedSui > 0 && days > 0 ? got / days * 365 / stakedSui * 100 : null;
+  $("sApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake, so your part is your stake out of the total staked. Nothing is fixed: stakers earn only when people play.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
