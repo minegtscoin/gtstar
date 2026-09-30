@@ -7,7 +7,7 @@
 //   node scripts/admin2.mjs wealth 200                     Wealth Fund share of every round's losing pot, bps (game v4)
 //   node scripts/admin2.mjs tiles 5                        most tiles one player may use in a round, 1-25 (game v10)
 // set keys: odds (Wealth Fund 1 in N), fund (no-winner share, unused from game v9), reserve (bps, must be 0 from v9),
-//   buyback (bps, fixed at 200 from game v11), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
+//   buyback (bps, fixed: 200 from game v11, 100 from game v14), refine (withdraw fee, bps), min (min deposit per tile, SUI), round (s), freeze (s), paused (true/false).
 // emission keys: reward (GTS per round), step (rounds per step), decay (cut per step, %), count (rounds into the step),
 //   full (SUI in a round for the full reward).
 // Signs with the active `sui client` address (the deployer, which holds the AdminCap). DRY=1 simulates.

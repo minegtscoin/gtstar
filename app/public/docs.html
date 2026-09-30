@@ -180,7 +180,7 @@ withdraw = my_unrefined - my_unrefined * fee   (the fee is burned)</span>
     <h3>Wealth Fund</h3>
     <p>The <strong>Wealth Fund</strong> is a jackpot in SUI that grows every round until one player takes all of it.</p>
     <ol>
-      <li><strong>It fills up.</strong> Every round, 4% of the losing pot goes in, less the draw reward (up to 0.005 SUI, see Fees). If no one is on the winning tile, the whole pot less fees goes in too.</li>
+      <li><strong>It fills up.</strong> Every round, 3% of the losing pot goes in, less the draw reward (up to 0.005 SUI, see Fees). If no one is on the winning tile, the whole pot less fees goes in too.</li>
       <li><strong>You collect tickets.</strong> When you lose SUI in a round, 10% of what you lost is paid in fees. Those fees are your tickets. The more you play, the more tickets you have. Nothing to buy or sign up for: tickets come on their own.</li>
       <li><strong>It hits.</strong> Every round has a 1 in 250 chance to pay out. When it does, one ticket is drawn at random and its owner gets the <strong>whole fund</strong>, paid in SUI to their wallet.</li>
       <li><strong>It starts again.</strong> After a payout all tickets reset to zero and the fund starts filling again.</li>
@@ -191,9 +191,9 @@ my_chance  = my_tickets / all_tickets     (when the fund pays, 1 in 250 each rou
     <div class="tbl"><table>
       <thead><tr><th>No one on the winning tile</th><th>Share of the pot</th></tr></thead>
       <tbody>
-        <tr><td>Wealth Fund</td><td class="n">94%</td></tr>
-        <tr><td>Buyback</td><td class="n">2%</td></tr>
-        <tr><td>Liquidity</td><td class="n">1%</td></tr>
+        <tr><td>Wealth Fund</td><td class="n">93%</td></tr>
+        <tr><td>Buyback</td><td class="n">1%</td></tr>
+        <tr><td>Liquidity</td><td class="n">3%</td></tr>
         <tr><td>Stakers</td><td class="n">2%</td></tr>
         <tr><td>Creator</td><td class="n">1%</td></tr>
       </tbody>
@@ -225,24 +225,25 @@ total  <= 1,000,000 GTS (hard cap), stops earlier in rounds, lower in GTS, when 
       <tbody>
         <tr><td>Winners</td><td class="n">90%</td><td>Split across the winning tile by stake</td></tr>
         <tr><td>Stakers</td><td class="n">2%</td><td>Paid in SUI to GTS stakers</td></tr>
-        <tr><td>Wealth Fund</td><td class="n">4%</td><td>Paid to one ticket holder when it hits</td></tr>
-        <tr><td>Buyback</td><td class="n">2%</td><td>Buys GTS on the market, paid to GTS stakers</td></tr>
-        <tr><td>Liquidity</td><td class="n">1%</td><td>Half buys GTS, then both go into the Cetus GTS/SUI pool, locked in the game</td></tr>
+        <tr><td>Wealth Fund</td><td class="n">3%</td><td>Paid to one ticket holder when it hits</td></tr>
+        <tr><td>Buyback</td><td class="n">1%</td><td>Buys GTS on the market, paid to GTS stakers</td></tr>
+        <tr><td>Liquidity</td><td class="n">3%</td><td>Half buys GTS, then both go into the Cetus GTS/SUI pool, locked in the game</td></tr>
         <tr><td>Creator</td><td class="n">1%</td><td></td></tr>
       </tbody>
     </table></div>
-    <p>Whoever draws a round is paid up to 0.005 SUI of it from the Wealth Fund share, then the liquidity share, so the draw pays for its own gas. The 2% buyback, the stakers' 2% and the creator's 1% are never used for it. GTStar's own bots draw every round within seconds, so this is usually paid to them. In a round whose losing pot is under 0.125 SUI, the whole Wealth Fund share goes to the drawer, and under 0.1 SUI the whole liquidity share too.</p>
+    <p>Whoever draws a round is paid up to 0.005 SUI of it from the Wealth Fund share, then the liquidity share, so the draw pays for its own gas. The buyback, the stakers' 2% and the creator's 1% are never used for it. GTStar's own bots draw every round within seconds, so this is usually paid to them. In a round whose losing pot is under about 0.167 SUI, the whole Wealth Fund share goes to the drawer, and under about 0.083 SUI the whole liquidity share too.</p>
+    <p><strong>Change on 2026-09-30:</strong> the split moved to more liquidity. Liquidity went from 1% to 3%, the buyback from 2% to 1%, and the Wealth Fund from 4% to 3%. Winners still get 90%, stakers 2%, creator 1%. Liquidity already spends about half its share buying GTS, so the buying stays about the same (2.5% of the losing pot), while three times as much SUI and GTS goes into the pool, so trades move the price less.</p>
     <h3>Where lost SUI goes</h3>
-    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 6% leaves the game (2% buyback, 1% liquidity, 2% to GTS stakers, 1% creator), and 4% goes to the Wealth Fund (less the draw reward), which pays it to one player when it hits. Using more tiles (up to 5) wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</p>
+    <p>This is a game of chance and the expected SUI return is negative. Of every losing pot, 7% leaves the game (1% buyback, 3% liquidity, 2% to GTS stakers, 1% creator), and 3% goes to the Wealth Fund (less the draw reward), which pays it to one player when it hits. Using more tiles (up to 5) wins more often, but the SUI on the other tiles is lost every time, so a win can return less than you put in.</p>
     <h3>Staking</h3>
-    <p>Stake GTS and earn SUI and GTS. Stakers share 2% of every round's losing pot in SUI, and every GTS the 2% buyback buys. Both are split by how much each staker has staked. Nothing is minted, so staking never dilutes holders. Withdraw any time. With nobody staked, the SUI share goes to the Wealth Fund and the bought GTS waits for the next stakers.</p>
+    <p>Stake GTS and earn SUI and GTS. Stakers share 2% of every round's losing pot in SUI, and every GTS the 1% buyback buys. Both are split by how much each staker has staked. Nothing is minted, so staking never dilutes holders. Withdraw any time. With nobody staked, the SUI share goes to the Wealth Fund and the bought GTS waits for the next stakers.</p>
     <span class="code">my_sui_yield = round_share * my_stake / all_staked
 my_gts_yield = gts_bought * my_stake / all_staked</span>
     <h3>Buyback and liquidity</h3>
     <p>Both shares are saved in the game every round and fixed in the contract: no one can change them. The GTStar keeper spends them on the Cetus GTS/SUI pool, and only in ways the contract enforces.</p>
     <ul>
-      <li><strong>Buyback, 2%.</strong> The keeper buys GTS with the saved SUI, and the same transaction must hand the GTS back to the game, which pays all of it to the GTS stakers by stake. With nobody staked it waits in the game for the next buyback.</li>
-      <li><strong>Liquidity, 1%.</strong> The keeper buys GTS with about half of the saved SUI, then adds that GTS and the other half to the pool as a new full-range position. The same transaction must hand the position back to the game, where it stays locked for good. No function can take it out, so this liquidity can never be pulled. SUI not used stays for the next add; GTS not used goes to the stakers with the next buyback.</li>
+      <li><strong>Buyback, 1%.</strong> The keeper buys GTS with the saved SUI, and the same transaction must hand the GTS back to the game, which pays all of it to the GTS stakers by stake. With nobody staked it waits in the game for the next buyback.</li>
+      <li><strong>Liquidity, 3%.</strong> The keeper buys GTS with about half of the saved SUI, then adds that GTS and the other half to the pool as a new full-range position. The same transaction must hand the position back to the game, where it stays locked for good. No function can take it out, so this liquidity can never be pulled. SUI not used stays for the next add; GTS not used goes to the stakers with the next buyback.</li>
     </ul>
     <p>The keeper buys back once 0.01 SUI is saved and adds liquidity once 0.1 SUI is saved, so gas stays a small part of each. Each buy moves the pool price by at most 2%; SUI it cannot spend under that limit stays saved for the next buy.</p>
     <h3>No reserve</h3>
@@ -255,10 +256,10 @@ my_gts_yield = gts_bought * my_stake / all_staked</span>
     <p>The owner address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> holds two keys, with no timelock:</p>
     <ul>
       <li><strong>UpgradeCap</strong> (policy 0, the most open). It can publish new code for the package at once. New code could do anything the package can do, including moving SUI out of the game or the Wealth Fund. The current code has no such function, but you are trusting the owner not to add one.</li>
-      <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share it can set has its own cap (stakers 5%, Wealth Fund 10%), and the old reserve share is fixed at 0. The buyback (2%) and liquidity (1%) shares are fixed. The buyback SUI stays in the game until the keeper spends it, and the same transaction must hand the GTS bought back to the game (<code>buyback_take</code> / <code>buyback_keep</code>), and the game pays it to the stakers; every buy emits <code>BuybackKept</code> with the SUI spent and the GTS bought, and <code>GtsYieldAdded</code> with the GTS paid to stakers. The liquidity SUI works the same way: the keeper must hand back a Cetus position, checked by type, which the game keeps for good (<code>liquidity_take</code> / <code>liquidity_lock</code>, event <code>LiquidityLocked</code>). The owner cannot take either. Within the contract's limits the AdminCap can also set: Wealth Fund odds from 1 in 100 to 1 in 1,000,000, the tile limit from 1 to 25, the minimum deposit from 0.0005 to 10 SUI per tile, the round length from 30 seconds to 1 hour, the withdraw fee up to 50%, the emission (reward per round up to 10 GTS, the cut up to 50% per step, and the step length; never the 1,000,000 cap), and a pause of new deposits.</li>
+      <li><strong>AdminCap</strong>. It changes settings within limits written in the contract. Each fee share it can set has its own cap (stakers 5%, Wealth Fund 10%), and the old reserve share is fixed at 0. The buyback (1%) and liquidity (3%) shares are fixed. The buyback SUI stays in the game until the keeper spends it, and the same transaction must hand the GTS bought back to the game (<code>buyback_take</code> / <code>buyback_keep</code>), and the game pays it to the stakers; every buy emits <code>BuybackKept</code> with the SUI spent and the GTS bought, and <code>GtsYieldAdded</code> with the GTS paid to stakers. The liquidity SUI works the same way: the keeper must hand back a Cetus position, checked by type, which the game keeps for good (<code>liquidity_take</code> / <code>liquidity_lock</code>, event <code>LiquidityLocked</code>). The owner cannot take either. Within the contract's limits the AdminCap can also set: Wealth Fund odds from 1 in 100 to 1 in 1,000,000, the tile limit from 1 to 25, the minimum deposit from 0.0005 to 10 SUI per tile, the round length from 30 seconds to 1 hour, the withdraw fee up to 50%, the emission (reward per round up to 10 GTS, the cut up to 50% per step, and the step length; never the 1,000,000 cap), and a pause of new deposits.</li>
     </ul>
-    <p>Current settings on-chain: Wealth Fund 4%, buyback 2%, liquidity 1%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 250, at most 5 tiles per wallet a round, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
-    <p>Fixed in the contract: the 1% creator fee, the 2% buyback, the 1% liquidity share, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
+    <p>Current settings on-chain: Wealth Fund 3%, buyback 1%, liquidity 3%, stakers 2%, creator 1%, the whole pot less fees to the Wealth Fund when no one is on the winning tile, odds 1 in 250, at most 5 tiles per wallet a round, withdraw fee 10% falling to 0 over 7 days. Every change emits a public event. The plan is to give up both keys once the game is stable, after which nobody can change anything. No date is set yet.</p>
+    <p>Fixed in the contract: the 1% creator fee, the 1% buyback, the 3% liquidity share, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits.</p>
     <h3>Known limits</h3>
     <ul>
       <li>The one-miner rule and the 5-tile limit work per wallet. Someone who covers the board with several wallets keeps the winning wallet's full share, so covering the board costs them only the 10% fees on the losing tiles. That only makes their GTS cheaper to mine: there is no reserve to take SUI from. Wealth Fund tickets come only from fees, so extra wallets give no extra tickets.</li>

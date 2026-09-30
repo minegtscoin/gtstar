@@ -213,7 +213,7 @@ const boardOf = (b, tGenesis) => ({
   round_ms: num(b.round_ms) || 60_000,
   cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
   freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
-  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 100, // liquidity 1%, fixed
+  vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 300, // liquidity 3%, fixed
 });
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
 // a few seconds after it ended is re-read straight from a fullnode, so the board never hangs on "Drawing".
@@ -1483,7 +1483,7 @@ function renderStake() {
   const apr = stakedSui > 0 && days > 0 ? got / days * 365 / stakedSui * 100 : null;
   $("sApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 2% buyback buys, paid in GTS. Both are split by stake. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 2}% of every round's losing pot, paid in SUI, and all the GTS the 1% buyback buys, paid in GTS. Both are split by stake. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;

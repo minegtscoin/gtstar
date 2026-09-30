@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0xf59b4ae0062e22f6cba29c5bad00a6803ef7b01ae6fc619feab2b34418c0e8a5",
+  "latest": "0x264166ed73055b4360de4e8b3168a008779d5219e0712fd8d8ad72b24119b38c",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -69,6 +69,10 @@
     [
       "Game upgraded: the drawer's reward no longer comes out of the 2% buyback, so the buyback always gets its full 2%",
       "12yRbQMMRkFxVuZy3PhaiNhJbQbyGTPdyCvrti6QkdbJ"
+    ],
+    [
+      "Game upgraded: liquidity 3% (was 1%), buyback 1% (was 2%), Wealth Fund 3% (was 4%) of every losing pot",
+      "GmBH1YX9s1nZcBdcaKFFkUQjQ1CJ9TBK2G9qE4Ak1Gaa"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",

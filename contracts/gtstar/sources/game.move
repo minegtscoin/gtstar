@@ -1,7 +1,7 @@
 /// GTStar game (relaunch): a 5x5 grid, 60s rounds, on Sui.
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
-/// losing pot pays: creator DEV_BPS (1%, fixed), buyback BUYBACK_BPS (2%, fixed), liquidity LIQ_BPS (1%,
+/// losing pot pays: creator DEV_BPS (1%, fixed), buyback BUYBACK_BPS (1%, fixed), liquidity LIQ_BPS (3%,
 /// fixed), stakers `stake_bps`, Wealth Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
 /// the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
 /// part matching the part of their round deposit on the winning square, the fair split). A player may
@@ -27,13 +27,13 @@
 /// since the player's last withdrawal (or first mining); before that the fee falls linearly from
 /// `refine_fee_bps` to 0 over the 7 days, and the fee GTS is burned.
 ///
-/// Buyback (v11): 2% of every losing pot is saved in the game. Only the keeper may take it
+/// Buyback (v11): 1% of every losing pot (2% until v14) is saved in the game. Only the keeper may take it
 /// (`buyback_take`), and the same transaction must hand back GTS for it (`buyback_keep` closes the
 /// receipt). The GTS bought is not burned: from v12 it goes to the GTS stakers, split by stake weight
 /// like their SUI (`claim_gts`). With nobody staked it waits in the game (`bought_value`) for the next
 /// buyback. `BuybackKept` shows the SUI spent and the GTS bought.
 ///
-/// Liquidity (v11): 1% of every losing pot is saved in the game. Only the keeper may take it
+/// Liquidity (v11): 3% of every losing pot (1% until v14) is saved in the game. Only the keeper may take it
 /// (`liquidity_take`); in the same transaction it buys GTS with about half, adds both halves to the
 /// Cetus GTS/SUI pool as a new position, and `liquidity_lock` closes the receipt: the position (a Cetus
 /// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
@@ -41,7 +41,7 @@
 ///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
-/// cap, the buyback (2%), the liquidity share (1%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
+/// cap, the buyback (1%), the liquidity share (3%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
 /// deposits.
 #[allow(lint(self_transfer))]
 module gtstar::game;
@@ -73,16 +73,16 @@ const DEFAULT_FULL_REWARD_DEPLOY: u64 = 1_000_000_000; // full reward from 1 SUI
 const DEV_BPS: u64 = 100;
 const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b;
 
-/// Buyback: 2% of the losing pot, fixed (v11). The GTS bought stays in the game.
-const BUYBACK_BPS: u64 = 200;
-/// Liquidity: 1% of the losing pot, fixed (v11). Added to the Cetus GTS/SUI pool and locked in the game.
-const LIQ_BPS: u64 = 100;
+/// Buyback: 1% of the losing pot, fixed (v14; 2% from v11). The GTS bought is paid to stakers.
+const BUYBACK_BPS: u64 = 100;
+/// Liquidity: 3% of the losing pot, fixed (v14; 1% from v11). Added to the Cetus GTS/SUI pool and locked in the game.
+const LIQ_BPS: u64 = 300;
 /// The only object type `liquidity_lock` accepts: a Cetus CLMM position.
 const CETUS_POSITION: vector<u8> = b"1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
 
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 0;          // no reserve (v9)
-const DEFAULT_BUYBACK_BPS: u64 = 200;      // fixed (v11)
+const DEFAULT_BUYBACK_BPS: u64 = 100;      // fixed (v14)
 const DEFAULT_ML_ODDS: u64 = 1_000;        // Wealth Fund: 1 in 1000
 const DEFAULT_ML_SHARE_BPS: u64 = 1_950;   // 19.5% of a no-winner round
 const DEFAULT_REFINE_FEE_BPS: u64 = 1_000; // 10%
@@ -117,7 +117,7 @@ const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda53
 const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
 /// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's Wealth
-/// Fund share, then its liquidity share, so the draw pays its gas. The 2% buyback is never touched (v13).
+/// Fund share, then its liquidity share, so the draw pays its gas. The buyback is never touched (v13).
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Precision of the per-GTS withdraw-fee accumulator.
@@ -127,7 +127,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 13;
+const VERSION: u64 = 14;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -835,7 +835,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
     // No reserve (v9): any reserve share goes to the Wealth Fund with its own share. The drawer is paid
-    // from that first, then from the liquidity share. The buyback always keeps its full 2% (v13).
+    // from that first, then from the liquidity share. The buyback always keeps its full share (v13).
     let fund_full = vault_full + fund_part;
     let from_fund = if (fund_full < DRAW_REWARD_MAX) { fund_full } else { DRAW_REWARD_MAX };
     let rest = DRAW_REWARD_MAX - from_fund;

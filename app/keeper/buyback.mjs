@@ -1,7 +1,7 @@
-// Buyback: 2% of every losing pot is saved in the game. Once it reaches MIN, the keeper takes it and buys GTS on the
+// Buyback: 1% of every losing pot is saved in the game. Once it reaches MIN, the keeper takes it and buys GTS on the
 // Cetus GTS/SUI pool, all in one transaction: buyback_take hands out the SUI with a receipt that only buyback_keep
 // closes, and buyback_keep keeps the GTS in the game for good (it is not burned), so the SUI can only leave as GTS.
-// Liquidity: 1% of every losing pot is saved in the game. Once it reaches LIQ_MIN, the keeper takes it, buys GTS
+// Liquidity: 3% of every losing pot is saved in the game. Once it reaches LIQ_MIN, the keeper takes it, buys GTS
 // with 49% of it, and adds that GTS with the matching SUI to the same pool as a new full-range position, all in one
 // transaction: liquidity_take hands out the SUI with a receipt that only liquidity_lock closes, and liquidity_lock
 // locks the position in the game for good. SUI not used goes back to the game, GTS not used joins the bought GTS.
