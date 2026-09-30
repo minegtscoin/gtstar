@@ -5,6 +5,8 @@
 // locked in the game (buyback.mjs). The Pulse opens a round when someone has the site open (pulse.mjs). The first game's House, Shield, Matcher,
 // Bots and Floor bot are archived in legacy/app/keeper.
 // The Market Maker keeps a small buy and sell order for GTS on the DeepBook GTS/SUI book (mm.mjs).
+import fs from "fs";
+import path from "path";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
@@ -18,6 +20,8 @@ const WINDOW_MS = Number(process.env.KEEPER_WINDOW_MS) || 25_000;
 // Every round is settled automatically (~0.004 SUI of keeper gas each). KEEPER_MIN_POT_MIST can
 // raise the bar if dust rounds ever start draining the keeper; smaller rounds are then drawn by players.
 const MIN_POT = Number(process.env.KEEPER_MIN_POT_MIST ?? 0);
+// While the Runner is alive it draws its own rounds; the keeper steps in only RUNNER_GRACE_MS after the end.
+const RUNNER_GRACE_MS = 8_000;
 const SETTLE_GAS = 20_000_000; // 0.02 SUI ceiling (a settle uses ~0.011 gross, ~0.004 net); unused gas is refunded
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -47,6 +51,9 @@ export default async () => {
     await client.waitForTransaction({ digest: res.digest });
   }
   const buyback = makeBuyback(client, CFG, log, run);
+  const runnerAlive = () => {
+    try { return !!process.env.BOTS_DIR && Date.now() - fs.statSync(path.join(process.env.BOTS_DIR, ".runner-live")).mtimeMs < 30_000; } catch { return false; }
+  };
 
   // Ended 7-day locks go back to 1x: poke every locked stake whose lock has passed but still counts 1.5x.
   async function pokeLocks() {
@@ -96,7 +103,7 @@ export default async () => {
       const worth = Number(b.cur_total) >= MIN_POT;
       if (b.cur_started === true && !worth) {
         await sleep(2000);
-      } else if (b.cur_started === true && Date.now() >= end + 300) {
+      } else if (b.cur_started === true && Date.now() >= end + (runnerAlive() ? RUNNER_GRACE_MS : 300)) {
         await run(`settle #${b.cur_id}`, tx => {
           // Fixed budget: the dry run usually takes the no-jackpot path, and a jackpot settle needs more gas.
           tx.setGasBudget(SETTLE_GAS);

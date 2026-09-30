@@ -48,6 +48,15 @@ if (process.env.PLAYER_KEY && fs.existsSync(player) && (!fs.existsSync(hb) || Da
   spawn(process.execPath, [player], { detached: true, stdio: ["ignore", out, out], env: { ...process.env, BOTS_DIR: dir } }).unref();
 }
 
+// The Runner (runner.mjs, Bot 1 wallet) the same way: keeps a round going 24/7.
+const runner = path.join(dir, "runner.mjs"), rhb = path.join(dir, ".runner-hb");
+if (process.env.BOT1_KEY && fs.existsSync(runner) && (!fs.existsSync(rhb) || Date.now() - fs.statSync(rhb).mtimeMs > 30_000)) {
+  fs.writeFileSync(rhb, "");
+  const { spawn } = await import("child_process");
+  const out = fs.openSync(path.join(dir, "runner-out.txt"), "a");
+  spawn(process.execPath, [runner], { detached: true, stdio: ["ignore", out, out], env: { ...process.env, BOTS_DIR: dir } }).unref();
+}
+
 try {
   const { default: keeper } = await import("./keeper.mjs");
   await keeper();

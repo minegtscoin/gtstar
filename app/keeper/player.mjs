@@ -61,6 +61,9 @@ const KEY = {
   unrefined: `${CFG.origin}::game::UnrefinedKey`,
 };
 const WEEK = 604_800_000;
+const RUNNER = "0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa";
+const SEAT = `${CFG.origin}::game::SeatKey`;
+const seatBcs = (round, a) => { const r = new Uint8Array(40); let v = BigInt(round); for (let i = 0; i < 8; i++) { r[i] = Number(v & 255n); v >>= 8n; } r.set(Uint8Array.from(Buffer.from(a.slice(2), "hex")), 8); return r; };
 const DEV_BPS = 100, BUYBACK_BPS = 200, LIQ_BPS = 100;
 
 const key = process.env.PLAYER_KEY;
@@ -223,6 +226,8 @@ async function enter(b) {
   if (w.miner && w.miner.round === cur) return;
   const step = Number(b.min_deploy);
   if (Number(w.balance) < step + KEEP + GAS_BUDGET) { log({ ev: "skip", round: cur, why: "bankroll", balance: sui(w.balance) }); return; }
+  // Not in a round the Runner (Bot 1) holds alone.
+  if (Number(b.cur_players) === 1 && await field(SEAT, seatBcs(cur, RUNNER))) { log({ ev: "skip", round: cur, why: "runner alone" }); return; }
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur ? w.miner : null;
   const D = b.cur_deployed.map(Number);
   const low = Math.min(...D);

@@ -95,7 +95,7 @@ const MAX_REFINE_FEE_BPS: u64 = 5_000;
 const MAX_STAKE_BPS: u64 = 500;      // stakers 5%
 const MAX_FUND_BPS: u64 = 1_000;     // Wealth Fund, every round, 10%
 const MAX_ML_SHARE_BPS: u64 = 3_000; // Wealth Fund, no-winner round, 30%
-const MIN_MIN_DEPLOY: u64 = 1_000_000;      // 0.001 SUI
+const MIN_MIN_DEPLOY: u64 = 500_000;        // 0.0005 SUI
 const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
 const MIN_ROUND_MS: u64 = 30_000;
 const MAX_ROUND_MS: u64 = 3_600_000;
@@ -213,6 +213,10 @@ public struct Board has key {
 public struct JackpotKey has copy, drop, store { round_id: u64 }
 /// Dynamic field on the Board: the Miner `player` uses in `round_id` (one per address and round).
 public struct SeatKey has copy, drop, store { round_id: u64, player: address }
+/// Dynamic field on the Board: players of a settled round who have not claimed yet. When the last one
+/// claims, the round's RoundInfo is removed (its storage deposit is refunded to that claimer).
+/// Rounds settled before this field existed keep their RoundInfo.
+public struct RoundLeftKey has copy, drop, store { round_id: u64 }
 /// Dynamic field on the Board: one player's unrefined balance. Removed when it is withdrawn.
 public struct UnrefinedKey has copy, drop, store { player: address }
 public struct Unrefined has store, drop { amount: u64, bonus: u64, snap: u256 }
@@ -904,6 +908,7 @@ fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clo
         round_reward: reward,
         rng,
     });
+    if (board.cur_players > 0) { df::add(&mut board.id, RoundLeftKey { round_id: board.cur_id }, board.cur_players) };
 
     event::emit(RoundSettled {
         round_id: board.cur_id,
@@ -1030,6 +1035,18 @@ public fun claim(
     let seat = SeatKey { round_id, player };
     if (df::exists(&board.id, seat) && *df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner)) {
         let _: ID = df::remove(&mut board.id, seat);
+    };
+
+    // Last claimer of the round: the RoundInfo is no longer needed (the RoundSettled event keeps it).
+    let lk = RoundLeftKey { round_id };
+    if (df::exists(&board.id, lk)) {
+        let left = df::borrow_mut<RoundLeftKey, u64>(&mut board.id, lk);
+        *left = *left - 1;
+        if (*left == 0) {
+            let _: u64 = df::remove(&mut board.id, lk);
+            let RoundInfo { total_deployed: _, deployed: _, winning_square: _, losing_pot_after_fee: _,
+                winners_total: _, round_reward: _, rng: _ } = table::remove(&mut board.rounds, round_id);
+        };
     };
 
     event::emit(Claimed { round_id, player, gts: mined_amt, sui: coin::value(&sui_coin) });
@@ -1294,6 +1311,9 @@ public fun settle_for_testing(board: &mut Board, treasury: &mut Treasury, r: &Ra
 public fun settle_with_odds_for_testing(
     board: &mut Board, treasury: &mut Treasury, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
 ) { settle_with_odds(board, treasury, r, clock, odds, ctx) }
+
+#[test_only]
+public fun round_info_exists_for_testing(board: &Board, round_id: u64): bool { table::contains(&board.rounds, round_id) }
 
 #[test_only]
 public fun winning_square_for_testing(board: &Board, round_id: u64): u64 {

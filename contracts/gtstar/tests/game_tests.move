@@ -255,6 +255,12 @@ fun test_round_without_winner() {
 
 /// One round by `who` alone with `amounts`, settled by OWNER, claimed by `who`. Returns the SUI paid back.
 fun round_as(sc: &mut Scenario, who: address, board: &mut Board, treasury: &mut Treasury, rs: &Random, clk: &mut Clock, amounts: vector<u64>, odds: u64): u64 {
+    let (sv, _) = round_as_w(sc, who, board, treasury, rs, clk, amounts, odds);
+    sv
+}
+
+/// round_as that also returns the winning tile (read before the claim: the last claim removes the RoundInfo).
+fun round_as_w(sc: &mut Scenario, who: address, board: &mut Board, treasury: &mut Treasury, rs: &Random, clk: &mut Clock, amounts: vector<u64>, odds: u64): (u64, u64) {
     let t = clock::timestamp_ms(clk) + 100_000;
     ts::next_tx(sc, who);
     let mut m = game::new_miner(ts::ctx(sc));
@@ -266,12 +272,13 @@ fun round_as(sc: &mut Scenario, who: address, board: &mut Board, treasury: &mut 
     clock::set_for_testing(clk, t + 61_000);
     ts::next_tx(sc, OWNER);
     game::settle_with_odds_for_testing(board, treasury, rs, clk, odds, ts::ctx(sc));
+    let w = game::winning_square_for_testing(board, game::current_round(board) - 1);
     ts::next_tx(sc, who);
     let (g, s) = game::claim(board, &mut m, treasury, ts::ctx(sc));
     let sv = coin::value(&s);
     coin::burn_for_testing(g); coin::burn_for_testing(s);
     transfer::public_transfer(m, who);
-    sv
+    (sv, w)
 }
 
 /// Tickets are the fee paid on the SUI lost: 8% (creator 1 + buyback 2 + liquidity 1 + Wealth Fund 4)
@@ -288,9 +295,8 @@ fun test_tickets_are_fee_paid() {
     let mut expected = 0u64;
     let mut n = 0u64;
     while (n < 8) {
-        round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
-        let round = game::current_round(&board) - 1;
-        if (game::winning_square_for_testing(&board, round) != 0) { expected = expected + SUI1 * 8 / 100 };
+        let (_, w) = round_as_w(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
+        if (w != 0) { expected = expected + SUI1 * 8 / 100 };
         n = n + 1;
     };
     assert!(expected > 0, 1);
@@ -1151,9 +1157,8 @@ fun test_fund_share_no_winner() {
     let mut done = false;
     while (!done) {
         let before = game::motherlode_value(&board);
-        round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
-        let round = game::current_round(&board) - 1;
-        if (game::winning_square_for_testing(&board, round) != 0) {
+        let (_, w) = round_as_w(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(0, SUI1), 1_000_000);
+        if (w != 0) {
             assert!(game::motherlode_value(&board) - before == SUI1 * 96 / 100 - 5_000_000, 1);
             done = true;
         };
@@ -1228,9 +1233,8 @@ fun test_nobody_lost_still_mines() {
     let mut tries = 0;
     while (!done && tries < 200) {
         let (_, _, _, _, _, before) = game::emission(&board);
-        let back = round_as(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(7, SUI1), 1_000_000);
-        let round = game::current_round(&board) - 1;
-        if (game::winning_square_for_testing(&board, round) == 7) {
+        let (back, w) = round_as_w(&mut sc, BOB, &mut board, &mut treasury, &rs, &mut clk, one_tile(7, SUI1), 1_000_000);
+        if (w == 7) {
             let (_, _, _, _, _, after) = game::emission(&board);
             assert!(after - before == GTS1 && back == SUI1, 1);
             done = true;
@@ -1479,4 +1483,65 @@ fun test_gts_yield_survives_unstake() {
     ts::return_shared(board);
     assert!(claim_gts_as(&mut sc, ALICE) == 7_000, 1);
     ts::end(sc);
+}
+
+/// The RoundInfo stays until the last player of the round has claimed, then it is removed; the claims
+/// before and after pay the same as without the removal.
+#[test]
+fun test_round_info_removed_after_last_claim() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<Treasury>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    ts::next_tx(&mut sc, ALICE);
+    let mut ma = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut ma, coin::mint_for_testing<SUI>(SUI1, ts::ctx(&mut sc)), one_tile(0, SUI1), &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, BOB);
+    let mut mb = game::new_miner(ts::ctx(&mut sc));
+    game::deploy(&mut board, &mut mb, coin::mint_for_testing<SUI>(SUI1, ts::ctx(&mut sc)), one_tile(1, SUI1), &clk, ts::ctx(&mut sc));
+    // Bob tops up in the same round with the same Miner: still one player.
+    game::deploy(&mut board, &mut mb, coin::mint_for_testing<SUI>(SUI1, ts::ctx(&mut sc)), one_tile(2, SUI1), &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 62_000);
+    game::settle_for_testing(&mut board, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
+    let round = game::current_round(&board) - 1;
+    assert!(game::round_info_exists_for_testing(&board, round), 1);
+    let (g, s) = game::claim(&mut board, &mut mb, &mut treasury, ts::ctx(&mut sc));
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    assert!(game::round_info_exists_for_testing(&board, round), 2);
+    ts::next_tx(&mut sc, ALICE);
+    let (g, s) = game::claim(&mut board, &mut ma, &mut treasury, ts::ctx(&mut sc));
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    assert!(!game::round_info_exists_for_testing(&board, round), 3);
+    // Everything paid out: only rounding dust may stay in the pot.
+    assert!(game::pot_value(&board) < 100, 4);
+    transfer::public_transfer(ma, ALICE); transfer::public_transfer(mb, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// The minimum deposit can go down to 0.0005 SUI, not below.
+#[test]
+fun test_min_deploy_floor_ok() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 200, 1_000, 500_000, 60_000, 5_000, false);
+    ts::return_shared(board);
+    ts::return_to_sender(&sc, admin);
+    ts::end(sc);
+}
+
+#[test, expected_failure(abort_code = game::EBadParams)]
+fun test_min_deploy_floor() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let admin = ts::take_from_sender<AdminCap>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 200, 1_000, 499_999, 60_000, 5_000, false);
+    abort 0
 }
