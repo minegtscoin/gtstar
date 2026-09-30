@@ -1320,6 +1320,19 @@ function minersHtml(r) {
   }).join("") + `</div>`;
 }
 function renderRevenue() {
+  if (revTab === "winners") {
+    // Every Wealth Fund payout, newest first.
+    const wins = HIST.rounds.filter(r => r.ml?.paid > 0);
+    const paid = wins.reduce((a, r) => a + r.ml.paid, 0);
+    const big = wins.reduce((a, r) => Math.max(a, r.ml.paid), 0);
+    $("revSum").innerHTML = `<div><span>Paid all time</span><b>${sui(paid, 4)} SUI</b></div><div><span>Wins</span><b>${fmt(wins.length, 0)}</b></div><div><span>Biggest win</span><b>${wins.length ? `${sui(big, 4)} SUI` : "—"}</b></div>`;
+    $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>Winner</th><th class="r">Won</th><th class="r">Time</th></tr></thead><tbody>` +
+      (wins.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td>${r.ml.winner ? acctLink(r.ml.winner) : `<span class="muted">Tile winners</span>`}</td>
+        <td class="r">${sui(r.ml.paid, 4)} SUI</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
+        || `<tr><td colspan="4" class="muted">No Wealth Fund winner yet.</td></tr>`) + `</tbody>`;
+    $("moreRev").hidden = wins.length <= revShown;
+    return;
+  }
   const cfg = {
     // Settle adds the round's share; a spread deposit's forfeit is added at claim (the split).
     supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `${fmt((STATE.fundBps || 0) / 100, 2)}% of every losing pot, all of it less fees when no one wins. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
