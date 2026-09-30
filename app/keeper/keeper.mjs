@@ -108,9 +108,9 @@ export default async () => {
           // Fixed budget: the dry run usually takes the no-jackpot path, and a jackpot settle needs more gas.
           tx.setGasBudget(SETTLE_GAS);
           tx.moveCall({
-            target: T("game::settle"),
+            target: T(CFG.relaunch ? "game::settle_v2" : "game::settle"),
             arguments: CFG.relaunch
-              ? [tx.object(CFG.board), tx.object(CFG.treasury), tx.object.random(), tx.object.clock()]
+              ? [tx.object(CFG.board), tx.object.random(), tx.object.clock()]
               : [tx.object(CFG.board), tx.object(CFG.treasury), tx.object(CFG.pool), tx.object.random(), tx.object.clock()],
           });
         });

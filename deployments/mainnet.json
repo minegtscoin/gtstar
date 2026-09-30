@@ -5,11 +5,11 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x264166ed73055b4360de4e8b3168a008779d5219e0712fd8d8ad72b24119b38c",
+  "latest": "0x28936f0202363001b42ec0c55caa331c3948976d78a9861b0cf9e0af14220e43",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
-  "treasury": "0x9997e12537af59b1f3e6bba2593c5c7ef18df9162cd40d0d99370eddd99f11ea",
+  "treasury": "0xd2629e21af2fa4f532f55e04f9caf19c1dec04719b7c1d3b84bed95bcf67cf28",
   "coinMetadata": "0x8819c8d56434ef4078b8c08ee8fa5d709cc9109a4ee7674390b4569ee50a0162",
   "adminCap": "0x93ac4ad9da58ff6ed26d453f1ca31a305552cf630fa79989af6e91a6b38c0098",
   "upgradeCap": "0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1",
@@ -73,6 +73,22 @@
     [
       "Game upgraded: liquidity 3% (was 1%), buyback 1% (was 2%), Wealth Fund 3% (was 4%) of every losing pot",
       "GmBH1YX9s1nZcBdcaKFFkUQjQ1CJ9TBK2G9qE4Ak1Gaa"
+    ],
+    [
+      "Supply lock published: a separate package that seals the GTS mint with a 1,000,000 limit",
+      "8m7BTjXDo4ZXjFeVQJrcKH5dNjtGrM2V6A4X2SNEWbJS"
+    ],
+    [
+      "Supply lock made immutable: its upgrade key was destroyed, so its rules can never change",
+      "BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ"
+    ],
+    [
+      "Game upgraded: claims, draws and withdrawals use the supply lock",
+      "HErpTtk84qKixyPVRQDFfFBM4osHrBimZJ6yQV9YR1zC"
+    ],
+    [
+      "GTS mint sealed in the supply lock: no one, the owner included, can ever mint past 1,000,000; the old treasury was deleted",
+      "DJgdkVtqn1xFJNyLBQJAQ9Fm76Q26QuL6p47fUDqwgzZ"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -81,5 +97,8 @@
   "v6Pkg": "0xfd20b3584720559b109870c1bb295295fcfa21774520500eea9f6253493b551f",
   "v10Pkg": "0xa32053565e5bb314e5caadeb1f2934f3597eab4e1602c0840d4137116f3e952e",
   "v11Pkg": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32",
-  "v12Pkg": "0xaf806a3757661bf243913dd3f1e3809ad8c8682daeaf2479c518d37c6b56be54"
+  "v12Pkg": "0xaf806a3757661bf243913dd3f1e3809ad8c8682daeaf2479c518d37c6b56be54",
+  "oldTreasury": "0x9997e12537af59b1f3e6bba2593c5c7ef18df9162cd40d0d99370eddd99f11ea",
+  "treasuryIsv": 1029366237,
+  "supplyLock": "0xd4e17df7d3fe860fd7d3487a445ef7d96c23a52442469eb66bea5ffd38004e77"
 }

@@ -204,9 +204,9 @@ async function send(label, build) {
   return { ok, ms, change, done };
 }
 const boardArg = tx => tx.sharedObjectRef({ objectId: BOARD, initialSharedVersion: 1, mutable: true });
-const treasuryArg = tx => tx.sharedObjectRef({ objectId: TREASURY, initialSharedVersion: 1, mutable: true });
+const treasuryArg = tx => tx.sharedObjectRef({ objectId: TREASURY, initialSharedVersion: CFG.treasuryIsv, mutable: true });
 function claimInto(tx, minerId) {
-  const s = tx.moveCall({ target: C("game::claim_sui"), arguments: [boardArg(tx), tx.object(minerId), treasuryArg(tx)] });
+  const s = tx.moveCall({ target: C("game::claim_sui_v2"), arguments: [boardArg(tx), tx.object(minerId), treasuryArg(tx)] });
   tx.mergeCoins(tx.gas, [s]);
 }
 
@@ -349,7 +349,7 @@ async function afterRound(b) {
   }
   if (!w.miner || w.miner.round === 0) { owe = false; return false; }
   if (b.cur_started && w.miner?.round === cur && Date.now() > Number(b.cur_end_ms) + SETTLE_AFTER_MS) {
-    await send(`settle #${cur}`, tx => tx.moveCall({ target: C("game::settle"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.random(), tx.object.clock()] }));
+    await send(`settle #${cur}`, tx => tx.moveCall({ target: C("game::settle_v2"), arguments: [boardArg(tx), tx.object.random(), tx.object.clock()] }));
     return true;
   }
   return false;
@@ -364,7 +364,7 @@ async function chores() {
   const free = clock && Date.now() >= Number(u64(clock)) + WEEK;
   if (amount > 0n && free) {
     await send("stake gts", tx => {
-      const g = tx.moveCall({ target: C("game::withdraw_gts_v6"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.clock()] });
+      const g = tx.moveCall({ target: C("game::withdraw_gts_v7"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.clock()] });
       tx.moveCall({ target: C("game::stake"), arguments: [boardArg(tx), g, tx.pure.bool(true), tx.object.clock()] });
     });
     state.staked = true; save();

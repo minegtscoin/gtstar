@@ -2,9 +2,10 @@
   "network": "mainnet",
   "relaunch": true,
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
-  "package": "0x264166ed73055b4360de4e8b3168a008779d5219e0712fd8d8ad72b24119b38c",
+  "package": "0x28936f0202363001b42ec0c55caa331c3948976d78a9861b0cf9e0af14220e43",
   "origin": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "liqPkg": "0x5568379d2cbbb33d8a2566397b4c35b187c386cdbb58aaa850b16079031f6e32",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
-  "treasury": "0x9997e12537af59b1f3e6bba2593c5c7ef18df9162cd40d0d99370eddd99f11ea"
+  "treasury": "0xd2629e21af2fa4f532f55e04f9caf19c1dec04719b7c1d3b84bed95bcf67cf28",
+  "treasuryIsv": 1029366237
 }

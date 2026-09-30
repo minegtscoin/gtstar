@@ -15,7 +15,7 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 
 | | |
 |---|---|
-| Max supply | 1,000,000 GTS, hard cap in the contract |
+| Max supply | 1,000,000 GTS, locked for good: the mint authority is sealed in an immutable contract (`supply_lock`), so no one can raise the cap, the owner included |
 | Premine / team / presale | None |
 | Emission | 1 GTS per round, shared by SUI deployed, win or lose (full reward from 1 SUI in the round, less for smaller rounds: 0.25 SUI mines 0.25 GTS). Every 15,658 rounds the reward drops 1.425%. The cut follows rounds, not GTS mined, so the 1,000,000 cap is a ceiling: full rounds every time would mint about 1,099,000, and rounds below 1 SUI mint less, so the final supply can end below 1,000,000. Counted by rounds played, not by date |
 | Losing pot | 90% winners · 3% Wealth Fund · 1% buyback (GTS bought on Cetus, all of it paid to GTS stakers) · 3% liquidity (half buys GTS, both halves added to the Cetus GTS/SUI pool, the position locked in the game for good) · 2% stakers · 1% creator. Winners split it by their stake on the winning tile and keep all of it, no cut. At most 5 tiles per wallet per round (one miner per wallet per round) |
@@ -28,15 +28,21 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 
 ## Contract
 
-One package, [`contracts/gtstar`](contracts/gtstar):
+Two packages.
+
+[`contracts/supply_lock`](contracts/supply_lock), immutable (its upgrade key was destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ)): holds the GTS mint authority in a `CappedTreasury` that never lets the total ever minted pass 1,000,000. No function returns the mint authority or changes the limit, and no one can change this code, the owner included. The game mints round rewards through it and can never go past the cap. Package `0xd4e17df7d3fe860fd7d3487a445ef7d96c23a52442469eb66bea5ffd38004e77`, CappedTreasury `0xd2629e21af2fa4f532f55e04f9caf19c1dec04719b7c1d3b84bed95bcf67cf28`.
+
+[`contracts/gtstar`](contracts/gtstar), the game (upgradable by the owner):
 
 | Module | Contents |
 |---|---|
-| `gts` | GTS coin and the 1,000,000 cap (redemption closed, no reserve) |
+| `gts` | GTS coin type (redemption closed, no reserve). Its mint authority moved to `supply_lock` on 2026-09-30 |
 | `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances |
 | `staking` | GTS staking with SUI yield |
 
-During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract (Wealth Fund odds 1 in 100 to 1 in 1,000,000, 1-25 tiles, minimum deposit 0.0005-10 SUI, rounds 30 s to 1 h, withdraw fee up to 50%, emission up to 10 GTS a round with a cut up to 50% a step, never past the cap, and a pause of new deposits), each fee share it can set has its own cap (stakers 5%, Wealth Fund 10%), and the buyback (1%) and liquidity (3%) shares are fixed. The keeper buys back once 0.01 SUI is saved and adds liquidity once 0.1 SUI is saved, moving the pool price at most 2% per buy. The buyback SUI can only be spent by the keeper in a transaction that hands the GTS it bought back to the game, which pays it to the stakers (`buyback_take` / `buyback_keep`), and the liquidity SUI only in one that hands back a Cetus position, locked in the game for good (`liquidity_take` / `liquidity_lock`). The `UpgradeCap` (policy 0, no timelock) can publish any new code, including code that moves SUI held by the game or the Wealth Fund. Fixed: the 1% creator fee, the 1% buyback, the 3% liquidity share, the 1,000,000 cap, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
+What the owner can still do with a game upgrade: change the rules, the fees and who receives GTS that is not mined yet. What no one can do: mint past 1,000,000 GTS.
+
+During the launch phase the owner holds the `AdminCap` and the `UpgradeCap`, so settings and code can change at once and bugs can be fixed right away. Settings stay within limits written in the contract (Wealth Fund odds 1 in 100 to 1 in 1,000,000, 1-25 tiles, minimum deposit 0.0005-10 SUI, rounds 30 s to 1 h, withdraw fee up to 50%, emission up to 10 GTS a round with a cut up to 50% a step, never past the cap, and a pause of new deposits), each fee share it can set has its own cap (stakers 5%, Wealth Fund 10%), and the buyback (1%) and liquidity (3%) shares are fixed. The keeper buys back once 0.01 SUI is saved and adds liquidity once 0.1 SUI is saved, moving the pool price at most 2% per buy. The buyback SUI can only be spent by the keeper in a transaction that hands the GTS it bought back to the game, which pays it to the stakers (`buyback_take` / `buyback_keep`), and the liquidity SUI only in one that hands back a Cetus position, locked in the game for good (`liquidity_take` / `liquidity_lock`). The `UpgradeCap` (policy 0, no timelock) can publish any new code, including code that moves SUI held by the game or the Wealth Fund. The `UpgradeCap` cannot touch the 1,000,000 cap: it lives in the immutable `supply_lock` package, outside the game package. Fixed: the 1% creator fee, the 1% buyback, the 3% liquidity share, and no address can be blocked from playing, claiming or withdrawing. A pause only stops new deposits. `renounce` destroys the `AdminCap` for good; the plan is to give up both caps once the game is stable.
 
 Deployed addresses and every upgrade transaction are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 

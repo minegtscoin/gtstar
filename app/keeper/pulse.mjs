@@ -54,7 +54,7 @@ export function makePulse(client, CFG, log, dir) {
     const tx = new Transaction();
     tx.setSender(me);
     if (miner && miner.round !== 0) {
-      const s = tx.moveCall({ target: C("game::claim_sui"), arguments: [tx.object(CFG.board), tx.object(miner.id), tx.object(CFG.treasury)] });
+      const s = tx.moveCall({ target: C("game::claim_sui_v2"), arguments: [tx.object(CFG.board), tx.object(miner.id), tx.object(CFG.treasury)] });
       tx.mergeCoins(tx.gas, [s]);
     }
     let m = miner ? tx.object(miner.id) : null, fresh = false;

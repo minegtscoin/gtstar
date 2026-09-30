@@ -1,7 +1,11 @@
 /// GTS token (relaunch).
 ///
-///  - Hard cap of 1,000,000 GTS. No premine: GTS is only minted by the game in this package
-///    (`mint` is package-only), and never past the cap. Burned GTS is never re-minted.
+///  - Hard cap of 1,000,000 GTS. No premine: GTS is only minted by the game, and never past the cap.
+///    Burned GTS is never re-minted.
+///  - Supply lock (game v15): `release` hands the TreasuryCap to `supply_lock::capped`, a separate package
+///    that was made immutable. It seals the cap in a `CappedTreasury` whose 1,000,000 limit can never
+///    change or be bypassed, by anyone, the owner included; this Treasury is deleted in the same call.
+///    After that, `mint` and `burn` below can no longer be called (there is no Treasury to pass).
 ///  - No reserve from v9: GTS cannot be redeemed for SUI (`redeem` and `vault_add` abort), and the SUI
 ///    that was in the reserve moved to the game's Wealth Fund (`game::reserve_to_fund`). GTS trades
 ///    only on the market. `vault` stays in the object (fields cannot be removed) and is empty.
@@ -71,6 +75,15 @@ public fun vault_add(_t: &mut Treasury, _b: Balance<SUI>) {
 /// Closed from v9: GTS cannot be redeemed for SUI.
 public fun redeem(_t: &mut Treasury, _gts: Coin<GTS>, _ctx: &mut TxContext): Coin<SUI> {
     abort ENoReserve
+}
+
+/// Hand the TreasuryCap over for good (game v15, `game::lock_supply` only). Deletes this Treasury; its
+/// reserve is empty from v9. Returns the cap and the total ever minted.
+public(package) fun release(t: Treasury): (TreasuryCap<GTS>, u64) {
+    let Treasury { id, cap, vault, minted } = t;
+    balance::destroy_zero(vault);
+    object::delete(id);
+    (cap, minted)
 }
 
 /// All SUI still in the old reserve, for the one-time move to the Wealth Fund. Game only.

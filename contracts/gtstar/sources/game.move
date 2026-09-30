@@ -39,9 +39,14 @@
 /// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
 /// balance and GTS not used goes to the stakers with the next buyback. No function can take a position out.
 ///
+/// Supply lock (v15): `lock_supply` moved the GTS TreasuryCap into `supply_lock::capped`, a separate
+/// package made immutable, and deleted the old Treasury. GTS can only be minted through its
+/// `CappedTreasury`, and never past 1,000,000 in total: no upgrade of this game, and no one (the owner
+/// included), can change that limit. The game keeps the `MinterCap` and mints only round rewards.
+///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
-/// cap, the buyback (1%), the liquidity share (3%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
+/// cap (enforced by the immutable supply lock from v15), the buyback (1%), the liquidity share (3%), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
 /// deposits.
 #[allow(lint(self_transfer))]
 module gtstar::game;
@@ -58,6 +63,7 @@ use sui::sui::SUI;
 use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
 use gtstar::staking::{Self, Pool as StakePool};
+use supply_lock::capped::{Self, CappedTreasury, MinterCap};
 
 // ===== Constants =====
 const GRID: u64 = 25;
@@ -127,7 +133,7 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 14;
+const VERSION: u64 = 15;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -157,6 +163,7 @@ const ETooManyTiles: u64 = 29;
 const EUseBuybackKeep: u64 = 30;
 const ENoLiquidity: u64 = 31;
 const ENotPosition: u64 = 32;
+const EUseLockedSupply: u64 = 33;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -272,6 +279,9 @@ public struct GtsPos has store, drop { snap: u256, pending: u64 }
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
 
+/// Dynamic field on the Board (v15): the `MinterCap` of the immutable supply lock.
+public struct MinterKey has copy, drop, store {}
+
 /// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
 
@@ -355,6 +365,8 @@ public struct GtsYieldClaimed has copy, drop { player: address, gts: u64 }
 public struct LiquidityLocked has copy, drop { sui_spent: u64, gts_left: u64, position: ID, positions: u64 }
 /// SUI paid to whoever settled a round, out of its Wealth Fund share, then its liquidity share (never the buyback, v13).
 public struct DrawPaid has copy, drop { round_id: u64, settler: address, amount: u64 }
+/// The GTS TreasuryCap was sealed in the immutable supply lock (v15, once).
+public struct SupplyLocked has copy, drop { capped_treasury: ID, minted: u64, max: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
 
@@ -567,6 +579,21 @@ public fun reserve_to_fund(_: &AdminCap, board: &mut Board, treasury: &mut Treas
     let amount = balance::value(&b);
     balance::join(&mut board.motherlode, b);
     event::emit(ReserveToFund { amount, balance: balance::value(&board.motherlode) });
+}
+
+/// Seal the GTS TreasuryCap in the immutable supply lock for good (v15, once). The old Treasury is deleted,
+/// so from here GTS can only be minted through the `CappedTreasury`, never past 1,000,000 in total.
+public fun lock_supply(_: &AdminCap, board: &mut Board, treasury: Treasury, ctx: &mut TxContext) {
+    check_version(board);
+    let (cap, minted) = gts::release(treasury);
+    let m = capped::lock(cap, minted, gts::max_supply(), ctx);
+    event::emit(SupplyLocked { capped_treasury: capped::treasury_of(&m), minted, max: gts::max_supply() });
+    df::add(&mut board.id, MinterKey {}, m);
+}
+
+/// Mint up to `amount` GTS through the supply lock (clamped to the 1,000,000 cap).
+fun mint_gts(board: &Board, t: &mut CappedTreasury<GTS>, amount: u64, ctx: &mut TxContext): Coin<GTS> {
+    capped::mint(t, df::borrow<MinterKey, MinterCap<GTS>>(&board.id, MinterKey {}), amount, ctx)
 }
 
 /// Set the stakers' share of the losing pot (bps), creating the staking pool the first time.
@@ -795,14 +822,20 @@ public fun deploy(
     event::emit(Deployed { round_id: board.cur_id, player: tx_context::sender(ctx), amounts, total: sum });
 }
 
-/// Settle the ended round: draw the winner, take fees, assign the GTS reward, archive, start the next.
-/// `entry` + non-`public` so it cannot be composed/aborted based on the outcome.
-entry fun settle(board: &mut Board, treasury: &mut Treasury, r: &Random, clock: &Clock, ctx: &mut TxContext) {
-    let odds = board.ml_odds;
-    settle_with_odds(board, treasury, r, clock, odds, ctx)
+/// Replaced by `settle_v2` (v15: the old Treasury is gone).
+entry fun settle(_board: &mut Board, _treasury: &mut Treasury, _r: &Random, _clock: &Clock, _ctx: &mut TxContext) {
+    abort EUseLockedSupply
 }
 
-fun settle_with_odds(board: &mut Board, treasury: &mut Treasury, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext) {
+/// Settle the ended round: draw the winner, take fees, assign the GTS reward, archive, start the next.
+/// `entry` + non-`public` so it cannot be composed/aborted based on the outcome. Mints nothing: the
+/// round's GTS is minted when players claim.
+entry fun settle_v2(board: &mut Board, r: &Random, clock: &Clock, ctx: &mut TxContext) {
+    let odds = board.ml_odds;
+    settle_with_odds(board, r, clock, odds, ctx)
+}
+
+fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext) {
     check_version(board);
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
@@ -955,12 +988,17 @@ fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>, ctx: &T
     balance::join(&mut board.unrefined, gts);
 }
 
+/// Replaced by `claim_v2` (v15: the old Treasury is gone).
+public fun claim(_board: &mut Board, _miner: &mut Miner, _treasury: &mut Treasury, _ctx: &mut TxContext): (Coin<GTS>, Coin<SUI>) {
+    abort EUseLockedSupply
+}
+
 /// Claim a settled round: GTS mining reward (everyone) + SUI winnings (if on the winning square).
 /// Mined GTS goes to the unrefined balance (a House bot gets it here). Returns (GTS, SUI).
-public fun claim(
+public fun claim_v2(
     board: &mut Board,
     miner: &mut Miner,
-    treasury: &mut Treasury,
+    treasury: &mut CappedTreasury<GTS>,
     ctx: &mut TxContext,
 ): (Coin<GTS>, Coin<SUI>) {
     check_version(board);
@@ -981,7 +1019,7 @@ public fun claim(
         let lost_total = round_total - winners_total;
         if (lost_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed - my_win, lost_total) }
     } else if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
-    let mined = gts::mint(treasury, gts_amt, ctx);
+    let mined = mint_gts(board, treasury, gts_amt, ctx);
     let mined_amt = coin::value(&mined);
     let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
         add_unrefined(board, player, coin::into_balance(mined), ctx);
@@ -1056,9 +1094,14 @@ public fun claim(
     (gts_coin, sui_coin)
 }
 
-/// `claim` that sends any GTS to the sender and returns the SUI.
-public fun claim_sui(board: &mut Board, miner: &mut Miner, treasury: &mut Treasury, ctx: &mut TxContext): Coin<SUI> {
-    let (g, s) = claim(board, miner, treasury, ctx);
+/// Replaced by `claim_sui_v2` (v15: the old Treasury is gone).
+public fun claim_sui(_board: &mut Board, _miner: &mut Miner, _treasury: &mut Treasury, _ctx: &mut TxContext): Coin<SUI> {
+    abort EUseLockedSupply
+}
+
+/// `claim_v2` that sends any GTS to the sender and returns the SUI.
+public fun claim_sui_v2(board: &mut Board, miner: &mut Miner, treasury: &mut CappedTreasury<GTS>, ctx: &mut TxContext): Coin<SUI> {
+    let (g, s) = claim_v2(board, miner, treasury, ctx);
     if (coin::value(&g) == 0) { coin::destroy_zero(g) } else { transfer::public_transfer(g, tx_context::sender(ctx)) };
     s
 }
@@ -1087,9 +1130,14 @@ fun fee_bps_at(board: &Board, player: address, now: u64): u64 {
     mul_div(board.refine_fee_bps, left, REFINE_WINDOW_MS)
 }
 
+/// Replaced by `withdraw_gts_v7` (v15: the old Treasury is gone).
+public fun withdraw_gts_v6(_board: &mut Board, _treasury: &mut Treasury, _clock: &Clock, _ctx: &mut TxContext): Coin<GTS> {
+    abort EUseLockedSupply
+}
+
 /// Withdraw the whole unrefined balance plus any holder bonus earned before v6. The fee (see
 /// `fee_bps_at`) is burned; the 7-day clock restarts now.
-public fun withdraw_gts_v6(board: &mut Board, treasury: &mut Treasury, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
+public fun withdraw_gts_v7(board: &mut Board, treasury: &mut CappedTreasury<GTS>, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
     let player = tx_context::sender(ctx);
     let key = UnrefinedKey { player };
@@ -1101,7 +1149,7 @@ public fun withdraw_gts_v6(board: &mut Board, treasury: &mut Treasury, clock: &C
     let fee = mul_div(amount, fee_bps, 10_000);
     board.unrefined_total = board.unrefined_total - amount;
     let out = balance::split(&mut board.unrefined, amount - fee + bonus);
-    if (fee > 0) { gts::burn(treasury, coin::from_balance(balance::split(&mut board.unrefined, fee), ctx)) };
+    if (fee > 0) { capped::burn(treasury, coin::from_balance(balance::split(&mut board.unrefined, fee), ctx)) };
     let ck = RefineClockKey { player };
     if (df::exists(&board.id, ck)) { *df::borrow_mut<RefineClockKey, u64>(&mut board.id, ck) = now }
     else { df::add(&mut board.id, ck, now) };
@@ -1189,12 +1237,9 @@ fun lock_position<P: key + store>(board: &mut Board, sui: u64, position: P, left
     event::emit(LiquidityLocked { sui_spent: sui - back, gts_left, position: id, positions: n + 1 });
 }
 
-/// Burn GTS: anyone may burn their own GTS, and supply falls for good.
-public fun burn_bought(treasury: &mut Treasury, gts: Coin<GTS>, _ctx: &mut TxContext) {
-    let amount = coin::value(&gts);
-    if (amount == 0) { coin::destroy_zero(gts); return };
-    gts::burn(treasury, gts);
-    event::emit(BuybackBurned { amount });
+/// Replaced by `supply_lock::capped::burn`, where anyone may burn their own GTS (v15: the old Treasury is gone).
+public fun burn_bought(_treasury: &mut Treasury, _gts: Coin<GTS>, _ctx: &mut TxContext) {
+    abort EUseLockedSupply
 }
 
 // ===== Views =====
@@ -1301,14 +1346,14 @@ public fun staking_position(board: &Board, player: address, locked: bool): (u64,
 public fun init_for_testing(ctx: &mut TxContext) { init(ctx) }
 
 #[test_only]
-public fun settle_for_testing(board: &mut Board, treasury: &mut Treasury, r: &Random, clock: &Clock, ctx: &mut TxContext) {
-    settle(board, treasury, r, clock, ctx)
+public fun settle_for_testing(board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, ctx: &mut TxContext) {
+    settle_v2(board, r, clock, ctx)
 }
 
 #[test_only]
 public fun settle_with_odds_for_testing(
-    board: &mut Board, treasury: &mut Treasury, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
-) { settle_with_odds(board, treasury, r, clock, odds, ctx) }
+    board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
+) { settle_with_odds(board, r, clock, odds, ctx) }
 
 #[test_only]
 public fun round_info_exists_for_testing(board: &Board, round_id: u64): bool { table::contains(&board.rounds, round_id) }

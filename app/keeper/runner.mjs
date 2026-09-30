@@ -51,7 +51,7 @@ const touch = f => { const t = new Date(); try { fs.utimesSync(f, t, t); } catch
 const beat = () => touch(hbFile);
 
 const boardArg = tx => tx.sharedObjectRef({ objectId: CFG.board, initialSharedVersion: 1, mutable: true });
-const treasuryArg = tx => tx.sharedObjectRef({ objectId: CFG.treasury, initialSharedVersion: 1, mutable: true });
+const treasuryArg = tx => tx.sharedObjectRef({ objectId: CFG.treasury, initialSharedVersion: CFG.treasuryIsv, mutable: true });
 
 async function board() {
   return (await node.getObject({ objectId: CFG.board, include: { json: true } })).object.json;
@@ -86,7 +86,7 @@ async function play(b, w) {
   const pending = w.miner && w.miner.round !== 0 && w.miner.round < cur;
   return send(`play #${cur} tile ${tile + 1}`, DEPLOY_GAS, tx => {
     if (pending) {
-      const [g, s] = tx.moveCall({ target: C("game::claim"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx)] });
+      const [g, s] = tx.moveCall({ target: C("game::claim_v2"), arguments: [boardArg(tx), tx.object(w.miner.id), treasuryArg(tx)] });
       tx.mergeCoins(tx.gas, [s]);
       if (w.gts.length) tx.mergeCoins(tx.object(w.gts[0]), [g, ...w.gts.slice(1, 60).map(id => tx.object(id))]);
       else tx.transferObjects([g], me);
@@ -115,7 +115,7 @@ async function main() {
       if (b.cur_started && now >= end + 300) {
         // Draw a round we hold alone at once; one others joined only if nobody drew it within 15s.
         if (low || !inRound || (Number(b.cur_players) !== 1 && now < end + 15_000)) { await sleep(1000); continue; }
-        const ok = await send(`settle #${cur}`, SETTLE_GAS, tx => tx.moveCall({ target: C("game::settle"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.random(), tx.object.clock()] }));
+        const ok = await send(`settle #${cur}`, SETTLE_GAS, tx => tx.moveCall({ target: C("game::settle_v2"), arguments: [boardArg(tx), tx.object.random(), tx.object.clock()] }));
         if (!ok) await sleep(1500);
         continue;
       }

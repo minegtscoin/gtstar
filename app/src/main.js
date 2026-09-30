@@ -536,7 +536,7 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw." },
+  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
 };
@@ -606,7 +606,7 @@ async function exec(label, btnId, build, needMist = 0) {
 // Mined GTS goes to the unrefined balance, so only the SUI comes back.
 function claimInto(tx, minerArg) {
   const args = [tx.object(IDS.board), minerArg, tx.object(IDS.treasury)];
-  tx.transferObjects([tx.moveCall({ target: C("game::claim_sui"), arguments: args })[0]], account.address);
+  tx.transferObjects([tx.moveCall({ target: C("game::claim_sui_v2"), arguments: args })[0]], account.address);
 }
 // Withdraw fee as a fraction right now: the full fee at the clock's start, 0 after 7 days.
 function withdrawFee(U, now = chainNow()) {
@@ -618,7 +618,7 @@ const dhm = ms => { const m = Math.ceil(ms / 60_000), d = Math.floor(m / 1440), 
 // Take the whole unrefined balance out (the fee, if any, is burned; the 7-day clock restarts).
 const withdrawGts = () => exec("Withdraw", "btnWithdraw", tx => {
   if (!(USER?.unrefined?.amount > 0)) throw new Error("Nothing to withdraw.");
-  const [g] = tx.moveCall({ target: C("game::withdraw_gts_v6"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object("0x6")] });
+  const [g] = tx.moveCall({ target: C("game::withdraw_gts_v7"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object("0x6")] });
   tx.transferObjects([g], account.address);
 });
 // `split` may be a transaction result (the exact amount a pool asks for); `amount` is its known upper bound.
@@ -687,7 +687,7 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
 const SETTLE_GAS = 20_000_000; // ~0.011 SUI gross for a settle, more when the Wealth Fund pays
 const settle = () => exec("Draw", "btnPlay", tx => {
   tx.setGasBudget(SETTLE_GAS);
-  tx.moveCall({ target: C("game::settle"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.object.random(), tx.object.clock()] });
+  tx.moveCall({ target: C("game::settle_v2"), arguments: [tx.object(IDS.board), tx.object.random(), tx.object.clock()] });
 });
 let stakeMode = "deposit";
 // Old locked stakes (the lock option is gone) can leave once their 7 days are over.

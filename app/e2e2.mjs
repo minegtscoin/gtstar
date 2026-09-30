@@ -45,19 +45,19 @@ await run("deploy", tx => {
 let b = await board();
 console.log("round", b.cur_id, "ends in", Math.round((+b.cur_end_ms - Date.now()) / 1000), "s");
 await sleep(Math.max(0, +b.cur_end_ms - Date.now()) + 2000);
-await run("settle", tx => tx.moveCall({ target: G("settle"), arguments: [tx.object(dep.board), tx.object(dep.treasury), tx.object.random(), tx.object.clock()] }), 50_000_000);
+await run("settle", tx => tx.moveCall({ target: G("settle_v2"), arguments: [tx.object(dep.board), tx.object.random(), tx.object.clock()] }), 50_000_000);
 b = await board();
 console.log("after settle: round", b.cur_id, "committed", +b.committed / 1e9, "GTS, fund", +b.motherlode / 1e9, "SUI");
 const mid = await minerId();
 await run("claim", tx => {
-  const [s] = tx.moveCall({ target: G("claim_sui"), arguments: [tx.object(dep.board), tx.object(mid), tx.object(dep.treasury)] });
+  const [s] = tx.moveCall({ target: G("claim_sui_v2"), arguments: [tx.object(dep.board), tx.object(mid), tx.object(dep.treasury)] });
   tx.transferObjects([s], addr);
 });
 b = await board();
 console.log("unrefined total", +b.unrefined_total / 1e9, "GTS");
 await run("withdraw", tx => {
-  const [g] = tx.moveCall({ target: G("withdraw_gts"), arguments: [tx.object(dep.board), tx.object(dep.treasury)] });
+  const [g] = tx.moveCall({ target: G("withdraw_gts_v7"), arguments: [tx.object(dep.board), tx.object(dep.treasury), tx.object.clock()] });
   tx.transferObjects([g], addr);
 });
 const t = (await client.query({ query: `{object(address:"${dep.treasury}"){asMoveObject{contents{json}}}}` })).data.object.asMoveObject.contents.json;
-console.log("treasury: minted", +t.minted / 1e9, "supply", +t.cap.total_supply.value / 1e9, "reserve", +t.vault / 1e9, "SUI");
+console.log("treasury: minted", +t.minted / 1e9, "supply", +t.cap.total_supply.value / 1e9, "max", +t.max / 1e9);
