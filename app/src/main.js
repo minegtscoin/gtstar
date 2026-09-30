@@ -1795,7 +1795,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { closeModal
 document.querySelectorAll(".quick [data-add]").forEach(b => (b.onclick = () => {
   $("amt").value = String(+(parseAmt($("amt").value) + parseFloat(b.dataset.add)).toFixed(4)); render();
 }));
-$("amtClear").onclick = () => { $("amt").value = "0"; render(); };
+$("amtClear").onclick = () => { $("amt").value = "0"; selected.clear(); render(); };
 $("amt").addEventListener("input", render);
 $("amt").addEventListener("focus", e => { if (e.target.value === "0") e.target.value = ""; });
 $("amt").addEventListener("blur", e => { if (!e.target.value) e.target.value = "0"; });
