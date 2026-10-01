@@ -133,6 +133,10 @@
     [
       "Game upgraded after an outside review: the draw reward is up to 0.008 SUI and comes only from the Wealth Fund share (liquidity keeps its full 2%); if the market is not usable the plain draw pays after 6 hours, and after 7 days the buyback and liquidity SUI goes to the Wealth Fund, so nothing is stuck and the game needs no one to keep running; the locked positions' fees are compounded only within 2% of the reference price; only the player can collect their own owed GTS",
       "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
+    ],
+    [
+      "Emission lowered: a round now needs 7 SUI for its full 1 GTS (was 1 SUI), so 1 SUI mines about 0.143 GTS; this setting can only be raised, never lowered",
+      "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",

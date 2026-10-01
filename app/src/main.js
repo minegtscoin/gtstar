@@ -1392,7 +1392,7 @@ function renderMine() {
     else label = `Deploy ${fmt(per * selected.size, 4)} SUI`;
     $("btnPlay").textContent = label; $("btnPlay").disabled = dis;
   } else if (busy !== "btnPlay") { $("btnPlay").textContent = "Waiting for your wallet"; $("btnPlay").disabled = true; }
-  let hint = `Minimum ${min} SUI per tile. Every SUI you deploy mines GTS, win or lose.`;
+  let hint = `Minimum ${min} SUI per tile. Every SUI you deploy mines about ${fmt(gtsPerSui(), 3)} GTS, win or lose.`;
   if (claimable && (p === "open" || p === "live")) {
     const R = rewards();
     hint = `${per * selected.size > 0 ? `You pay ${fmt(per * selected.size, 4)} SUI. ` : ""}Your rewards from the last round${R.gts ? ` (${sui(R.gts, 4)} GTS${R.sui ? `, ${sui(R.sui, 4)} SUI` : ""})` : ""} are collected in the same transaction.`;
@@ -1424,7 +1424,8 @@ function autoPlan() {
     tiles, perTile, onTiles: perTile * tiles, keeperFee: fee, buybackFee: per - fee - perTile * tiles,
   };
 }
-// GTS one SUI on tiles mines while the round holds no more than the full-reward deposit (1 GTS per SUI at launch).
+// GTS one SUI on tiles mines while the round holds no more than the full-reward deposit (1 GTS per SUI at
+// launch; about 0.143 since 2026-10-01, when the full reward moved to 7 SUI in the round).
 const gtsPerSui = () => roundReward() / (em().full / MIST);
 function renderAutoForm(a, has) {
   const p = autoPlan(), b = STATE?.board, bal = a?.balance || 0;
