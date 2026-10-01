@@ -1087,14 +1087,15 @@ fun claim_yield_as(sc: &mut Scenario, who: address): u64 {
     v
 }
 
-/// Flexible (1x) and locked (1.5x) share the stakers' 3% by weight: 40% / 60%.
+/// Flexible (1x) and locked (1.5x) share the stakers' 3% by weight: 40% / 60% (once their hour of
+/// warm-up is over).
 #[test]
 fun test_staking_yield_split() {
     let mut sc = ts::begin(@0x0);
     setup_staking(&mut sc);
     stake_as(&mut sc, ALICE, GTS1, false, 1);
     stake_as(&mut sc, BOB, GTS1, true, 1);
-    carol_round(&mut sc, 10);
+    carol_round(&mut sc, HOUR);
     let pot = 72_000_000; // 3% of 2.4 SUI
     assert!(claim_yield_as(&mut sc, ALICE) == pot * 2 / 5, 1);
     assert!(claim_yield_as(&mut sc, BOB) == pot * 3 / 5, 2);
@@ -1140,31 +1141,176 @@ fun test_lock_holds() {
     abort 0
 }
 
-/// After 7 days: poke drops the lock to 1x, and the GTS can leave.
+fun totals_weight(sc: &mut Scenario): u128 {
+    ts::next_tx(sc, OWNER);
+    let board = ts::take_shared<Board>(sc);
+    let (_, weight, _, _) = game::staking_totals(&board);
+    ts::return_shared(board);
+    weight
+}
+
+fun unstake_as(sc: &mut Scenario, who: address, amt: u64, locked: bool, now: u64): u64 {
+    ts::next_tx(sc, who);
+    let mut board = ts::take_shared<Board>(sc);
+    let mut clk = clock::create_for_testing(ts::ctx(sc));
+    clock::set_for_testing(&mut clk, now);
+    let g = game::unstake(&mut board, amt, locked, &clk, ts::ctx(sc));
+    let v = coin::value(&g);
+    coin::burn_for_testing(g);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    v
+}
+
+/// After 7 days the lock ends by itself: the first draw after it drops the weight to 1x, with nobody
+/// calling anything for it, and the GTS can leave.
 #[test]
-fun test_lock_ends() {
+fun test_lock_ends_in_the_draw() {
     let mut sc = ts::begin(@0x0);
     setup_staking(&mut sc);
     stake_as(&mut sc, BOB, GTS1, true, 1);
     stake_as(&mut sc, ALICE, GTS1, false, 1);
+    // A round after the warm-up: Bob earns 1.5x.
+    carol_round(&mut sc, HOUR);
+    assert!(totals_weight(&mut sc) == (25 * GTS1 as u128), 1);
+    let a1 = claim_yield_as(&mut sc, ALICE);
+    assert!(claim_yield_as(&mut sc, BOB) == a1 * 3 / 2, 2);
+    // A round after the 7 days: the draw itself ends the lock before paying, so the two earn the same.
     let week = 7 * 86_400_000 + 2;
+    carol_round(&mut sc, week);
+    assert!(totals_weight(&mut sc) == (20 * GTS1 as u128), 3);
+    assert!(claim_yield_as(&mut sc, ALICE) == claim_yield_as(&mut sc, BOB), 4);
+    assert!(unstake_as(&mut sc, BOB, GTS1, true, week + 100_000) == GTS1, 5);
+    ts::end(sc);
+}
+
+/// `poke` still ends a lock for one player at any time (anyone may call it).
+#[test]
+fun test_poke_ends_lock() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    carol_round(&mut sc, HOUR);
+    assert!(totals_weight(&mut sc) == (15 * GTS1 as u128), 1);
     ts::next_tx(&mut sc, CAROL);
     let mut board = ts::take_shared<Board>(&sc);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    clock::set_for_testing(&mut clk, week);
+    clock::set_for_testing(&mut clk, 7 * 86_400_000 + 2);
     game::poke(&mut board, BOB, &clk);
     let (_, weight, _, _) = game::staking_totals(&board);
-    assert!(weight == (20 * GTS1 as u128), 1);
-    ts::return_shared(board);
-    carol_round(&mut sc, week);
-    // Equal weights now: equal yield.
-    assert!(claim_yield_as(&mut sc, ALICE) == claim_yield_as(&mut sc, BOB), 2);
-    ts::next_tx(&mut sc, BOB);
-    let mut board = ts::take_shared<Board>(&sc);
-    let g = game::unstake(&mut board, GTS1, true, &clk, ts::ctx(&mut sc));
-    assert!(coin::value(&g) == GTS1, 3);
-    coin::burn_for_testing(g);
+    assert!(weight == (10 * GTS1 as u128), 2);
     clock::destroy_for_testing(clk);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// New stake earns nothing for its first hour: staking just before a round and leaving right after it
+/// gets none of that round. The stake that was already earning gets all of it.
+#[test]
+fun test_stake_warms_up_for_an_hour() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    carol_round(&mut sc, HOUR); // Alice is earning from here on
+    let pot = 72_000_000;
+    assert!(claim_yield_as(&mut sc, ALICE) == pot, 1);
+    // Bob stakes 100 times more a moment before the next round, and leaves right after it.
+    let t = 2 * HOUR;
+    stake_as(&mut sc, BOB, 100 * GTS1, false, t);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (warming, at) = game::staking_warming(&board, BOB, false);
+    assert!(warming == 100 * GTS1 && at == t + HOUR, 2);
+    let (amount, weight, _, _) = game::staking_totals(&board);
+    assert!(amount == 101 * GTS1 && weight == (10 * GTS1 as u128), 3); // only Alice's GTS has weight
+    ts::return_shared(board);
+    carol_round(&mut sc, t);
+    assert!(unstake_as(&mut sc, BOB, 100 * GTS1, false, t + 100_000) == 100 * GTS1, 4);
+    assert!(claim_yield_as(&mut sc, BOB) == 0, 5);
+    assert!(claim_yield_as(&mut sc, ALICE) == pot, 6);
+    ts::end(sc);
+}
+
+/// After the hour the draw starts the new stake earning by itself, flexible and locked alike.
+#[test]
+fun test_warm_up_ends_in_the_draw() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    // 59 minutes in: nobody earns yet, so the stakers' share goes to the Wealth Fund.
+    carol_round(&mut sc, 59 * 60_000 - 62_000);
+    assert!(totals_weight(&mut sc) == 0, 1);
+    assert!(claim_yield_as(&mut sc, ALICE) == 0 && claim_yield_as(&mut sc, BOB) == 0, 2);
+    // Past the hour: both earn, 1x and 1.5x.
+    carol_round(&mut sc, HOUR);
+    assert!(totals_weight(&mut sc) == (25 * GTS1 as u128), 3);
+    let pot = 72_000_000;
+    assert!(claim_yield_as(&mut sc, ALICE) == pot * 2 / 5 && claim_yield_as(&mut sc, BOB) == pot * 3 / 5, 4);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (warming, _) = game::staking_warming(&board, ALICE, false);
+    let (warm_q, lock_q) = game::staking_queued(&board);
+    assert!(warming == 0 && warm_q == 0 && lock_q == 1, 5); // Bob's lock end is still queued
+    let (warm_ms, lock_ms) = game::staking_times();
+    assert!(warm_ms == HOUR && lock_ms == 7 * 24 * HOUR, 6);
+    ts::return_shared(board);
+    ts::end(sc);
+}
+
+/// Staking more does not stop what already earns: only the new part warms up, and leaving takes the
+/// warming part first.
+#[test]
+fun test_adding_stake_keeps_the_earning_part() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    carol_round(&mut sc, HOUR);
+    let pot = 72_000_000;
+    assert!(claim_yield_as(&mut sc, ALICE) == pot, 1);
+    let t = 2 * HOUR;
+    stake_as(&mut sc, ALICE, 3 * GTS1, false, t);
+    assert!(totals_weight(&mut sc) == (10 * GTS1 as u128), 2); // still 1 GTS earning
+    carol_round(&mut sc, t);
+    assert!(claim_yield_as(&mut sc, ALICE) == pot, 3);
+    // Taking 2 GTS out comes from the 3 warming: 1 earning, 1 warming left.
+    assert!(unstake_as(&mut sc, ALICE, 2 * GTS1, false, t + 200_000) == 2 * GTS1, 4);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (warming, _) = game::staking_warming(&board, ALICE, false);
+    let (amount, weight, _, _) = game::staking_totals(&board);
+    assert!(warming == GTS1 && amount == 2 * GTS1 && weight == (10 * GTS1 as u128), 5);
+    ts::return_shared(board);
+    // An hour after the second stake both earn.
+    carol_round(&mut sc, t + HOUR);
+    assert!(totals_weight(&mut sc) == (20 * GTS1 as u128), 6);
+    ts::end(sc);
+}
+
+/// A lock that is already queued, or no lock at all: `queue_lock` (for locks made before the queue
+/// existed) queues only a lock that still earns 1.5x and fits the queue's order.
+#[test]
+fun test_queue_lock() {
+    let mut sc = ts::begin(@0x0);
+    setup_staking(&mut sc);
+    stake_as(&mut sc, BOB, GTS1, true, 1);
+    stake_as(&mut sc, ALICE, GTS1, false, 1);
+    carol_round(&mut sc, HOUR);
+    ts::next_tx(&mut sc, CAROL);
+    let mut board = ts::take_shared<Board>(&sc);
+    assert!(!game::queue_lock(&mut board, ALICE, ts::ctx(&mut sc)), 1); // no lock
+    assert!(!game::queue_lock(&mut board, CAROL, ts::ctx(&mut sc)), 2); // no stake
+    assert!(game::queue_lock(&mut board, BOB, ts::ctx(&mut sc)), 3);    // a second entry for the same lock is harmless
+    let (_, lock_q) = game::staking_queued(&board);
+    assert!(lock_q == 2, 4);
+    ts::return_shared(board);
+    // Both entries are worked off by the draw after the lock ends; the weight drops once.
+    carol_round(&mut sc, 7 * 86_400_000 + 2);
+    assert!(totals_weight(&mut sc) == (20 * GTS1 as u128), 5);
+    ts::next_tx(&mut sc, OWNER);
+    let board = ts::take_shared<Board>(&sc);
+    let (_, lock_q) = game::staking_queued(&board);
+    assert!(lock_q == 0, 6);
     ts::return_shared(board);
     ts::end(sc);
 }

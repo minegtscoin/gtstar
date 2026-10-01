@@ -44,6 +44,10 @@ const V6_PKG = IDS.v6;
 // The market upgrade (2026-10-01): buyback and liquidity inside the draw, and GTS owed when the daily mint
 // limit is full (OwedKey, a type introduced by that version).
 const MARKET_PKG = IDS.v18;
+// Staking warm-up and queues (2026-10-01): new stake earns after an hour, and the draw ends locks by
+// itself. The Schedule (a type from that version) holds what is still warming up.
+const SCHED_PKG = IDS.v20;
+const WARM_MS = 3_600_000;
 const REFINE_WINDOW_MS = 7 * 86_400_000;
 
 const $ = id => document.getElementById(id);
@@ -311,7 +315,9 @@ async function loadUser(addr) {
   };
 }
 
-// The player's two staking positions (flexible, locked), read from the pool's table.
+// The player's two staking positions (flexible, locked), read from the pool's table, each with the part
+// of it still warming up (read from the Schedule's table).
+let WARM_TABLE = null;
 async function loadStake(addr) {
   const tbl = STATE?.stake?.table;
   if (!tbl) return null;
@@ -319,10 +325,15 @@ async function loadStake(addr) {
   const q = alias => `${alias}:dynamicField(name:{type:"${STK_PKG}::staking::PosKey",bcs:"${key(alias === "l")}"}){value{... on MoveValue{json}}}`;
   // A Table is not an object: its entries are read as dynamic fields of its address.
   const g = alias => `${alias}:dynamicField(name:{type:"${V12_PKG}::game::GtsPosKey",bcs:"${key(alias === "gl")}"}){value{... on MoveValue{json}}}`;
-  const d = await gql(`{object:address(address:"${tbl}"){${q("f")} ${q("l")}}${V12_PKG ? ` b:object(address:"${IDS.board}"){${g("gf")} ${g("gl")}}` : ""}}`);
+  if (SCHED_PKG && !WARM_TABLE) {
+    const sj = (await gql(`{b:object(address:"${IDS.board}"){s:dynamicField(name:{type:"${SCHED_PKG}::game::ScheduleKey",bcs:"AA=="}){value{... on MoveValue{json}}}}}`)).b?.s?.value?.json;
+    WARM_TABLE = sj?.warm?.id || null;
+  }
+  const d = await gql(`{object:address(address:"${tbl}"){${q("f")} ${q("l")}}${V12_PKG ? ` b:object(address:"${IDS.board}"){${g("gf")} ${g("gl")}}` : ""}${WARM_TABLE ? ` w:address(address:"${WARM_TABLE}"){${q("f")} ${q("l")}}` : ""}}`);
   const gp = j => ({ snap: BigInt(j?.snap || 0), pending: BigInt(j?.pending || 0) }); // no entry yet: staked before v12, snap 0
-  const pos = (j, gj) => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0), gts: gp(gj) } : null;
-  return { flex: pos(d.object?.f?.value?.json, d.b?.gf?.value?.json), lock: pos(d.object?.l?.value?.json, d.b?.gl?.value?.json) };
+  const wp = j => (j ? { amount: num(j.amount), at: num(j.at) } : { amount: 0, at: 0 });
+  const pos = (j, gj, wj) => j ? { amount: num(j.amount), weight: BigInt(j.weight || 0), until: num(j.locked_until), snap: BigInt(j.snap || 0), pending: BigInt(j.pending || 0), gts: gp(gj), warm: wp(wj) } : null;
+  return { flex: pos(d.object?.f?.value?.json, d.b?.gf?.value?.json, d.w?.f?.value?.json), lock: pos(d.object?.l?.value?.json, d.b?.gl?.value?.json, d.w?.l?.value?.json) };
 }
 const posYield = p => (p && STATE?.stake ? p.pending + p.weight * (STATE.stake.acc - p.snap) / STAKE_SCALE : 0n);
 // GTS from the buyback, same weights, its own accumulator (same 1e18 scale).
@@ -798,16 +809,16 @@ const settle = () => exec("Draw", "btnPlay", async tx => {
   }
   drawCall(tx, market);
 });
-let stakeMode = "deposit";
-// Old locked stakes (the lock option is gone) can leave once their 7 days are over.
+let stakeMode = "deposit", stakeLocked = false;
+// A locked stake can leave once its 7 days are over.
 const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= chainNow() ? l.amount : 0; };
 const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
   const amt = toMist($("stakeAmt").value);
   if (amt <= 0) throw new Error("Enter an amount.");
   if (stakeMode === "deposit") {
-    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(false), tx.object.clock()] });
+    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(stakeLocked), tx.object.clock()] });
   } else {
-    // Flexible first, then any unlocked old locked stake.
+    // Flexible first, then any locked stake whose 7 days are over.
     const flex = Math.min(amt, USER?.stake?.flex?.amount || 0), rest = Math.min(amt - flex, lockFree());
     const out = [];
     if (flex > 0) out.push(tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(flex), tx.pure.bool(false), tx.object.clock()] })[0]);
@@ -1816,9 +1827,17 @@ function renderStake() {
   const S = STATE.stake, U = USER?.stake, now = Date.now();
   const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
   $("sFlex").textContent = USER ? `${sui(total, 4)} GTS` : "—";
+  // The locked part, and when it can leave (the draw drops it to 1x by itself once the 7 days are over).
+  const cnow = chainNow();
+  $("sLockRow").hidden = !(l?.amount > 0);
+  if (l?.amount > 0) $("sLock").textContent = `${sui(l.amount, 4)} GTS · ${l.until > cnow ? `unlocks in ${dhm(l.until - cnow)}` : "unlocked"}`;
+  // New stake earns after an hour: what is still warming up, and when the last of it starts.
+  const warmAmt = (f?.warm?.amount || 0) + (l?.warm?.amount || 0), warmAt = Math.max(f?.warm?.amount ? f.warm.at : 0, l?.warm?.amount ? l.warm.at : 0);
+  $("sWarmRow").hidden = !(warmAmt > 0);
+  if (warmAmt > 0) $("sWarm").textContent = `${sui(warmAmt, 4)} GTS · ${warmAt > cnow ? `earns in ${dhm(warmAt - cnow)}` : "earns from the next round"}`;
   const pending = posYield(f) + posYield(l), pendingGts = posGts(f) + posGts(l);
-  // Yield is paid when a round is drawn: a fresh stake shows 0 until the next one.
-  $("sPending").textContent = !USER ? "—" : total > 0 && pending === 0n ? "Starts next round" : `${sui(Number(pending), 6)} SUI`;
+  // Yield is paid when a round is drawn: a stake past its warm-up shows 0 until the next one.
+  $("sPending").textContent = !USER ? "—" : total > 0 && pending === 0n ? (warmAmt >= total && warmAt > cnow ? `Starts in ${dhm(warmAt - cnow)}` : "Starts next round") : `${sui(Number(pending), 6)} SUI`;
   // GTS yield came from the buyback until 2026-09-30 (it is burned since): shown only while some is left to claim.
   $("sPendingGts").textContent = !USER ? "—" : `${sui(Number(pendingGts), 6)} GTS`;
   $("sPendingGts").parentElement.hidden = !(pendingGts > 0n);
@@ -1836,11 +1855,15 @@ function renderStake() {
   const apr = stakedSui > 0 && days > 0 ? got / days * 365 / stakedSui * 100 : null;
   $("sApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 1}% of every round's losing pot, paid in SUI, split by stake. Until 2026-09-30 stakers also got the GTS the buyback bought; since then that GTS is burned, and GTS yield earned before stays claimable. APR is what stakers got since launch, SUI plus GTS at today's price, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 1}% of every round's losing pot, paid in SUI, split by stake weight: flexible stake counts 1x, stake locked for 7 days counts 1.5x. New stake starts earning one hour after it is staked. Nothing is minted for staking. APR is what stakers got since launch, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
+  $("stakeKind").hidden = stakeMode !== "deposit";
+  document.querySelectorAll("#stakeKind button").forEach(b => b.setAttribute("aria-selected", String((b.dataset.kind === "lock") === stakeLocked)));
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
-  $("stakeHint").textContent = stakeMode === "deposit" ? "Earn SUI from every round. Withdraw any time." : "Withdraw any time.";
+  $("stakeHint").textContent = stakeMode !== "deposit" ? "Flexible stake can leave any time. Locked stake can leave once its 7 days are over."
+    : stakeLocked ? "1.5x the yield. Locked for 7 days from now; adding more later restarts the 7 days for your whole locked stake. Starts earning after one hour."
+    : "Earn SUI from every round. Starts earning after one hour. Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
     let label = stakeMode === "deposit" ? "Deposit" : "Withdraw", dis = false;
@@ -2241,6 +2264,7 @@ document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
 $("btnStake").onclick = () => (account ? stakeTx() : openWalletModal());
 $("btnStakeClaim").onclick = () => (account ? claimYield() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));
+document.querySelectorAll("#stakeKind button").forEach(b => (b.onclick = () => { stakeLocked = b.dataset.kind === "lock"; renderStake(); }));
 document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
   const avail = stakeMode === "deposit" ? USER.gts : stakedAvail();

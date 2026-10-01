@@ -221,7 +221,13 @@ per UTC day &lt;= 2,000 GTS       (immutable daily limit)</span>
     </ul>
     <p>The ceiling is fixed as well: the 1,000,000 cap and the 2,000 GTS a day limit cannot be changed by anyone, and the emission can only be lowered. What these rules do not do is set the price. GTS has no reserve and cannot be redeemed for SUI: the market decides what it is worth.</p>
     <h3>Staking</h3>
-    <p>Stake GTS and earn SUI: stakers share 1% of every losing pot, split by stake. Nothing is minted for it, so staking never dilutes holders. Withdraw any time.</p>
+    <p>Stake GTS and earn SUI: stakers share 1% of every losing pot, split by stake weight. Nothing is minted for it, so staking never dilutes holders.</p>
+    <ul>
+      <li><strong>Flexible.</strong> Weight 1x. Withdraw any time.</li>
+      <li><strong>Locked for 7 days.</strong> Weight 1.5x, so 50% more yield for the same GTS. It can leave once the 7 days are over; adding more restarts the 7 days for your whole locked stake. When the lock ends, the next draw drops it back to 1x by itself.</li>
+      <li><strong>One hour of warm-up.</strong> New stake, flexible or locked, starts earning one hour after it is staked. So staking right before a large round and leaving right after it earns nothing: the yield goes to those who were already staked.</li>
+    </ul>
+    <span class="code">my_sui_yield = round_share * my_weight / all_weight     (weight = stake earning now, x1.5 if locked)</span>
     <h3 id="market">How the buyback runs</h3>
     <p>No wallet holds the buyback or liquidity SUI, and the game has no function that lets any address take it. The draw itself spends it on the Cetus GTS/SUI pool, before the winner is drawn:</p>
     <ul>

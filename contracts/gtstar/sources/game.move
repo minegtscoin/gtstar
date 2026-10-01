@@ -109,7 +109,7 @@ use sui::random::{Self, Random, RandomGenerator};
 use sui::sui::SUI;
 use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
-use gtstar::staking::{Self, Pool as StakePool};
+use gtstar::staking::{Self, Pool as StakePool, Schedule};
 use supply_lock::capped::{Self, CappedTreasury, MinterCap};
 use mint_limit::daily::{Self, DailyLimiter};
 use auto_vault::vault::{Self, Vault, PullCap};
@@ -226,7 +226,7 @@ const AUTO_HUNTER: u8 = 2; // 0 is Spread
 const AUTO_SPREAD_TILES: u64 = 5;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 19;
+const VERSION: u64 = 20;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -374,6 +374,12 @@ public struct GtsPos has store, drop { snap: u256, pending: u64 }
 /// Dynamic fields on the Board: the staking pool, and the stakers' share of the losing pot in bps.
 public struct StakeKey has copy, drop, store {}
 public struct StakeBpsKey has copy, drop, store {}
+
+/// Dynamic field on the Board (v20): the staking `Schedule` (stake warming up, and the queues of
+/// warm-ups and locks the draw works through).
+public struct ScheduleKey has copy, drop, store {}
+/// Most staking queue entries one draw works through.
+const STAKE_DUE_PER_DRAW: u64 = 20;
 
 /// Dynamic field on the Board (v15): the `MinterCap` of the immutable supply lock.
 public struct MinterKey has copy, drop, store {}
@@ -821,19 +827,31 @@ fun pool_mut(board: &mut Board): &mut StakePool {
 
 // ===== Staking (see `staking`) =====
 
-/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). Yield is paid in SUI from every round, and in
-/// the GTS bought back (v12).
+/// Take the staking Schedule out of the Board (created the first time); `schedule_put` puts it back.
+fun schedule_take(board: &mut Board, ctx: &mut TxContext): Schedule {
+    if (!df::exists(&board.id, ScheduleKey {})) { df::add(&mut board.id, ScheduleKey {}, staking::new_schedule(ctx)) };
+    df::remove(&mut board.id, ScheduleKey {})
+}
+fun schedule_put(board: &mut Board, s: Schedule) { df::add(&mut board.id, ScheduleKey {}, s) }
+
+/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). New stake starts earning one hour later (v20).
+/// Yield is paid in SUI from every round.
 public fun stake(board: &mut Board, gts: Coin<GTS>, locked: bool, clock: &Clock, ctx: &mut TxContext) {
     check_version(board);
     settle_gts_both(board, tx_context::sender(ctx));
-    staking::stake(pool_mut(board), gts, locked, clock, ctx)
+    let mut s = schedule_take(board, ctx);
+    staking::stake(pool_mut(board), &mut s, gts, locked, clock, ctx);
+    schedule_put(board, s);
 }
 
 /// Take staked GTS out: flexible any time, locked once its 7 days have passed.
 public fun unstake(board: &mut Board, amount: u64, locked: bool, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
     settle_gts_both(board, tx_context::sender(ctx));
-    staking::unstake(pool_mut(board), amount, locked, clock, ctx)
+    let mut s = schedule_take(board, ctx);
+    let out = staking::unstake(pool_mut(board), &mut s, amount, locked, clock, ctx);
+    schedule_put(board, s);
+    out
 }
 
 /// Claim all SUI yield of the sender.
@@ -864,11 +882,47 @@ public fun claim_gts(board: &mut Board, ctx: &mut TxContext): Coin<GTS> {
     coin::from_balance(balance::split(&mut gts_yield_mut(board).rewards, total), ctx)
 }
 
-/// Drop `player`'s ended lock back to 1x. Anyone may call it.
+/// Bring `player`'s stake up to now: an ended lock drops back to 1x, a finished warm-up starts earning.
+/// Anyone may call it. The draw does the same for everyone that is due (v20), so nothing depends on it.
 public fun poke(board: &mut Board, player: address, clock: &Clock) {
     check_version(board);
+    if (!df::exists(&board.id, ScheduleKey {})) { return }; // made by the first draw or stake after v20
     settle_gts_both(board, player);
-    staking::poke(pool_mut(board), player, clock)
+    let mut s: Schedule = df::remove(&mut board.id, ScheduleKey {});
+    staking::poke(pool_mut(board), &mut s, player, clock);
+    schedule_put(board, s);
+}
+
+/// The staking step of a draw (v20): work through the warm-ups and lock ends that are due, at most
+/// `STAKE_DUE_PER_DRAW` of them, before the round's share is paid to stakers. It does not depend on the
+/// outcome of the draw.
+fun stake_step(board: &mut Board, now: u64, ctx: &mut TxContext) {
+    if (!df::exists(&board.id, StakeKey {})) { return };
+    // Nothing due (the usual case): the Schedule is only read.
+    if (df::exists(&board.id, ScheduleKey {})) {
+        let (due, _) = staking::next_due(df::borrow<ScheduleKey, Schedule>(&board.id, ScheduleKey {}), now);
+        if (!due) { return };
+    };
+    let mut s = schedule_take(board, ctx);
+    let mut n = 0;
+    while (n < STAKE_DUE_PER_DRAW) {
+        let (due, player) = staking::next_due(&s, now);
+        if (!due) { break };
+        settle_gts_both(board, player);
+        staking::run_due(pool_mut(board), &mut s, now);
+        n = n + 1;
+    };
+    schedule_put(board, s);
+}
+
+/// Put a 7-day lock made before v20 on the queue the draw works through. Anyone may call it; it changes
+/// nothing else. Returns whether it was queued.
+public fun queue_lock(board: &mut Board, player: address, ctx: &mut TxContext): bool {
+    check_version(board);
+    let mut s = schedule_take(board, ctx);
+    let ok = staking::enqueue_lock(pool_ref(board), &mut s, player);
+    schedule_put(board, s);
+    ok
 }
 
 fun pool_ref(board: &Board): &StakePool { df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}) }
@@ -1041,6 +1095,7 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, dr
     // The market not usable for 7 days: its two shares, and what they saved, go to the Wealth Fund (v19).
     let now = clock::timestamp_ms(clock);
     let market_dead = now > market_alive_at(board, now) + MARKET_DEAD_MS;
+    stake_step(board, now, ctx);
 
     if (!df::exists(&board.id, V5FromKey {})) { df::add(&mut board.id, V5FromKey {}, board.cur_id) };
     if (!df::exists(&board.id, RefineFromKey {})) { df::add(&mut board.id, RefineFromKey {}, clock::timestamp_ms(clock)) };
@@ -2002,6 +2057,18 @@ public fun staking_gts_of(board: &Board, player: address): u64 {
         i = i + 1;
     };
     total
+}
+/// Staking times (v20): (ms new stake waits before it earns, ms a lock lasts).
+public fun staking_times(): (u64, u64) { (staking::warm_ms(), staking::lock_ms()) }
+/// (GTS of one of `player`'s positions still warming up, when it starts earning in ms) (v20).
+public fun staking_warming(board: &Board, player: address, locked: bool): (u64, u64) {
+    if (!df::exists(&board.id, ScheduleKey {})) { return (0, 0) };
+    staking::warming_of(df::borrow<ScheduleKey, Schedule>(&board.id, ScheduleKey {}), player, locked)
+}
+/// Staking queue entries waiting for a draw: (warm-ups, lock ends) (v20).
+public fun staking_queued(board: &Board): (u64, u64) {
+    if (!df::exists(&board.id, ScheduleKey {})) { return (0, 0) };
+    staking::queued(df::borrow<ScheduleKey, Schedule>(&board.id, ScheduleKey {}))
 }
 /// (GTS staked, locked until (ms, 0 if flexible), SUI claimable) of one of `player`'s positions.
 public fun staking_position(board: &Board, player: address, locked: bool): (u64, u64, u64) {
