@@ -130,6 +130,8 @@ const c = events(cr).find(e => e.type === "Claimed").json;
 check("claimed GTS", c.gts, reward * total / roundTotal);
 check("claimed SUI", c.sui, myWin > 0n ? myWin + toWinners * myWin / winners : 0n);
 const end = await state();
-check("pot left in the game", end.pot, before.pot);
+// With other players in the round, what they have not claimed yet is still in the pot.
+if (Number(s.players) === 1) check("pot left in the game", end.pot, before.pot);
+else console.log(`  pot in the game ${end.pot} (was ${before.pot}; other players' winnings wait there for their claim)`);
 console.log(failed ? `${failed} CHECK(S) FAILED` : "all checks passed");
 process.exit(failed ? 1 : 0);
