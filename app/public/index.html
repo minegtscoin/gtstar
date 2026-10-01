@@ -377,6 +377,19 @@
         </ul>
       </div>
     </div>
+    <div class="panel liq-panel" id="liqPanel" hidden>
+      <div class="panel-h"><h2>Locked liquidity</h2><a class="muted" href="docs.html#market">How it works</a></div>
+      <p class="note-sm" id="liqInfo"></p>
+      <div class="liq-row">
+        <div class="amount"><input id="liqSui" type="text" inputmode="decimal" placeholder="0" aria-label="Amount of SUI" autocomplete="off" /><span class="unit">SUI</span></div>
+        <button class="ghost-btn" id="btnGiveLiq" type="button">Add liquidity</button>
+      </div>
+      <p class="hint" id="liqHint"></p>
+      <div id="liqPosBox" hidden>
+        <p class="note-sm" id="liqPos"></p>
+        <button class="ghost-btn" id="btnLockPos" type="button">Lock this position in the game</button>
+      </div>
+    </div>
   </section>
 
   <!-- STAKE -->

@@ -641,3 +641,82 @@ fun test_compound_refused_off_the_reference_price() {
     ts::end(sc);
 }
 
+/// Anyone can give the game a position of the market pool: it is locked like the game's own, and its
+/// fees are compounded with the others.
+#[test]
+fun test_lock_position_given_by_anyone() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
+    ts::next_tx(&mut sc, ALICE);
+    let mut p = cetus_pool::open_position(&config, &mut pool, TICK_LO, TICK_HI, ts::ctx(&mut sc));
+    let receipt = cetus_pool::add_liquidity_fix_coin(&config, &mut pool, &mut p, 20 * GTS1, true, &clk);
+    let (a, b) = cetus_pool::add_liquidity_pay_amount(&receipt);
+    let g = game::mint_for_testing(&mut board, &mut treasury, a, &clk, ts::ctx(&mut sc));
+    cetus_pool::repay_add_liquidity(&config, &mut pool, coin::into_balance(g), balance::create_for_testing<SUI>(b), receipt);
+    let id = object::id(&p);
+    let liq = position::liquidity(&p);
+    game::lock_position(&mut board, &pool, p, ts::ctx(&mut sc));
+    assert!(game::lp_positions(&board) == 2 && game::lp_position_id(&board, 1) == id, 1);
+    assert!(liquidity_of(&board, &pool, 1) == liq, 2);
+    // Its fees are collected with the rest.
+    step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk);
+    let bought = outsider_buys(&config, &mut pool, 20_000_000, &clk, ts::ctx(&mut sc));
+    coin::burn_for_testing(bought);
+    fund(&mut sc, &mut board, 0, 40_000_000);
+    let l0 = liquidity_of(&board, &pool, 0);
+    game::compound_fees(&mut board, &config, &mut pool, 0, 20, &clk);
+    assert!(liquidity_of(&board, &pool, 1) == liq, 3); // the given position itself is untouched
+    assert!(liquidity_of(&board, &pool, 0) == l0, 4);  // only SUI fees here: nothing to pair, they wait
+    assert!(game::liquidity_value(&board) > 40_000_000, 5);
+    ts::return_shared(board); ts::return_shared(treasury);
+    done(config, ca, pool, clk);
+    ts::end(sc);
+}
+
+/// A position of another pool is refused.
+#[test, expected_failure(abort_code = game::EWrongPool)]
+fun test_lock_position_of_other_pool_refused() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, _ca, pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
+    let mut other = cetus_pool::new_for_test<GTS, SUI>(200, PRICE, 10_000, string::utf8(b""), 1, &clk, ts::ctx(&mut sc));
+    let p = cetus_pool::open_position(&config, &mut other, TICK_LO, TICK_HI, ts::ctx(&mut sc));
+    game::lock_position(&mut board, &pool, p, ts::ctx(&mut sc));
+    abort 0
+}
+
+/// Anyone can give GTS and SUI: what pairs up at the pool price goes into the game's first position,
+/// the rest comes back, and the price does not move.
+#[test]
+fun test_give_liquidity() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
+    ts::next_tx(&mut sc, ALICE);
+    let l0 = liquidity_of(&board, &pool, 0);
+    let (pool_gts, pool_sui) = { let (a, b) = cetus_pool::balances(&pool); (balance::value(a), balance::value(b)) };
+    // 10 GTS and 1 SUI: at 0.2403 SUI per GTS the SUI is the short side, so all of it goes in with ~4.16 GTS.
+    let g = game::mint_for_testing(&mut board, &mut treasury, 10 * GTS1, &clk, ts::ctx(&mut sc));
+    let (g_back, s_back) = game::give_liquidity(&mut board, &config, &mut pool, g, coin::mint_for_testing<SUI>(SUI1, ts::ctx(&mut sc)), &clk, ts::ctx(&mut sc));
+    let (pool_gts2, pool_sui2) = { let (a, b) = cetus_pool::balances(&pool); (balance::value(a), balance::value(b)) };
+    assert!(coin::value(&s_back) == 0 && pool_sui2 == pool_sui + SUI1, 1);
+    let used = 10 * GTS1 - coin::value(&g_back);
+    assert!(used > 4_100_000_000 && used < 4_200_000_000 && pool_gts2 == pool_gts + used, 2);
+    assert!(liquidity_of(&board, &pool, 0) > l0 && cetus_pool::current_sqrt_price(&pool) == PRICE, 3);
+    assert!(game::liquidity_value(&board) == 0 && game::bought_value(&board) == 0, 4);
+    coin::burn_for_testing(g_back); coin::burn_for_testing(s_back);
+    ts::return_shared(board); ts::return_shared(treasury);
+    done(config, ca, pool, clk);
+    ts::end(sc);
+}
+

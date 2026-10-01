@@ -62,7 +62,9 @@
 /// is saved, the draw buys GTS with 49% of it and adds the GTS with the matching SUI to a Cetus position
 /// locked in the game (`LiquidityAdded`). SUI not used stays saved, GTS not used is burned with the next
 /// buyback. The positions (20, opened by the keeper before v18) are stored in the game for good: no
-/// function can take one out or remove its liquidity. `compound_fees`, open to anyone, collects the
+/// function can take one out or remove its liquidity. Anyone can add to that locked liquidity (v21):
+/// `lock_position` gives the game a whole Cetus position of the pool, `give_liquidity` adds GTS and SUI
+/// at the pool price to the game's first position. `compound_fees`, open to anyone, collects the
 /// trading fees they earn and adds them back to the pool the same way, only while the pool price is
 /// within 2% of the draws' reference price (v19).
 ///
@@ -226,7 +228,7 @@ const AUTO_HUNTER: u8 = 2; // 0 is Spread
 const AUTO_SPREAD_TILES: u64 = 5;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 20;
+const VERSION: u64 = 21;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -525,6 +527,11 @@ public struct FeesCompounded has copy, drop { sui_fees: u64, gts_fees: u64, sui_
 /// The market was not usable in a draw for 7 days (v19): `saved` SUI waiting for the buyback and for
 /// liquidity moved to the Wealth Fund, and so did `share`, this round's buyback and liquidity shares.
 public struct MarketToFund has copy, drop { round_id: u64, saved: u64, share: u64 }
+/// A Cetus position of the market pool was given to the game and locked in it (v21). `positions`: how
+/// many the game holds now.
+public struct PositionLocked has copy, drop { position: ID, liquidity: u128, from: address, positions: u64 }
+/// Liquidity was given to the game: added to its first locked position at the pool price (v21).
+public struct LiquidityGiven has copy, drop { from: address, gts_added: u64, sui_added: u64, position: ID }
 /// The reference price after a draw's market step (v18), a Cetus square-root price.
 public struct PriceRefSet has copy, drop { sqrt_price: u128 }
 /// GTS a player mined that did not fit under the day's mint limit (v18): `owed` is their whole debt now.
@@ -1896,6 +1903,42 @@ fun market_buyback(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPoo
     if (gts_burned == 0) { balance::destroy_zero(gts); return };
     capped::burn(treasury, coin::from_balance(gts, ctx));
     event::emit(BuybackDone { sui_spent, gts_burned });
+}
+
+/// Give a Cetus position of the game's GTS/SUI pool to the game, locked like the ones it already holds
+/// (v21): no function takes a position out or removes its liquidity, and the trading fees it earns go
+/// back into the pool with `compound_fees`. Anyone may give one. It cannot be undone.
+public fun lock_position(board: &mut Board, pool: &CetusPool<GTS, SUI>, position: Position, ctx: &TxContext) {
+    check_version(board);
+    assert!(object::id_address(pool) == market_pool(board), EWrongPool);
+    assert!(cetus_position::pool_id(&position) == object::id(pool), EWrongPool);
+    if (!df::exists(&board.id, LpCountKey {})) { df::add(&mut board.id, LpCountKey {}, 0u64) };
+    let n = *df::borrow<LpCountKey, u64>(&board.id, LpCountKey {});
+    event::emit(PositionLocked { position: object::id(&position), liquidity: cetus_position::liquidity(&position), from: tx_context::sender(ctx), positions: n + 1 });
+    dof::add(&mut board.id, LpKey { i: n }, position);
+    *df::borrow_mut<LpCountKey, u64>(&mut board.id, LpCountKey {}) = n + 1;
+}
+
+/// Give liquidity to the game (v21): as much of `gts` and `sui` as pairs up at the pool price is added to
+/// the game's first locked position, where it stays for good; what does not pair up is returned. Nothing
+/// is bought or sold, so the pool price does not move. Anyone may give. It cannot be undone.
+public fun give_liquidity(
+    board: &mut Board,
+    config: &GlobalConfig,
+    pool: &mut CetusPool<GTS, SUI>,
+    gts: Coin<GTS>,
+    sui: Coin<SUI>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): (Coin<GTS>, Coin<SUI>) {
+    check_version(board);
+    assert!(object::id_address(pool) == market_pool(board), EWrongPool);
+    let (mut g, mut s) = (coin::into_balance(gts), coin::into_balance(sui));
+    let (gts_added, sui_added) = add_to_pool(board, config, pool, &mut g, &mut s, clock);
+    if (gts_added > 0 || sui_added > 0) {
+        event::emit(LiquidityGiven { from: tx_context::sender(ctx), gts_added, sui_added, position: lp_position_id(board, 0) });
+    };
+    (coin::from_balance(g, ctx), coin::from_balance(s, ctx))
 }
 
 /// Collect the trading fees the locked positions `from` to `to - 1` have earned and add them back to

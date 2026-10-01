@@ -47,6 +47,9 @@ const MARKET_PKG = IDS.v18;
 // Staking warm-up and queues (2026-10-01): new stake earns after an hour, and the draw ends locks by
 // itself. The Schedule (a type from that version) holds what is still warming up.
 const SCHED_PKG = IDS.v20;
+// Giving liquidity to the game (2026-10-01): game::lock_position and game::give_liquidity, open to anyone.
+const LIQ_PKG = IDS.v21;
+const T_POSITION = "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
 const WARM_MS = 3_600_000;
 const REFINE_WINDOW_MS = 7 * 86_400_000;
 
@@ -283,7 +286,7 @@ async function loadUser(addr) {
   const ckQ = V6_PKG ? ` ck:dynamicField(name:{type:"${V6_PKG}::game::RefineClockKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}} cf:dynamicField(name:{type:"${V6_PKG}::game::RefineFromKey",bcs:"AA=="}){value{... on MoveValue{json}}}` : "";
   const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}${ckQ}${owQ}}`;
   const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
-    ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)}} ${refQ}}`);
+    ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)}${LIQ_PKG ? " " + objs("p", T_POSITION, 50) : ""}} ${refQ}}`);
   const uj = d.rf?.u?.value?.json, acc = BigInt(d.rf?.asMoveObject?.contents?.json?.acc || 0);
   const unrefined = uj ? { amount: num(uj.amount), bonus: Number(BigInt(uj.bonus) + BigInt(uj.amount) * (acc - BigInt(uj.snap)) / REFINE_SCALE) } : { amount: 0, bonus: 0 };
   // When the 7-day withdraw clock started (ms): own clock, else the v6 start, else 0 (full fee).
@@ -311,6 +314,8 @@ async function loadUser(addr) {
     tickets: num(d.rf?.t?.value?.json),
     miner: miner ? { id: miner.id, round_id: num(miner.f.round_id), deployed: (miner.f.deployed || []).map(num), total: num(miner.f.total_deployed) } : null,
     gtsCoins: coins.map(c => ({ id: c.id, balance: num(c.f.balance) })).sort((a, b) => b.balance - a.balance),
+    // The wallet's own Cetus positions on the GTS/SUI pool, largest first (they can be given to the game).
+    positions: nodes("p").filter(p => p.f.pool === IDS.market).map(p => ({ id: p.id, liquidity: BigInt(p.f.liquidity || 0) })).sort((a, b) => (b.liquidity > a.liquidity ? 1 : -1)),
     stake,
   };
 }
@@ -809,6 +814,29 @@ const settle = () => exec("Draw", "btnPlay", async tx => {
   }
   drawCall(tx, market);
 });
+// Give liquidity to the game: SUI with the GTS that matches it at the pool price goes into the game's
+// first locked position; what does not pair up comes back in the same transaction. Nothing is swapped.
+const giveLiquidity = () => exec("Liquidity added", "btnGiveLiq", tx => {
+  const s = toMist($("liqSui").value), price = gtsSui();
+  if (s <= 0 || !(price > 0)) throw new Error("Enter an amount.");
+  // 2% more GTS than the price asks for, so the SUI is the side used up; never more than the wallet holds.
+  const g = Math.min(USER?.gts || 0, Math.ceil(s / price * 1.02));
+  if (g <= 0) throw new Error("You need GTS in your wallet too: liquidity is added as GTS and SUI together.");
+  const [pay] = tx.splitCoins(tx.gas, [s]);
+  const out = tx.moveCall({ target: C("game::give_liquidity"), arguments: [tx.object(IDS.board), tx.object(CETUS_CFG), tx.object(IDS.market), gtsCoin(tx, g), pay, tx.object.clock()] });
+  tx.transferObjects([out[0], out[1]], account.address);
+}, toMist($("liqSui").value)).then(r => { if (r) $("liqSui").value = ""; });
+// Give a whole Cetus position to the game. Two clicks: it cannot be undone.
+let lockArmed = "";
+const lockPosition = () => {
+  const p = USER?.positions?.[0];
+  if (!p) return;
+  if (lockArmed !== p.id) { lockArmed = p.id; renderTokenomics(); return; }
+  lockArmed = "";
+  return exec("Position locked", "btnLockPos", tx => {
+    tx.moveCall({ target: C("game::lock_position"), arguments: [tx.object(IDS.board), tx.object(IDS.market), tx.object(p.id)] });
+  });
+};
 let stakeMode = "deposit", stakeLocked = false;
 // A locked stake can leave once its 7 days are over.
 const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= chainNow() ? l.amount : 0; };
@@ -1765,6 +1793,23 @@ function renderTokenomics() {
   $("kSchedMax").textContent = fmt(MAX_GTS, 0);
   $("kFund").textContent = `${N.fund()} SUI`;
   $("kPrice").textContent = PRICE.sui ? usd(gtsSui() * PRICE.sui) : `${fmt(gtsSui(), 5)} SUI`;
+  // Locked liquidity: anyone can add to it, for good.
+  $("liqPanel").hidden = !LIQ_PKG || !IDS.market;
+  if (LIQ_PKG && IDS.market) {
+    const price = gtsSui(), s = toMist($("liqSui").value), need = price > 0 ? s / price : 0, have = USER?.gts || 0;
+    $("liqInfo").textContent = "The game holds liquidity positions on the GTS/SUI pool and has no function to take them out. Anyone can add to them. Liquidity goes in as GTS and SUI together, at the pool price, so adding it does not move the price. It cannot be taken back.";
+    $("liqHint").textContent = !account ? "Sign in to add liquidity."
+      : s <= 0 ? `You have ${sui(USER?.sui || 0, 3)} SUI and ${sui(have, 3)} GTS.`
+      : have < need ? `${sui(s, 3)} SUI needs about ${sui(need, 3)} GTS beside it; you have ${sui(have, 3)} GTS, so about ${sui(have * price, 3)} SUI goes in and the rest of the SUI comes back.`
+      : `Adds ${sui(s, 3)} SUI and about ${sui(need, 3)} GTS to the game's locked position. Unused GTS comes back.`;
+    if (!busy) $("btnGiveLiq").disabled = !!account && (s <= 0 || have <= 0);
+    const p = USER?.positions?.[0];
+    $("liqPosBox").hidden = !p;
+    if (p) {
+      $("liqPos").textContent = `Your wallet holds a position on this pool (${p.id.slice(0, 8)}…${p.id.slice(-4)}, liquidity ${fmt(Number(p.liquidity), 0)}${USER.positions.length > 1 ? `, and ${USER.positions.length - 1} more` : ""}). Giving it to the game locks it there for good: you can never take it out or collect its fees again. The fees go back into the pool.`;
+      if (!busy) $("btnLockPos").textContent = lockArmed === p.id ? "Click again to lock it for good" : "Lock this position in the game";
+    }
+  }
   const round = STATE.board.cur_id, e = em(), r = roundReward();
   $("kEpochLbl").textContent = `${fmt(e.committed / MIST, 2)} of ${fmt(MAX_GTS, 0)} GTS mined`;
   $("kRound").textContent = `#${fmt(round, 0)}`;
@@ -2261,6 +2306,9 @@ document.querySelectorAll("#swPct button").forEach(b => (b.onclick = () => {
   const max = swapMax(), v = +b.dataset.pct === 100 ? max : Math.floor(max * +b.dataset.pct / 100);
   $("swIn").value = String(v / MIST); swInput();
 }));
+$("btnGiveLiq").onclick = () => (account ? giveLiquidity() : openWalletModal());
+$("btnLockPos").onclick = () => (account ? lockPosition() : openWalletModal());
+$("liqSui").addEventListener("input", renderTokenomics);
 $("btnStake").onclick = () => (account ? stakeTx() : openWalletModal());
 $("btnStakeClaim").onclick = () => (account ? claimYield() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));

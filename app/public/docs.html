@@ -216,7 +216,7 @@ per UTC day &lt;= 2,000 GTS       (immutable daily limit)</span>
       <li><strong>Expensive to create.</strong> A round needs 7 SUI to mint 1 GTS. On average, mining one GTS costs about 0.67 SUI in fees, so new supply never comes cheap.</li>
       <li><strong>Bought back and burned.</strong> 3% of every losing pot buys GTS on the market and burns it in the same transaction. More play means more GTS gone for good.</li>
       <li><strong>It balances itself.</strong> The buyback spends SUI, so the lower the price, the more GTS it burns. Below about 0.20 SUI per GTS, a round burns more GTS than it mints.</li>
-      <li><strong>Liquidity only grows.</strong> 2% of every losing pot is added to the pool, in positions held by the game. The game has no function to remove them, and their trading fees are added back too.</li>
+      <li><strong>Liquidity only grows.</strong> 2% of every losing pot is added to the pool, in positions held by the game. The game has no function to remove them, and their trading fees are added back too. Anyone can add to this locked liquidity, GTStar's own included: give the game a whole position of the pool, or GTS and SUI at the pool price (Tokenomics page).</li>
       <li><strong>Early sellers pay holders.</strong> Withdrawing mined GTS before 7 days costs up to 10%: half is burned, half goes to everyone still holding.</li>
     </ul>
     <p>The ceiling is fixed as well: the 1,000,000 cap and the 2,000 GTS a day limit cannot be changed by anyone, and the emission can only be lowered. What these rules do not do is set the price. GTS has no reserve and cannot be redeemed for SUI: the market decides what it is worth.</p>
@@ -256,7 +256,7 @@ per UTC day &lt;= 2,000 GTS       (immutable daily limit)</span>
     <h3>Good to know</h3>
     <ul>
       <li>This is a game of chance. In SUI, the expected return of a round is negative: 10% of every losing pot goes to fees.</li>
-      <li>GTStar runs its own bots. They keep a round open around the clock and draw the rounds. Six GTStar wallets named in the contract get no Wealth Fund tickets; in everything else the bots play by the same rules as every player.</li>
+      <li>GTStar runs its own bots. They draw the rounds and run Auto Mine plans, and one of them joins rounds that players are already in. Since 2026-10-01 no GTStar bot opens a round by itself: a round starts with a deposit by a player or an Auto Mine plan. Six GTStar wallets named in the contract get no Wealth Fund tickets; in everything else the bots play by the same rules as every player.</li>
       <li>The 5-tile limit works per wallet. Someone who covers the board with several wallets pays only the fees on the losing tiles: about 0.67 SUI for each GTS mined.</li>
       <li>The buyback and the liquidity add run on Cetus. If Cetus stops for good they end, and that share goes to the Wealth Fund.</li>
       <li>Very small rounds pay the drawer less than a draw costs in gas, so GTStar's bots draw them at a loss.</li>

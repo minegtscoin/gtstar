@@ -37,7 +37,8 @@ export default async () => {
   const start = Date.now();
   const log = [];
   const welcome = makeWelcome(client, log);
-  const pulse = process.env.BOTS_DIR ? makePulse(client, CFG, log, process.env.BOTS_DIR) : null;
+  // PULSE_OFF=1 (since 2026-10-01): no GTStar wallet opens rounds; players and Auto Mine plans do.
+  const pulse = process.env.BOTS_DIR && process.env.PULSE_OFF !== "1" ? makePulse(client, CFG, log, process.env.BOTS_DIR) : null;
   const mm = process.env.BOTS_DIR ? makeMM(client, CFG, log, process.env.BOTS_DIR) : null;
 
   async function board() {

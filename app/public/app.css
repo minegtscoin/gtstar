@@ -596,3 +596,7 @@ button.sw-bal:hover{color:var(--text)}
 .am-move .input-row input{font-size:20px;padding:4px 0}
 .am-dash .gold-btn{margin-top:0}
 @media (prefers-reduced-motion:reduce){.am-live,.am-status.run i,.am-last i.new{animation:none}}
+.liq-panel{margin-top:16px}
+.liq-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-top:10px}
+.liq-row .ghost-btn{width:auto;margin-top:0;padding:10px 18px}
+

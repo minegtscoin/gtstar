@@ -29,6 +29,7 @@ if (fs.existsSync(path.join(dir, ".env"))) {
 }
 const KEEP = 20_000_000n;          // stops below 0.02 SUI
 const DEPLOY_GAS = 10_000_000;
+const PLAY = process.env.RUNNER_PLAY !== "0";
 
 const key = process.env.BOT1_KEY;
 if (!key) { console.log("BOT1_KEY not set"); process.exit(0); }
@@ -110,6 +111,20 @@ async function main() {
   for (;;) {
     beat();
     try {
+      // RUNNER_PLAY=0 (since 2026-10-01): the Runner opens no rounds of its own. Rounds are opened by
+      // players and by Auto Mine plans, and drawn by the keeper. This process then only runs the plans
+      // (auto.mjs) and collects a round of its own that is still waiting.
+      if (!PLAY) {
+        const b0 = await board(), w0 = await wallet();
+        if (w0.miner && w0.miner.round !== 0 && w0.miner.round < Number(b0.cur_id)) {
+          await send(`claim #${w0.miner.round}`, DEPLOY_GAS, tx => {
+            const c = tx.moveCall({ target: C("game::claim_sui_v3"), arguments: [boardArg(tx), tx.object(w0.miner.id), treasuryArg(tx), tx.object.clock()] });
+            tx.mergeCoins(tx.gas, [c]);
+          });
+        }
+        await sleep(15_000);
+        continue;
+      }
       const b = await board();
       const cur = Number(b.cur_id), end = Number(b.cur_end_ms), freeze = Number(b.freeze_ms);
       const now = Date.now();

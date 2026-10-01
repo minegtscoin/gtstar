@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813",
+  "latest": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -141,6 +141,10 @@
     [
       "Game upgraded: staking. The 7-day lock (1.5x) is offered again; new stake starts earning one hour after it is staked; every draw works through the warm-ups and lock ends that are due, so a lock drops back to 1x with no keeper",
       "76sQDLcRUovRben2svAbU6V6GgHuRtJHvmd4pUzEzEUr"
+    ],
+    [
+      "Game upgraded: anyone can add to the liquidity locked in the game, by giving it a whole Cetus position of the pool or GTS and SUI at the pool price",
+      "BBF9PhV1jSiWxQ8pDoLteep65erAU9tmaQKGwwXGzpm7"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -204,9 +208,14 @@
       "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
     ],
     [
-      "Staking: 7-day lock at 1.5x, one hour of warm-up, and locks end inside the draw with no keeper (the game code running now)",
+      "Staking: 7-day lock at 1.5x, one hour of warm-up, and locks end inside the draw with no keeper",
       "76sQDLcRUovRben2svAbU6V6GgHuRtJHvmd4pUzEzEUr"
+    ],
+    [
+      "Anyone can add to the liquidity locked in the game (the game code running now)",
+      "BBF9PhV1jSiWxQ8pDoLteep65erAU9tmaQKGwwXGzpm7"
     ]
   ],
-  "stakeLockPkg": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813"
+  "stakeLockPkg": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813",
+  "liquidityPkg": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d"
 }
