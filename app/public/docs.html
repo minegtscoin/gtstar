@@ -145,7 +145,7 @@
       <li><strong>Fair launch.</strong> Zero GTS existed before the first round. No premine, no team allocation, no presale: every GTS in circulation was mined by a player.</li>
       <li><strong>Scarce by contract.</strong> At most 1,000,000 GTS will ever exist, and at most 2,000 can be minted in a day. Both limits are sealed in contracts that nobody can change, the owner included. The reward per round can only go down.</li>
       <li><strong>Deflation built in.</strong> Every round, 3% of the losing pot buys GTS on the market and burns it for good. The game does this itself, inside the draw.</li>
-      <li><strong>Liquidity that cannot leave.</strong> 2% of every losing pot goes into the GTS/SUI pool and stays locked in the game for good. The trading fees it earns go back into the pool.</li>
+      <li><strong>Locked liquidity.</strong> 2% of every losing pot goes into the GTS/SUI pool, in positions held by the game. The game has no function to take them out, and the trading fees they earn go back into the pool.</li>
       <li><strong>Provably random.</strong> Winners are drawn with Sui's on-chain randomness. No server, operator or player can see or steer the result.</li>
       <li><strong>Non-custodial.</strong> The app holds no keys and no funds. Every action is signed in your own wallet.</li>
     </ul>
@@ -160,7 +160,7 @@
     </div>
     <ul>
       <li>A round starts with its first deposit and lasts 60 seconds. Minimum 0.0005 SUI per tile.</li>
-      <li>Deposits close 5 seconds before the end, so no one can react to other players at the last second.</li>
+      <li>Deposits close 5 seconds before the end. Until then the board is public, so a late deposit can react to earlier ones; Auto Mine's Hunter does exactly that.</li>
       <li>When time is up, one winning tile is drawn on-chain. Anyone can trigger the draw.</li>
     </ul>
     <h3>What you win</h3>
@@ -216,14 +216,14 @@ per UTC day &lt;= 2,000 GTS       (immutable daily limit)</span>
       <li><strong>Expensive to create.</strong> A round needs 7 SUI to mint 1 GTS. On average, mining one GTS costs about 0.67 SUI in fees, so new supply never comes cheap.</li>
       <li><strong>Bought back and burned.</strong> 3% of every losing pot buys GTS on the market and burns it in the same transaction. More play means more GTS gone for good.</li>
       <li><strong>It balances itself.</strong> The buyback spends SUI, so the lower the price, the more GTS it burns. Below about 0.20 SUI per GTS, a round burns more GTS than it mints.</li>
-      <li><strong>Liquidity only grows.</strong> 2% of every losing pot is added to the pool and can never be pulled. Its trading fees are added back too.</li>
+      <li><strong>Liquidity only grows.</strong> 2% of every losing pot is added to the pool, in positions held by the game. The game has no function to remove them, and their trading fees are added back too.</li>
       <li><strong>Early sellers pay holders.</strong> Withdrawing mined GTS before 7 days costs up to 10%: half is burned, half goes to everyone still holding.</li>
     </ul>
     <p>The ceiling is fixed as well: the 1,000,000 cap and the 2,000 GTS a day limit cannot be changed by anyone, and the emission can only be lowered. What these rules do not do is set the price. GTS has no reserve and cannot be redeemed for SUI: the market decides what it is worth.</p>
     <h3>Staking</h3>
     <p>Stake GTS and earn SUI: stakers share 1% of every losing pot, split by stake. Nothing is minted for it, so staking never dilutes holders. Withdraw any time.</p>
     <h3 id="market">How the buyback runs</h3>
-    <p>No wallet holds the buyback or liquidity SUI, and no address can take it. The draw itself spends it on the Cetus GTS/SUI pool, before the winner is drawn:</p>
+    <p>No wallet holds the buyback or liquidity SUI, and the game has no function that lets any address take it. The draw itself spends it on the Cetus GTS/SUI pool, before the winner is drawn:</p>
     <ul>
       <li><strong>Buyback.</strong> Once 0.005 SUI is saved, the draw buys GTS and burns all of it.</li>
       <li><strong>Liquidity.</strong> Once 0.05 SUI is saved, the draw buys GTS with 49% of it and adds the GTS with the matching SUI to a position locked in the game.</li>
@@ -243,7 +243,7 @@ per UTC day &lt;= 2,000 GTS       (immutable daily limit)</span>
     <h3>What the owner can still do</h3>
     <p>The game contract is still upgradable during the launch phase, so bugs can be fixed at once. The owner address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> holds two keys, with no timelock:</p>
     <ul>
-      <li><strong>UpgradeCap.</strong> It can publish new game code. New code could change the rules and the fees, or move SUI held by the game or the Wealth Fund. It can never mint past the two locked limits, and it can never block an Auto Mine withdrawal.</li>
+      <li><strong>UpgradeCap.</strong> It can publish new game code. New code could change the rules and the fees, or move what the game holds: the SUI in the game and the Wealth Fund, and the liquidity positions. So "the game has no function to take it" is true of the code running now, and stays true for good only once this key is given up. It can never mint past the two locked limits, and it can never block an Auto Mine withdrawal.</li>
       <li><strong>AdminCap.</strong> It changes settings inside limits written in the contract: Wealth Fund odds, the tile limit, the minimum deposit, the round length, the withdraw fee (up to 50%), the stakers' and Wealth Fund shares (up to 5% and 10%), a pause of new deposits, and the emission, which it can only lower. It cannot change the creator fee (1%), the buyback (3%) or the liquidity share (2%).</li>
     </ul>
     <p>Every change emits a public event. The plan is to give up both keys once the game is stable; no date is set yet.</p>
