@@ -79,7 +79,29 @@ export default async () => {
     }
   }
 
+  // Draw rewards arrive as small SUI coins and settles pay gas from the address balance, so the coins pile up;
+  // past 256 of them a transaction that spends the gas coin is rejected. From 50 coins on, merge up to 250 into one.
+  async function mergeCoins() {
+    const me = signer.toSuiAddress(), coins = [];
+    for (let cursor = null; coins.length < 250;) {
+      const r = await client.core.listCoins({ owner: me, cursor, limit: 50 });
+      coins.push(...r.objects);
+      if (!r.hasNextPage) break;
+      cursor = r.cursor;
+    }
+    if (coins.length < 50) return;
+    await run(`merge ${Math.min(coins.length, 250)} coins`, tx => {
+      tx.setGasPayment(coins.slice(0, 250).map(c => ({ objectId: c.objectId, version: c.version, digest: c.digest })));
+      tx.transferObjects([tx.gas], me);
+    });
+  }
+
   let b;
+  try {
+    await mergeCoins();
+  } catch (e) {
+    log.push(`error ${String(e.message || e).slice(0, 200)}`);
+  }
   try {
     await pokeLocks();
     b = await board();

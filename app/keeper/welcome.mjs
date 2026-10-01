@@ -39,7 +39,15 @@ export function makeWelcome(client, log) {
     tx.setSender(me);
     const coins = tx.splitCoins(tx.gas, todo.map(() => AMOUNT));
     todo.forEach((a, i) => tx.transferObjects([coins[i]], a));
-    const r = await client.signAndExecuteTransaction({ transaction: tx, signer });
+    // A grant that cannot be sent waits a minute; it must never hold up the rest of the keeper (buyback, draws).
+    let r;
+    try {
+      r = await client.signAndExecuteTransaction({ transaction: tx, signer });
+    } catch (e) {
+      log.push(`welcome error ${String(e.message || e).slice(0, 200)}`);
+      lowUntil = Date.now() + 60_000;
+      return false;
+    }
     const res = r.Transaction || r.FailedTransaction;
     log.push(`welcome x${todo.length} ${res.status.success ? "ok" : "failed"} ${res.digest}`);
     await client.waitForTransaction({ digest: res.digest });
