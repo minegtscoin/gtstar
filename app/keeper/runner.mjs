@@ -6,6 +6,8 @@
 // same transaction as its next deposit. Mined GTS is merged into one coin in that transaction (a new coin
 // object every round would cost storage). Rounds other players joined are left to the keeper to draw
 // (someone else may claim last and get the refund). Stops below KEEP.
+// The same process and wallet also run the players' Auto Mine plans (auto.mjs): the wallet pays that gas
+// and receives the 1% the game pays whoever runs a plan.
 // Runs as its own long process (started by cron.mjs); signs with BOT1_KEY. Log: runner-log.jsonl.
 import fs from "fs";
 import path from "path";
@@ -13,6 +15,7 @@ import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
+import { startAuto } from "./auto.mjs";
 
 const dir = process.env.BOTS_DIR || path.dirname(new URL(import.meta.url).pathname);
 if (fs.existsSync(path.join(dir, ".env"))) {
@@ -63,7 +66,11 @@ async function wallet() {
   const g = await node.listCoins({ owner: me, coinType: GTS, limit: 100 });
   return { balance: bal, miner: o ? { id: o.objectId, round: Number(o.json.round_id) } : null, gts: g.objects.map(c => c.objectId) };
 }
-async function send(label, gas, build) {
+// One transaction of this wallet at a time: the Runner and the Auto Mine loop share it.
+let queue = Promise.resolve();
+const lock = fn => { const p = queue.then(fn, fn); queue = p.catch(() => {}); return p; };
+const send = (label, gas, build) => lock(() => sendNow(label, gas, build));
+async function sendNow(label, gas, build) {
   const tx = new Transaction();
   tx.setSender(me);
   tx.setGasBudget(gas);
@@ -138,4 +145,5 @@ async function main() {
   }
 }
 
+startAuto({ node, signer, me, dir, CFG, lock });
 main();
