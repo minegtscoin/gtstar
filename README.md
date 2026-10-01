@@ -4,8 +4,10 @@
 
 GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and every SUI deployed in the round mines GTS, win or lose. GTS has no SUI reserve: its price is set by the market.
 
+GTS is built to hold value: a 1,000,000 cap and a 2,000 a day mint limit sealed in immutable contracts, a round that needs 7 SUI to mint 1 GTS (about 0.67 SUI of fees per GTS mined), 3% of every losing pot spent on buying GTS and burning it, and 2% added to liquidity that is locked in the game for good. None of that sets the price.
+
 - App: https://minegts.fun
-- Docs: https://minegts.fun/docs.html
+- Docs: https://minegts.fun/docs.html (the short version; this README is the full technical reference)
 - X: https://x.com/MineGTS1
 - Telegram: https://t.me/MineGTS
 

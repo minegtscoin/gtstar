@@ -161,5 +161,43 @@
   "autoPkg": "0x49941dd43c4e089ccbfd7eca0985e4476f6278f30b1241fbd34025eafb7efa03",
   "autoInstalled": "AGo1ZkHT87YDZC9tXSkD52sF7ARrXQvkWNvQkfbhkyy1",
   "marketPkg": "0xf440448af13f39942b1bb56180702df6dbf83f0dd3f19fef7d735457855579d1",
-  "reviewPkg": "0x8e09a0dab2fae730e4e1b17f79f6a22ab15efe6ded3d8464d40970e59d0c0d44"
+  "reviewPkg": "0x8e09a0dab2fae730e4e1b17f79f6a22ab15efe6ded3d8464d40970e59d0c0d44",
+  "siteProof": [
+    [
+      "GTS token and game published: 1,000,000 cap, no premine",
+      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
+    ],
+    [
+      "Supply lock made immutable: its upgrade key was destroyed",
+      "BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ"
+    ],
+    [
+      "GTS mint sealed in the supply lock: no one can ever mint past 1,000,000",
+      "DJgdkVtqn1xFJNyLBQJAQ9Fm76Q26QuL6p47fUDqwgzZ"
+    ],
+    [
+      "Daily mint limit made immutable: its upgrade key was destroyed",
+      "uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk"
+    ],
+    [
+      "GTS mint sealed in the daily limit: at most 2,000 GTS per UTC day",
+      "7d4pAM48qHhL4b615aLCDTkMrHSYM6SA5RFqeza2dtkw"
+    ],
+    [
+      "Auto Mine vault made immutable: no one can change it, pause it or block a withdrawal",
+      "4aCVbBytpAXZTK2TNJPnYnnuZGibrvoMnQt7yKYqSgJe"
+    ],
+    [
+      "Buyback and liquidity moved into the draw: no wallet holds that SUI",
+      "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
+    ],
+    [
+      "Game code running now: draw reward from the Wealth Fund share only, and no SUI can get stuck if the market stops",
+      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
+    ],
+    [
+      "Emission lowered: a round needs 7 SUI to mint its full 1 GTS",
+      "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
+    ]
+  ]
 }

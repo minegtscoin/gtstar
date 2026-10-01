@@ -18,15 +18,12 @@
   var A = C.accounts || {};
   var rows = [
     ["GTS token", C.ids.token + "::gts::GTS", "coin", "The official coin type. Check it before you buy GTS anywhere."],
-    ["Supply lock", C.ids.supplyLock, "object", "Immutable contract that holds the right to mint GTS. It never lets the total pass 1,000,000, and no one can change it."],
-    ["Daily mint limit", C.ids.mintLimit, "object", "Immutable contract that holds the only key to the supply lock and lets at most 2,000 GTS through per UTC day. No one can change it."],
-    ["Daily limiter", C.ids.mintLimiter, "object", "The limiter itself, kept in the game board: the 2,000 GTS a day limit and what was minted today."],
-    ["Capped treasury", C.ids.treasury, "object", "The GTS mint authority, sealed in the supply lock: minted so far and the 1,000,000 limit. Holds no SUI."],
-    ["Auto Mine vault contract", C.ids.autoVaultPkg, "object", "Immutable contract that holds players' Auto Mine balances. Only the player can withdraw, at any time, and no one can change it or pause it."],
-    ["Auto Mine vault", C.ids.autoVault, "object", "The vault itself: every player's Auto Mine balance and plan."],
-    ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and emission."],
-    ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund and unrefined GTS."],
-    ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool."]
+    ["Game", C.ids.latest || C.ids.package, "object", "The game code running now: rounds, the draw, fees, the buyback and emission."],
+    ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund, unrefined GTS and the locked liquidity positions."],
+    ["GTS/SUI pool", C.ids.market, "object", "The Cetus pool GTS trades on, where the game buys back and adds liquidity."],
+    ["Supply lock", C.ids.supplyLock, "object", "Immutable. Holds the right to mint GTS and never lets the total pass 1,000,000."],
+    ["Daily mint limit", C.ids.mintLimit, "object", "Immutable. Lets at most 2,000 GTS be minted per UTC day."],
+    ["Auto Mine vault", C.ids.autoVaultPkg, "object", "Immutable. Holds players' Auto Mine balances; only the player can withdraw."]
   ].filter(function (r) { return r[1]; });
   var list0 = document.getElementById("addrList");
   rows.forEach(function (r) {
