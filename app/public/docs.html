@@ -272,7 +272,7 @@ per UTC day <= 2,000 GTS (immutable daily limit)</span>
       <li><strong>Buyback and burn, 3%.</strong> The keeper buys GTS with the saved SUI, and the same transaction must hand the GTS back to the game, which burns all of it for good (<code>buyback_burn_v2</code>, event <code>BuybackDone</code> with the SUI spent and the GTS burned).</li>
       <li><strong>Liquidity, 2%.</strong> The keeper buys GTS with about half of the saved SUI, then adds that GTS and the other half to the pool as a new full-range position. The same transaction must hand the position back to the game, where it stays locked for good. No function can take it out, so this liquidity can never be pulled. SUI not used stays for the next add; GTS not used is burned with the next buyback.</li>
     </ul>
-    <p>The keeper buys back once 0.01 SUI is saved and adds liquidity once 0.1 SUI is saved, so gas stays a small part of each. Each buy moves the pool price by at most 2%; SUI it cannot spend under that limit stays saved for the next buy.</p>
+    <p>The keeper buys back once 0.005 SUI is saved and adds liquidity once 0.1 SUI is saved, so gas stays a small part of each. Each buy moves the pool price by at most 2%; SUI it cannot spend under that limit stays saved for the next buy.</p>
     <h3>No reserve</h3>
     <p>GTS has no SUI reserve and cannot be redeemed for SUI. Its price is set only by the market, on the Cetus GTS/SUI pool. Until round 33, GTS could be redeemed from a SUI reserve. That ended on 2026-09-29, and the 12.29 SUI left in it moved to the Wealth Fund (<a href="https://suiscan.xyz/mainnet/tx/A3pyW6MpRUAUgXfP8Z9hQA6ef6sAutuERGarRJ7MZpvh" target="_blank" rel="noopener">transaction</a>).</p>
 
