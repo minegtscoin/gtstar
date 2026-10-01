@@ -620,7 +620,7 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again.", 39: "The game was just upgraded. Refresh the page and try again.", 40: "The game was just upgraded. Refresh the page and try again." },
+  game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again.", 39: "The game was just upgraded. Refresh the page and try again.", 40: "The game was just upgraded. Refresh the page and try again.", 41: "Only the wallet that mined this GTS can collect it." },
   daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
@@ -701,6 +701,12 @@ function withdrawFee(U, now = chainNow()) {
   return STATE.refineFee * Math.min(left, REFINE_WINDOW_MS) / REFINE_WINDOW_MS;
 }
 const dhm = ms => { const m = Math.ceil(ms / 60_000), d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}m` : `${m}m`; };
+// GTS mined while the daily mint limit was full: mint it into the unrefined balance. Only the player can
+// (it moves their withdraw clock); the game also does it at their next claim.
+const collectOwed = () => exec("Collect", "btnOwed", tx => {
+  if (!(USER?.unrefined?.owed > 0)) throw new Error("Nothing to collect.");
+  tx.moveCall({ target: C("game::claim_owed"), arguments: [tx.object(IDS.board), tx.object(IDS.treasury), tx.pure.address(account.address), tx.object.clock()] });
+});
 // Take the whole unrefined balance out (the fee, if any, is burned; the 7-day clock restarts).
 const withdrawGts = () => exec("Withdraw", "btnWithdraw", tx => {
   if (!(USER?.unrefined?.amount > 0)) throw new Error("Nothing to withdraw.");
@@ -770,8 +776,8 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
 });
 // The draw a player makes when no bot has (see keeperDrawing). game::settle_v3 first runs the game's
 // buyback and liquidity add on the Cetus pool, then draws, and pays the draw reward. If that would fail
-// (Cetus paused or on a version the game is not linked to), the plain draw game::settle_v2 is used: no
-// market step, no reward. Fixed gas budget: the wallet's dry run usually takes the no-jackpot path, and a
+// (Cetus on a version the game is not linked to), the plain draw game::settle_v2 is used: no market step,
+// and a reward only once the market has been down for 6 hours. Fixed gas budget: the wallet's dry run usually takes the no-jackpot path, and a
 // round that pays the Wealth Fund needs more gas than that. Unused gas is refunded.
 const SETTLE_GAS = 50_000_000, PLAIN_SETTLE_GAS = 20_000_000;
 function drawCall(tx, market) {
@@ -1302,7 +1308,10 @@ function renderRewards() {
     $("rfBonusRow").hidden = !(U.bonus > 0);
     $("rfOwedRow").hidden = !(U.owed > 0);
     $("rfOwed").textContent = sui(U.owed || 0, 4);
-    const owedNote = U.owed > 0 ? ` ${sui(U.owed, 4)} GTS you mined is waiting for room under the daily mint limit (2,000 GTS a UTC day); it is added here after 00:00 UTC.` : "";
+    const owedNote = U.owed > 0 ? ` ${sui(U.owed, 4)} GTS you mined is waiting for room under the daily mint limit (2,000 GTS a UTC day). After 00:00 UTC it is added here by your next claim, or press Collect. Adding it moves your clock like any new GTS.` : "";
+    $("btnOwed").hidden = !(U.owed > 0);
+    if (!busy) $("btnOwed").textContent = `Collect ${sui(U.owed || 0, 4)} GTS`;
+    $("btnOwed").disabled = !!busy;
     $("rfHint").textContent = (!(U.amount > 0)
       ? `Mined GTS waits here. Withdrawing is free once your 7-day clock runs out; before that the fee falls from ${full} to 0 (half burned, half shared by holders). New GTS starts its own 7 days, and your clock moves to the average.`
       : left <= 0 ? `Free to withdraw: no fee. GTS you mine from now starts its own 7 days and moves the clock.`
@@ -1390,7 +1399,7 @@ function renderMine() {
     if (!selected.size) hint = "Your rewards from the last round are collected with your next deploy, or use Claim all.";
   } else if (p === "ended") hint = keeperDrawing(b)
     ? "The round has ended. The winner is drawn within seconds."
-    : "The round has ended. Draw the winner: whoever draws is paid up to 0.005 SUI for it.";
+    : "The round has ended. Draw the winner: whoever draws is paid up to 0.008 SUI for it.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first 2 rounds free.";
@@ -2210,6 +2219,7 @@ if (AUTO) {
   $("btnAutoCollect").onclick = collectAuto;
 }
 $("btnWithdraw").onclick = withdrawGts;
+$("btnOwed").onclick = collectOwed;
 $("hdrClaim").onclick = claimAll;
 // Random keeps the current tile count (at least 1) and picks that many distinct tiles.
 $("selRand").onclick = () => {

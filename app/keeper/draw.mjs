@@ -1,9 +1,10 @@
 // The draw, shared by the keeper, the Runner and the Player.
 // game::settle_v3 is the draw every bot uses: before it draws the winner it runs the market step on the
 // Cetus GTS/SUI pool with the SUI saved by earlier rounds (liquidity add, buyback and burn, inside the
-// contract, at most 2% above the reference price), and it pays the draw reward. If Cetus is paused or
-// has moved to a version the game is not linked to, settle_v3 aborts; the bot then uses the plain draw
-// game::settle_v2, which touches no market and pays no reward, so rounds never get stuck.
+// contract, at most 2% above the reference price), and it pays the draw reward (up to 0.008 SUI). A
+// paused pool is skipped inside the contract. If Cetus has moved to a version the game is not linked
+// to, settle_v3 aborts; the bot then uses the plain draw game::settle_v2, which touches no market, so
+// rounds never get stuck (it pays up to 0.004 SUI once the market has been down for 6 hours).
 import { Transaction } from "@mysten/sui/transactions";
 
 const CETUS_CONFIG = { objectId: "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f", initialSharedVersion: 1574190, mutable: false };

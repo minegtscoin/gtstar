@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0xf440448af13f39942b1bb56180702df6dbf83f0dd3f19fef7d735457855579d1",
+  "latest": "0x8e09a0dab2fae730e4e1b17f79f6a22ab15efe6ded3d8464d40970e59d0c0d44",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -129,6 +129,10 @@
     [
       "Game upgraded: the buyback and the liquidity add run inside the draw, on the Cetus GTS/SUI pool, with no keeper wallet (each draw's buys at most 2% above a reference price); the withdraw clock is weighted by amount; house bots pay the withdraw fee like every player; a claim never fails on the daily mint limit (the GTS is owed and minted later); anyone can put the locked positions' trading fees back into the pool",
       "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
+    ],
+    [
+      "Game upgraded after an outside review: the draw reward is up to 0.008 SUI and comes only from the Wealth Fund share (liquidity keeps its full 2%); if the market is not usable the plain draw pays after 6 hours, and after 7 days the buyback and liquidity SUI goes to the Wealth Fund, so nothing is stuck and the game needs no one to keep running; the locked positions' fees are compounded only within 2% of the reference price; only the player can collect their own owed GTS",
+      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -152,5 +156,6 @@
   "autoVaultImmutable": "4aCVbBytpAXZTK2TNJPnYnnuZGibrvoMnQt7yKYqSgJe",
   "autoPkg": "0x49941dd43c4e089ccbfd7eca0985e4476f6278f30b1241fbd34025eafb7efa03",
   "autoInstalled": "AGo1ZkHT87YDZC9tXSkD52sF7ARrXQvkWNvQkfbhkyy1",
-  "marketPkg": "0xf440448af13f39942b1bb56180702df6dbf83f0dd3f19fef7d735457855579d1"
+  "marketPkg": "0xf440448af13f39942b1bb56180702df6dbf83f0dd3f19fef7d735457855579d1",
+  "reviewPkg": "0x8e09a0dab2fae730e4e1b17f79f6a22ab15efe6ded3d8464d40970e59d0c0d44"
 }

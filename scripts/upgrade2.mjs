@@ -19,7 +19,7 @@ const [text, key] = process.argv.slice(2);
 if (!text) throw new Error('usage: node scripts/upgrade2.mjs "<what changed>" [key]   (GO=1 to send)');
 if (key && dep[key]) throw new Error(`${key} is already set in deployments/mainnet.json`);
 
-const args = ["client", "--client.env", "mainnet", "upgrade", "--upgrade-capability", dep.upgradeCap, "--gas-budget", "500000000", "--json"];
+const args = ["client", "--client.env", "mainnet", "upgrade", "--upgrade-capability", dep.upgradeCap, "--gas-budget", process.env.GAS_BUDGET || "500000000", "--json"];
 if (!GO) args.push("--dry-run");
 const out = execFileSync(SUI, args, { cwd: path.join(ROOT, "contracts", "gtstar"), maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }).toString();
 const d = JSON.parse(out.slice(out.indexOf("{")));

@@ -317,23 +317,33 @@ fun one_tile(i: u64, amt: u64): vector<u64> {
     v
 }
 
-/// A paused pool does not stop the step: it buys and adds nothing, and the SUI waits.
+/// A paused pool does not stop the step: it buys and adds nothing, and the SUI waits. Such a step does
+/// not count as the market being usable.
 #[test]
 fun test_paused_pool_is_skipped() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     let mut board = ts::take_shared<Board>(&sc);
     let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
     step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk);
     fund(&mut sc, &mut board, 10_000_000, 60_000_000);
+    let (alive0, _, _) = game::market_alive(&board);
+    assert!(alive0 == 0, 3); // the first step ran at time 0
     cetus_pool::pause_pool(&mut pool);
+    clock::set_for_testing(&mut clk, 5_000);
     step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk);
     assert!(game::buyback_value(&board) == 10_000_000 && game::liquidity_value(&board) == 60_000_000, 1);
+    // The step went through, but a paused pool is not a usable market: its clock did not move.
+    let (alive1, _, _) = game::market_alive(&board);
+    assert!(alive1 == 0, 4);
     cetus_pool::unpause_pool(&mut pool);
+    clock::set_for_testing(&mut clk, 9_000);
     step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk);
     assert!(game::buyback_value(&board) < 10_000_000, 2);
+    let (alive2, _, _) = game::market_alive(&board);
+    assert!(alive2 == 9_000, 5);
     ts::return_shared(board); ts::return_shared(treasury);
     done(config, ca, pool, clk);
     ts::end(sc);
@@ -388,7 +398,7 @@ fun test_market_draw() {
     game::settle_market_for_testing(&mut board, &config, &mut pool, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
     ts::next_tx(&mut sc, ALICE);
     let paid = ts::take_from_sender<Coin<SUI>>(&sc);
-    assert!(coin::value(&paid) == 5_000_000, 1);
+    assert!(coin::value(&paid) == 8_000_000, 1);
     coin::burn_for_testing(paid);
     assert!(game::current_round(&board) == 2 && reference(&board) == PRICE, 2);
     assert!(game::buyback_value(&board) == 720_000_000 && game::liquidity_value(&board) == 480_000_000, 3);
@@ -408,7 +418,7 @@ fun test_market_draw() {
     // Round 2 is even: liquidity went first and used the whole 2%; the buyback waits with round 2's share on top.
     assert!(liquidity_of(&board, &pool, 0) > l0 && capped::total_supply(&treasury) == supply, 6);
     assert!(game::buyback_value(&board) == 2 * 720_000_000, 7);
-    assert!(game::liquidity_value(&board) < 2 * 480_000_000 - 5_000_000, 8);
+    assert!(game::liquidity_value(&board) < 2 * 480_000_000, 8);
     transfer::public_transfer(m, BOB);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     done(config, ca, pool, clk);
@@ -452,6 +462,7 @@ fun test_compound_fees() {
     let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
     let clk = clock::create_for_testing(ts::ctx(&mut sc));
     let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 3);
+    step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk); // records the reference price
     // Trades both ways: fees in SUI (buys) and in GTS (sells).
     let g = outsider_buys(&config, &mut pool, 500_000_000, &clk, ts::ctx(&mut sc));
     outsider_sells(&config, &mut pool, g, &clk);
@@ -485,8 +496,9 @@ fun test_compound_pairs_gts_fees_with_saved_sui() {
     let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
     let clk = clock::create_for_testing(ts::ctx(&mut sc));
     let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
-    // Only a sell: fees in GTS only.
-    let g = game::mint_for_testing(&mut board, &mut treasury, GTS1, &clk, ts::ctx(&mut sc));
+    step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk); // records the reference price
+    // Only a sell, small enough to stay within 2% of the reference: fees in GTS only.
+    let g = game::mint_for_testing(&mut board, &mut treasury, GTS1 / 25, &clk, ts::ctx(&mut sc));
     outsider_sells(&config, &mut pool, g, &clk);
     fund(&mut sc, &mut board, 0, 40_000_000);
     let l0 = liquidity_of(&board, &pool, 0);
@@ -497,3 +509,135 @@ fun test_compound_pairs_gts_fees_with_saved_sui() {
     done(config, ca, pool, clk);
     ts::end(sc);
 }
+
+const HOUR: u64 = 3_600_000;
+
+/// One round by BOB on every tile, drawn by ALICE with the market draw at `t`.
+fun market_round(sc: &mut Scenario, board: &mut Board, config: &GlobalConfig, pool: &mut Pool<GTS, SUI>, treasury: &mut CappedTreasury<GTS>, rs: &Random, clk: &mut Clock, m: &mut gtstar::game::Miner, t: u64) {
+    ts::next_tx(sc, BOB);
+    clock::set_for_testing(clk, t - 61_000);
+    game::deploy(board, m, coin::mint_for_testing<SUI>(25 * SUI1, ts::ctx(sc)), all_tiles(SUI1), clk, ts::ctx(sc));
+    clock::set_for_testing(clk, t);
+    ts::next_tx(sc, ALICE);
+    game::settle_market_for_testing(board, config, pool, treasury, rs, clk, ts::ctx(sc));
+    ts::next_tx(sc, BOB);
+    let (g, s) = game::claim_v3(board, m, treasury, clk, ts::ctx(sc));
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+}
+
+/// A pool paused for good: the market draw keeps going through (it skips the pool), but that does not
+/// count as a usable market, so after 7 days the saved SUI and the two shares go to the Wealth Fund. When
+/// the pool works again, the next market draw brings the shares back to the buyback and liquidity.
+#[test]
+fun test_paused_pool_for_seven_days_frees_the_sui() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    let losing = 24 * SUI1;
+    market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, 100_000);
+    let (alive, _, _) = game::market_alive(&board);
+    assert!(alive == 100_000, 1);
+    cetus_pool::pause_pool(&mut pool);
+    // 7 days and a moment later, the pool still paused: the draw works, the market does not.
+    let fund = game::motherlode_value(&board);
+    let saved = game::buyback_value(&board) + game::liquidity_value(&board);
+    assert!(saved == losing * 5 / 100, 2);
+    let t = 162_000 + 7 * 24 * HOUR;
+    market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, t);
+    let (alive, _, _) = game::market_alive(&board);
+    assert!(alive == 100_000, 3);
+    assert!(game::buyback_value(&board) == 0 && game::liquidity_value(&board) == 0, 4);
+    assert!(game::motherlode_value(&board) == fund + saved + losing * 8 / 100 - 8_000_000, 5);
+    // The pool is back: the market draw counts again, and the shares are saved for the market again.
+    cetus_pool::unpause_pool(&mut pool);
+    market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, t + 100_000);
+    let (alive, _, _) = game::market_alive(&board);
+    assert!(alive == t + 100_000, 6);
+    assert!(game::buyback_value(&board) == losing * 3 / 100 && game::liquidity_value(&board) == losing * 2 / 100, 7);
+    transfer::public_transfer(m, BOB);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    done(config, ca, pool, clk);
+    ts::end(sc);
+}
+
+/// A market draw that finds the market usable keeps the plain draw unpaid: it pays only 6 hours after
+/// the last such draw.
+#[test]
+fun test_market_draw_keeps_plain_draw_unpaid() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 1);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, 100_000);
+    market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, 100_000 + 5 * HOUR);
+    // 5 hours 59 minutes after the last market draw: a plain draw pays nothing.
+    ts::next_tx(&mut sc, BOB);
+    let t = 100_000 + 11 * HOUR - 60_000;
+    clock::set_for_testing(&mut clk, t - 61_000);
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(25 * SUI1, ts::ctx(&mut sc)), all_tiles(SUI1), &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, t);
+    ts::next_tx(&mut sc, @0xD00D);
+    game::settle_plain_for_testing(&mut board, &rs, &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, @0xD00D);
+    assert!(!ts::has_most_recent_for_sender<Coin<SUI>>(&sc), 1);
+    transfer::public_transfer(m, BOB);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    done(config, ca, pool, clk);
+    ts::end(sc);
+}
+
+/// Fees are compounded only while the pool price is within 2% of the draws' reference price: with the
+/// price pushed away, the call does nothing (the fees stay in the positions), in either direction.
+#[test]
+fun test_compound_refused_off_the_reference_price() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let (config, ca, mut pool) = market(&mut sc, &mut board, &mut treasury, &clk, 2);
+    // No reference yet (no market draw so far): nothing happens.
+    let g = outsider_buys(&config, &mut pool, 100_000_000, &clk, ts::ctx(&mut sc));
+    outsider_sells(&config, &mut pool, g, &clk);
+    let l0 = liquidity_of(&board, &pool, 0);
+    game::compound_fees(&mut board, &config, &mut pool, 0, 20, &clk);
+    assert!(liquidity_of(&board, &pool, 0) == l0, 1);
+    step(&mut sc, &mut board, &config, &mut pool, &mut treasury, &clk); // records the reference
+    fund(&mut sc, &mut board, 0, 40_000_000);
+    // Price pushed up 20%: refused, and the saved liquidity SUI is not touched.
+    let pumped = outsider_buys(&config, &mut pool, 500_000_000, &clk, ts::ctx(&mut sc));
+    game::compound_fees(&mut board, &config, &mut pool, 0, 20, &clk);
+    assert!(liquidity_of(&board, &pool, 0) == l0 && game::liquidity_value(&board) == 40_000_000, 2);
+    // Price pushed down: refused too.
+    outsider_sells(&config, &mut pool, pumped, &clk);
+    let extra = game::mint_for_testing(&mut board, &mut treasury, 2 * GTS1, &clk, ts::ctx(&mut sc));
+    outsider_sells(&config, &mut pool, extra, &clk);
+    assert!(cetus_pool::current_sqrt_price(&pool) < reference(&board) * 1_000_000 / 1_009_950, 3);
+    game::compound_fees(&mut board, &config, &mut pool, 0, 20, &clk);
+    assert!(liquidity_of(&board, &pool, 0) == l0 && game::liquidity_value(&board) == 40_000_000, 4);
+    // Back at the reference (a buy that stops there): the fees of all those trades are compounded.
+    let target = reference(&board);
+    let (back, none, receipt) = cetus_pool::flash_swap<GTS, SUI>(&config, &mut pool, false, true, 10 * SUI1, target, &clk);
+    balance::destroy_zero(none);
+    let pay = cetus_pool::swap_pay_amount(&receipt);
+    cetus_pool::repay_flash_swap<GTS, SUI>(&config, &mut pool, balance::zero<GTS>(), balance::create_for_testing<SUI>(pay), receipt);
+    balance::destroy_for_testing(back);
+    assert!(cetus_pool::current_sqrt_price(&pool) == target, 5);
+    game::compound_fees(&mut board, &config, &mut pool, 0, 20, &clk);
+    assert!(liquidity_of(&board, &pool, 0) > l0, 6);
+    ts::return_shared(board); ts::return_shared(treasury);
+    done(config, ca, pool, clk);
+    ts::end(sc);
+}
+
