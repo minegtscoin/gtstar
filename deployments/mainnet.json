@@ -5,7 +5,7 @@
   "keeper": "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
   "publishedAt": "2026-09-29T10:20:50.655Z",
   "package": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
-  "latest": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d",
+  "latest": "0xfeccc4daae2f1682db323cbdceb4c8c6904034f20b04497a93e12e7977c6b0a8",
   "token": "0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8",
   "digest": "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW",
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
@@ -145,6 +145,18 @@
     [
       "Game upgraded: anyone can add to the liquidity locked in the game, by giving it a whole Cetus position of the pool or GTS and SUI at the pool price",
       "BBF9PhV1jSiWxQ8pDoLteep65erAU9tmaQKGwwXGzpm7"
+    ],
+    [
+      "Stakers' share set to 3% of every losing pot (was 1%)",
+      "Kh9aW8GdWkAK6bvzFpztpV4GAHZ2i9tg8tgMrjsQ9ze"
+    ],
+    [
+      "Draw share set to 1% of every losing pot (was the Wealth Fund's 3%)",
+      "8XQmA4E26jDUkb6qu2t9jsRVNLh3AEgbQB8ye3pVzobh"
+    ],
+    [
+      "Game upgraded to its final rules: the mining reward is cut in half as GTS is mined (at 15,658 GTS, then after half as much each time: 31,316 GTS at most), and the emission can no longer be changed by anyone; whoever draws a round is paid 1% of its losing pot; staking has no lock (a stake can leave at any time, after one hour of warm-up it earns); Auto Mine is closed",
+      "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -192,30 +204,24 @@
       "7d4pAM48qHhL4b615aLCDTkMrHSYM6SA5RFqeza2dtkw"
     ],
     [
-      "Auto Mine vault made immutable: no one can change it, pause it or block a withdrawal",
-      "4aCVbBytpAXZTK2TNJPnYnnuZGibrvoMnQt7yKYqSgJe"
-    ],
-    [
       "Buyback and liquidity moved into the draw: no wallet holds that SUI",
       "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
-    ],
-    [
-      "Draw reward from the Wealth Fund share only, and no SUI can get stuck if the market stops",
-      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
     ],
     [
       "Emission lowered: a round needs 7 SUI to mint its full 1 GTS",
       "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
     ],
     [
-      "Staking: 7-day lock at 1.5x, one hour of warm-up, and locks end inside the draw with no keeper",
-      "76sQDLcRUovRben2svAbU6V6GgHuRtJHvmd4pUzEzEUr"
+      "No SUI can get stuck if the market stops: after 7 days it goes to the Wealth Fund",
+      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
     ],
     [
-      "Anyone can add to the liquidity locked in the game (the game code running now)",
-      "BBF9PhV1jSiWxQ8pDoLteep65erAU9tmaQKGwwXGzpm7"
+      "Final rules (the game code running now): halving by GTS mined, 31,316 GTS at most; 1% to whoever draws a round; staking without a lock",
+      "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
     ]
   ],
   "stakeLockPkg": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813",
-  "liquidityPkg": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d"
+  "liquidityPkg": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d",
+  "autoClosed": true,
+  "finalPkg": "0xfeccc4daae2f1682db323cbdceb4c8c6904034f20b04497a93e12e7977c6b0a8"
 }

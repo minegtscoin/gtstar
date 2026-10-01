@@ -398,7 +398,7 @@ fun test_market_draw() {
     game::settle_market_for_testing(&mut board, &config, &mut pool, &mut treasury, &rs, &clk, ts::ctx(&mut sc));
     ts::next_tx(&mut sc, ALICE);
     let paid = ts::take_from_sender<Coin<SUI>>(&sc);
-    assert!(coin::value(&paid) == 8_000_000, 1);
+    assert!(coin::value(&paid) == 24 * SUI1 * 3 / 100, 1); // the whole draw share (3% in this test)
     coin::burn_for_testing(paid);
     assert!(game::current_round(&board) == 2 && reference(&board) == PRICE, 2);
     assert!(game::buyback_value(&board) == 720_000_000 && game::liquidity_value(&board) == 480_000_000, 3);
@@ -553,7 +553,7 @@ fun test_paused_pool_for_seven_days_frees_the_sui() {
     let (alive, _, _) = game::market_alive(&board);
     assert!(alive == 100_000, 3);
     assert!(game::buyback_value(&board) == 0 && game::liquidity_value(&board) == 0, 4);
-    assert!(game::motherlode_value(&board) == fund + saved + losing * 8 / 100 - 8_000_000, 5);
+    assert!(game::motherlode_value(&board) == fund + saved + losing * 5 / 100, 5); // the draw share went to the drawer
     // The pool is back: the market draw counts again, and the shares are saved for the market again.
     cetus_pool::unpause_pool(&mut pool);
     market_round(&mut sc, &mut board, &config, &mut pool, &mut treasury, &rs, &mut clk, &mut m, t + 100_000);

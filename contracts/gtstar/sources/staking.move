@@ -1,20 +1,20 @@
 /// GTS staking with real yield: stakers share `stake_bps` of every round's losing pot, paid in SUI.
-/// Nothing is minted. Two ways to stake:
-///  - flexible: weight 1x, withdraw any time;
-///  - locked for 7 days: weight 1.5x, withdraw once the lock ends. Adding to it restarts the lock.
-/// Each round's SUI is split by weight among everyone whose stake is earning at that moment.
+/// Nothing is minted. One kind of stake: every staked GTS counts the same, and it can leave at any time.
+/// Each round's SUI is split by stake among everyone whose stake is earning at that moment.
 /// With nobody earning, the stakers' share goes to the Wealth Fund.
 ///
-/// Warm-up (game v20): GTS staked now, flexible or locked, starts earning one hour later. Until then it
+/// The 7-day lock at 1.5x is closed: no new lock can be made. A lock made while it was offered counts 1x
+/// from the first time it is touched (`poke`, a draw's queue, or its owner), and can leave at any time.
+///
+/// Warm-up: GTS staked now starts earning one hour later. Until then it
 /// has no weight, so nobody can stake just before a large round and leave right after it. Staking more
 /// restarts the hour for the part still warming up only; stake that is already earning keeps earning.
 /// Unstaking takes the warming part first.
 ///
-/// No keeper needed (game v20): the pool keeps two queues, the stakes whose warm-up ends and the locks
-/// that end, each in order of time. Every draw of the game works through the entries that are due
-/// (`run_due`), before it pays the round's share: warm-ups start earning, and ended locks drop back to
-/// 1x. So a lock stops earning 1.5x at the first draw after it ends, with no one having to call
-/// anything; `poke` still does the same for one player at any time.
+/// No keeper needed: the pool keeps a queue of the stakes whose warm-up ends, in order of time (and one
+/// of the old locks). Every draw of the game works through the entries that are due (`run_due`), before
+/// it pays the round's share, so warm-ups start earning with no one having to call anything; `poke`
+/// does the same for one player at any time.
 ///
 /// From game v12 stakers also get the GTS bought back, split by the same weights; the game keeps that
 /// accumulator on the Board and reads the weights with `weight`.
@@ -40,8 +40,8 @@ const SCALE: u256 = 1_000_000_000_000_000_000;
 
 const EZero: u64 = 1;
 const ETooMuch: u64 = 2;
-const ELocked: u64 = 3;
 const ENoStake: u64 = 4;
+const ENoLock: u64 = 5;
 
 public struct Position has store, drop {
     amount: u64,
@@ -133,15 +133,15 @@ fun set_weight(p: &mut Pool, key: PosKey, earning: u64, boosted: bool) {
     pos.weight = new_w;
 }
 
-/// Drop an ended lock back to 1x.
-fun expire(p: &mut Pool, s: &Schedule, player: address, now: u64) {
+/// Drop a lock back to 1x: the 1.5x lock is closed, whatever time was left on it.
+fun expire(p: &mut Pool, s: &Schedule, player: address) {
     let key = PosKey { player, locked: true };
     if (!table::contains(&p.positions, key)) { return };
     let acc = p.acc;
     let warm = warming(s, key);
     let pos = table::borrow_mut(&mut p.positions, key);
     let earning = pos.amount - warm;
-    if (pos.weight <= weight_of(earning, false) || now < pos.locked_until) { return };
+    if (pos.weight <= weight_of(earning, false)) { return };
     settle_pos(pos, acc);
     let amount = pos.amount;
     set_weight(p, key, earning, false);
@@ -156,21 +156,22 @@ fun warm_up(p: &mut Pool, s: &mut Schedule, key: PosKey, now: u64) {
     let acc = p.acc;
     let pos = table::borrow_mut(&mut p.positions, key);
     settle_pos(pos, acc);
-    let (all, boosted) = (pos.amount, key.locked && now < pos.locked_until);
-    set_weight(p, key, all, boosted);
+    let all = pos.amount;
+    set_weight(p, key, all, false);
     event::emit(WarmedUp { player: key.player, locked: key.locked, amount });
 }
 
-/// Bring one player's positions up to `now`: warm-ups that are over start earning, an ended lock drops to 1x.
+/// Bring one player's positions up to `now`: warm-ups that are over start earning, an old lock drops to 1x.
 fun refresh(p: &mut Pool, s: &mut Schedule, player: address, now: u64) {
     warm_up(p, s, PosKey { player, locked: false }, now);
     warm_up(p, s, PosKey { player, locked: true }, now);
-    expire(p, s, player, now);
+    expire(p, s, player);
 }
 
 public(package) fun stake(p: &mut Pool, s: &mut Schedule, gts: Coin<GTS>, locked: bool, clock: &Clock, ctx: &TxContext) {
     let amount = coin::value(&gts);
     assert!(amount > 0, EZero);
+    assert!(!locked, ENoLock);
     let player = tx_context::sender(ctx);
     let now = clock::timestamp_ms(clock);
     refresh(p, s, player, now);
@@ -192,14 +193,8 @@ public(package) fun stake(p: &mut Pool, s: &mut Schedule, gts: Coin<GTS>, locked
     let pos = table::borrow_mut(&mut p.positions, key);
     settle_pos(pos, acc);
     pos.amount = pos.amount + amount;
-    // Adding to a locked stake restarts the 7-day lock for all of it, at 1.5x.
-    if (locked) { pos.locked_until = now + LOCK_MS };
     let (total, until) = (pos.amount, pos.locked_until);
-    if (locked) {
-        table::add(&mut s.lock_q, s.lock_tail, Due { player, locked: true, at: until });
-        s.lock_tail = s.lock_tail + 1;
-    };
-    set_weight(p, key, total - warm, locked);
+    set_weight(p, key, total - warm, false);
     p.total_amount = p.total_amount + amount;
     balance::join(&mut p.staked, coin::into_balance(gts));
     event::emit(Staked { player, locked, amount, total, locked_until: until });
@@ -215,10 +210,9 @@ public(package) fun unstake(p: &mut Pool, s: &mut Schedule, amount: u64, locked:
     let acc = p.acc;
     let pos = table::borrow_mut(&mut p.positions, key);
     assert!(amount <= pos.amount, ETooMuch);
-    assert!(!locked || now >= pos.locked_until, ELocked);
     settle_pos(pos, acc);
     pos.amount = pos.amount - amount;
-    let (left, boosted) = (pos.amount, locked && now < pos.locked_until);
+    let left = pos.amount;
     // The warming part leaves first.
     let warm = warming(s, key);
     let still = if (warm > amount) { warm - amount } else { 0 };
@@ -226,8 +220,8 @@ public(package) fun unstake(p: &mut Pool, s: &mut Schedule, amount: u64, locked:
         if (still == 0) { let _: Warm = table::remove(&mut s.warm, key); }
         else { table::borrow_mut(&mut s.warm, key).amount = still };
     };
-    // An ended lock has already dropped to 1x in `refresh`.
-    set_weight(p, key, left - still, boosted);
+    // An old lock has already dropped to 1x in `refresh`.
+    set_weight(p, key, left - still, false);
     p.total_amount = p.total_amount - amount;
     event::emit(Unstaked { player, locked, amount, total: left });
     coin::from_balance(balance::split(&mut p.staked, amount), ctx)
@@ -332,4 +326,19 @@ public(package) fun total_weight(p: &Pool): u128 { p.total_weight }
 public(package) fun weight(p: &Pool, player: address, locked: bool): u128 {
     let key = PosKey { player, locked };
     if (table::contains(&p.positions, key)) { table::borrow(&p.positions, key).weight } else { 0 }
+}
+
+/// A 7-day lock as one made while the lock was offered: already earning at 1.5x, its end on the lock queue.
+#[test_only]
+public fun old_lock_for_testing(p: &mut Pool, s: &mut Schedule, gts: Coin<GTS>, clock: &Clock, ctx: &TxContext) {
+    let amount = coin::value(&gts);
+    let player = tx_context::sender(ctx);
+    let until = clock::timestamp_ms(clock) + LOCK_MS;
+    let key = PosKey { player, locked: true };
+    table::add(&mut p.positions, key, Position { amount, weight: weight_of(amount, true), locked_until: until, snap: p.acc, pending: 0 });
+    p.total_weight = p.total_weight + weight_of(amount, true);
+    p.total_amount = p.total_amount + amount;
+    balance::join(&mut p.staked, coin::into_balance(gts));
+    table::add(&mut s.lock_q, s.lock_tail, Due { player, locked: true, at: until });
+    s.lock_tail = s.lock_tail + 1;
 }

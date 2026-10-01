@@ -2,14 +2,14 @@
 // Plain-number GTS supply for listing sites (CoinMarketCap, CoinGecko).
 //   /api/supply/total        total GTS in existence (minted minus burned)
 //   /api/supply/circulating  same as total: no premine, no team or locked tokens
-//   /api/supply/max          most GTS that can ever exist: the 1,000,000 hard cap
+//   /api/supply/max          most GTS that can ever be mined: 31,316 (the halving, fixed in the game)
 // Read live from the Treasury object on Sui, cached for 60 seconds.
 header("Content-Type: text/plain; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
 header("Cache-Control: public, max-age=60");
 
 $q = $_GET["q"] ?? "total";
-if ($q === "max") { echo "1000000"; exit; }
+if ($q === "max") { echo "31316"; exit; }
 if ($q !== "total" && $q !== "circulating") { http_response_code(404); echo "unknown"; exit; }
 
 $treasury = "__TREASURY__";

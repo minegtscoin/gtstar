@@ -9,10 +9,10 @@
 (function(){
   var C = window.GTSTAR_CONFIG; if (!C) return;
   var scan = "https://suiscan.xyz/" + C.network;
-  // Auto Mine text is shown only once it is live (its ids are in config.js then).
-  if (C.ids.autoVault) {
-    document.querySelectorAll("[data-auto]").forEach(function (e) { e.hidden = false; });
-    document.querySelectorAll("[data-noauto]").forEach(function (e) { e.hidden = true; });
+  // The text about the lock is shown once the game is locked (config.js then carries `locked`).
+  if (C.locked) {
+    document.querySelectorAll("[data-locked]").forEach(function (e) { e.hidden = false; });
+    document.querySelectorAll("[data-unlocked]").forEach(function (e) { e.hidden = true; });
   }
   document.getElementById("netName").textContent = "Sui " + C.network.charAt(0).toUpperCase() + C.network.slice(1);
   var A = C.accounts || {};
@@ -23,7 +23,7 @@
     ["GTS/SUI pool", C.ids.market, "object", "The Cetus pool GTS trades on, where the game buys back and adds liquidity."],
     ["Supply lock", C.ids.supplyLock, "object", "Immutable. Holds the right to mint GTS and never lets the total pass 1,000,000."],
     ["Daily mint limit", C.ids.mintLimit, "object", "Immutable. Lets at most 2,000 GTS be minted per UTC day."],
-    ["Auto Mine vault", C.ids.autoVaultPkg, "object", "Immutable. Holds players' Auto Mine balances; only the player can withdraw."]
+    ["Upgrade key", A.upgradeCap, "object", "The game's UpgradeCap. Its policy shows what it can still do."]
   ].filter(function (r) { return r[1]; });
   var list0 = document.getElementById("addrList");
   rows.forEach(function (r) {

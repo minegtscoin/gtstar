@@ -2,8 +2,8 @@
 ///
 /// Rounds: players deploy SUI onto squares, one winning square is drawn with `sui::random`, and the
 /// losing pot pays: creator DEV_BPS (1%, fixed), buyback and burn BUYBACK_BPS (3%, fixed), liquidity LIQ_BPS
-/// (2%, fixed), stakers `stake_bps`, Wealth Fund `fund_bps` (every round, see `set_fund_bps`), and the rest to the winners by their stake on
-/// the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
+/// (2%, fixed), stakers `stake_bps` (3%), whoever draws the round `fund_bps` (1%, see `settle_v3`), and the
+/// rest (90%) to the winners by their stake on the winning square. From v10 a winner keeps their whole share (rounds settled by v9 kept only the
 /// part matching the part of their round deposit on the winning square, the fair split). A player may
 /// deposit on at most `max_tiles` squares a round (5; see `set_max_tiles`). With no one on the winning
 /// square the whole rest goes to the Wealth Fund. Every round
@@ -15,13 +15,17 @@
 /// No reserve from v9: GTS cannot be redeemed for SUI, the reserve share (`vault_bps`) is 0 and must
 /// stay 0, and the SUI that was in the reserve moved to the Wealth Fund once (`reserve_to_fund`).
 ///
-/// Emission, by rounds played (not by time): each settled round mints `reward` GTS (1 GTS at launch),
+/// Emission, by SUI played (not by time): each settled round mints `reward` GTS (1 GTS at launch),
 /// shared by everyone in the round by SUI deployed, win or lose; the full reward needs
-/// `full_reward_deploy` SUI in the round, less scales it down, so with 1 GTS per 1 SUI a player mines
-/// exactly the SUI they deployed while the round holds at most 1 SUI. (Rounds 21-30 were shared by SUI
-/// lost and capped by the old floor.) Every `step_rounds` settled rounds (15,658) the reward drops by
-/// `decay_ppm` (1.425%). Mining stops for good once 1,000,000 GTS have been assigned to rounds.
-/// No staker or other mint: the round reward is the only source of GTS.
+/// `full_reward_deploy` SUI in the round (7), less scales it down. (Rounds 21-30 were shared by SUI
+/// lost and capped by the old floor.) No staker or other mint: the round reward is the only source of GTS.
+///
+/// Halving, by GTS mined: the reward is cut in half each time the GTS mined at the current reward reaches
+/// what `step_rounds` (15,658) full rounds mint at it: first at 15,658 GTS mined in total, then after
+/// 7,829 more, then 3,914.5 more, and so on. So about 31,316 GTS can ever be mined, however large or small
+/// the rounds are; a round with little SUI mines little and moves the halving just as little. The schedule
+/// is fixed in the code: `set_emission` is closed. (Until the halving the reward fell 1.425% every 15,658
+/// rounds.) The 1,000,000 cap of the supply lock stays far above all of it.
 ///
 /// Mined GTS waits in the player's unrefined balance, for house bots too (v18). Withdrawing it is free
 /// once the player's 7-day clock has run out; before that the fee falls linearly from `refine_fee_bps`
@@ -81,23 +85,26 @@
 /// next claim or by `claim_owed`, which only they can call (v19). The emission settings can still be
 /// lowered (a longer curve), never raised past 2,000 GTS a day in effect.
 ///
-/// Auto Mine (v17): a player may keep SUI in the `auto_vault` package (immutable, so nobody can pause or
-/// block a withdrawal) with a plan: a strategy, an amount per round, a number of rounds. `auto_run`, which
-/// anyone may call (the keeper does, every round), then plays the round for them: it takes the player's
-/// per-round amount from the vault, pays 1% of it to the caller and 1% to the buyback and burn, and deploys
-/// the rest for the player exactly like `deploy` (same mining, same payout, same tickets, in the player's
-/// name). Spread: 5 random tiles. Sniper: 1 random tile. Hunter: the 5 tiles holding the least SUI, only in
-/// the last 10 seconds before deposits close. The round is claimed by the next `auto_run`: SUI won goes
-/// back to the player's vault balance, mined GTS to their unrefined balance (owed if the day's mint limit is full). Wealth Fund tickets of
-/// automatic rounds are added to the draw every 10 claims (at once when that costs no new storage, and
-/// when the plan has no round left to play). At least 0.05 SUI a round. A pause stops automatic deposits too.
+/// Auto Mine is closed: the game plays no automatic rounds and opens no new seats. `auto_run` only
+/// claims an automatic round played before, for its player (SUI won to their balance in the immutable
+/// `auto_vault` package, where only they can withdraw it, at any time; mined GTS to their unrefined balance).
 ///
-/// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
-/// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
-/// cap (enforced by the immutable supply lock from v15), at most 2,000 GTS minted per UTC day (immutable
-/// daily mint limit from v16), the buyback and burn (3%), the liquidity share (2%), emission that can only
-/// go down (v16: `set_emission` can lower the reward, never raise it or slow its decay), and no address can be blocked from playing, claiming or withdrawing. A pause only stops new
-/// deposits.
+/// The draw: anyone may draw a round that has ended. `settle_v3` runs the market step and pays its caller
+/// the whole 1% (`fund_bps` of the losing pot). The plain draw `settle_v2` pays nothing while the market
+/// works, and half of the 1% once the market has not been usable for 6 hours.
+///
+/// The Wealth Fund is not paid by any fee. It receives the pot of a round nobody won, the stakers' share
+/// while nobody is staked, what the plain draw does not pay its caller, and the market shares after 7
+/// days without a market.
+///
+/// Settings: `renounce` destroys the AdminCap for good, and with it every setting is fixed as it is
+/// (stakers 3%, the drawer's 1%, Wealth Fund odds, minimum deposit, round length, withdraw fee, 5 tiles);
+/// the game can never be paused after it. The UpgradeCap is restricted to dependency-only upgrades
+/// (`sui::package::only_dep_upgrades`): the code of this package can no longer change, it can only be
+/// linked to a newer version of the packages it uses (Cetus). Fixed in the code: the creator fee (1%), the
+/// buyback and burn (3%), the liquidity share (2%), the halving, the 1,000,000 cap (immutable supply
+/// lock), at most 2,000 GTS minted per UTC day (immutable daily mint limit), and no address can be blocked
+/// from playing, claiming or withdrawing.
 #[allow(lint(self_transfer))]
 module gtstar::game;
 
@@ -107,7 +114,7 @@ use sui::coin::{Self, Coin};
 use sui::dynamic_field as df;
 use sui::dynamic_object_field as dof;
 use sui::event;
-use sui::random::{Self, Random, RandomGenerator};
+use sui::random::{Self, Random};
 use sui::sui::SUI;
 use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
@@ -127,7 +134,7 @@ const PPM: u64 = 1_000_000;
 // Emission at launch (see `set_emission`).
 const INITIAL_ROUND_REWARD: u64 = 1_000_000_000; // 1 GTS
 const DEFAULT_STEP_ROUNDS: u64 = 15_658;
-const DEFAULT_DECAY_PPM: u64 = 14_250;           // 1.425%
+const DEFAULT_DECAY_PPM: u64 = 500_000;          // the halving
 const DEFAULT_FULL_REWARD_DEPLOY: u64 = 1_000_000_000; // full reward from 1 SUI in the round
 
 /// Creator fee: 1% of the losing pot, fixed, paid only to DEV_ADDR.
@@ -174,10 +181,6 @@ const MIN_MIN_DEPLOY: u64 = 500_000;        // 0.0005 SUI
 const MAX_MIN_DEPLOY: u64 = 10_000_000_000; // 10 SUI
 const MIN_ROUND_MS: u64 = 30_000;
 const MAX_ROUND_MS: u64 = 3_600_000;
-const MAX_ROUND_REWARD: u64 = 10_000_000_000; // 10 GTS
-const MAX_DECAY_PPM: u64 = 500_000;
-const MIN_FULL_REWARD_DEPLOY: u64 = 1_000_000;         // 0.001 SUI
-const MAX_FULL_REWARD_DEPLOY: u64 = 1_000_000_000_000; // 1,000 SUI
 
 /// House bots: no Wealth Fund tickets. Nothing else sets them apart (v18): their mined GTS goes to the
 /// unrefined balance under the same 7-day clock and withdraw fee as every player's.
@@ -189,16 +192,16 @@ const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d
 /// Shield bot: no Wealth Fund tickets either.
 const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
 
-/// Draw reward (v19): whoever draws a round with `settle_v3` (the draw that also runs the market) is
-/// paid up to this much SUI (0.008, about the gas of a draw) out of the round's Wealth Fund share, and
-/// only out of it: the buyback, the liquidity share, the stakers and the creator are never touched.
-/// (v13 to v18: up to 0.005 SUI, from the Wealth Fund share and then the liquidity share.)
-const DRAW_REWARD_MAX: u64 = 8_000_000;
+/// Draw reward: whoever draws a round with `settle_v3` (the draw that also runs the market) is paid this
+/// percent of the round's draw share (`fund_bps` of the losing pot, 1%): all of it. Only that share pays
+/// the drawer: the buyback, the liquidity share, the stakers and the creator are never touched.
+/// (Before the final rules: up to 0.008 SUI of it, the rest to the Wealth Fund.)
+const DRAW_PCT: u64 = 100;
 /// The plain draw `settle_v2` pays nothing while the market works, so nobody gains by picking it over
-/// `settle_v3`. Once the market has not been usable in a draw for 6 hours it pays up to 0.004 SUI, the
-/// same way, so rounds keep being drawn; half the market draw's reward, so `settle_v3` still pays better
-/// whenever it can run.
-const PLAIN_DRAW_REWARD_MAX: u64 = 4_000_000;
+/// `settle_v3`. Once the market has not been usable in a draw for 6 hours it pays half the draw share,
+/// so rounds keep being drawn, and `settle_v3` still pays better whenever it can run. What the plain
+/// draw does not pay goes to the Wealth Fund.
+const PLAIN_DRAW_PCT: u64 = 50;
 const PLAIN_DRAW_AFTER_MS: u64 = 21_600_000;
 /// Once the market has not been usable in a draw for 7 days, the SUI saved for the buyback and for
 /// liquidity moves to the Wealth Fund, and so do those two shares of every round, until a market draw
@@ -214,21 +217,15 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 /// v6: the withdraw fee falls to 0 over this long after the last withdrawal (7 days).
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
-/// Auto Mine (v17): of every automatic deposit, 1% to whoever runs it and 1% to the buyback and burn.
+/// Auto Mine, while it ran: of every automatic deposit, 1% to whoever ran it and 1% to the buyback and burn.
 const AUTO_KEEPER_BPS: u64 = 100;
 const AUTO_BUYBACK_BPS: u64 = 100;
 /// Least SUI a plan may spend per round (0.05).
 const AUTO_MIN_ROUND: u64 = 50_000_000;
-/// Hunter only deploys this long before deposits close.
-const AUTO_HUNT_MS: u64 = 10_000;
-/// Wealth Fund tickets of automatic rounds are added to the draw at the latest every this many claims.
-const AUTO_TICKET_BATCH: u64 = 10;
-const AUTO_SNIPER: u8 = 1;
-const AUTO_HUNTER: u8 = 2; // 0 is Spread
-const AUTO_SPREAD_TILES: u64 = 5;
 
-/// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 21;
+/// Package version: only the latest version may change the Board. The first call of this version moves
+/// the emission to the halving (`start_halving`).
+const VERSION: u64 = 22;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -256,12 +253,13 @@ const EUseBuybackKeep: u64 = 30;
 const EUseLockedSupply: u64 = 33;
 const EUseClaimV3: u64 = 34;
 const EUseBuybackBurn: u64 = 35;
-const EEmissionUp: u64 = 36;
 const EAutoInstalled: u64 = 37;
 const ENoAuto: u64 = 38;
 const EInDraw: u64 = 39;
 const EWrongPool: u64 = 40;
 const ENotYours: u64 = 41;
+const EFinal: u64 = 42;
+const EAutoClosed: u64 = 43;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -297,9 +295,9 @@ public struct Board has key {
     acc: u256,
     // emission
     reward: u64,          // full GTS reward of a round in the current step
-    step_rounds: u64,     // settled rounds per step
-    decay_ppm: u64,       // reward cut at the end of each step
-    step_count: u64,      // settled rounds so far in the current step
+    step_rounds: u64,     // a step ends once it has mined what this many full rounds mint (15,658)
+    decay_ppm: u64,       // reward cut at the end of each step (500,000: the halving)
+    step_count: u64,      // GTS mined so far in the current step (settled rounds, before the halving)
     full_reward_deploy: u64,
     committed: u64,       // GTS assigned to settled rounds so far (never above the cap)
     // settings
@@ -590,8 +588,24 @@ fun mul_div(a: u64, b: u64, c: u64): u64 { (((a as u128) * (b as u128)) / (c as 
 
 fun check_version(board: &mut Board) {
     assert!(board.version <= VERSION, EWrongVersion);
+    if (board.version < VERSION) { start_halving(board) };
     board.version = VERSION;
 }
+
+/// Once, at the first call of this version: the emission moves to the halving. All GTS mined so far
+/// counts toward the first halving, at 15,658 GTS mined.
+fun start_halving(board: &mut Board) {
+    board.step_rounds = DEFAULT_STEP_ROUNDS;
+    board.decay_ppm = DEFAULT_DECAY_PPM;
+    board.step_count = board.committed;
+    event::emit(EmissionChanged {
+        reward: board.reward, step_rounds: board.step_rounds, decay_ppm: board.decay_ppm,
+        step_count: board.step_count, full_reward_deploy: board.full_reward_deploy,
+    });
+}
+
+/// GTS the current step mints before the reward is halved: `step_rounds` full rounds at the current reward.
+fun step_gts(board: &Board): u64 { mul_div(board.step_rounds, board.reward, 1) }
 
 fun is_bot(a: address): bool {
     a == HOUSE_ADDR || a == BOT1_ADDR || a == BOT2_ADDR || a == BOT3_ADDR || a == MATCHER_ADDR
@@ -712,36 +726,20 @@ public fun set_params(
     event::emit(ParamsChanged { ml_odds, ml_share_bps, vault_bps, buyback_bps, refine_fee_bps, min_deploy, round_ms, freeze_ms, paused });
 }
 
-/// Lower the emission, from the next settle (v16: only down). The reward per round can only fall, the cut
-/// per step can only grow, steps can only get shorter, and the step can only move forward; the SUI needed
-/// for the full reward can only grow. So the reward of every future round stays at or below the current
-/// schedule. The 1,000,000 cap and the 2,000 GTS a day limit cannot change.
+/// Closed: the emission is the halving, fixed in the code (see `start_halving`). Nobody can change it.
 public fun set_emission(
     _: &AdminCap,
-    board: &mut Board,
-    reward: u64,
-    step_rounds: u64,
-    decay_ppm: u64,
-    step_count: u64,
-    full_reward_deploy: u64,
+    _board: &mut Board,
+    _reward: u64,
+    _step_rounds: u64,
+    _decay_ppm: u64,
+    _step_count: u64,
+    _full_reward_deploy: u64,
 ) {
-    check_version(board);
-    assert!(reward <= MAX_ROUND_REWARD, EBadParams);
-    assert!(step_rounds >= 1 && step_count < step_rounds, EBadParams);
-    assert!(decay_ppm <= MAX_DECAY_PPM, EBadParams);
-    assert!(full_reward_deploy >= MIN_FULL_REWARD_DEPLOY && full_reward_deploy <= MAX_FULL_REWARD_DEPLOY, EBadParams);
-    assert!(reward <= board.reward && decay_ppm >= board.decay_ppm && step_rounds <= board.step_rounds, EEmissionUp);
-    assert!(step_count >= board.step_count && full_reward_deploy >= board.full_reward_deploy, EEmissionUp);
-    board.reward = reward;
-    board.step_rounds = step_rounds;
-    board.decay_ppm = decay_ppm;
-    board.step_count = step_count;
-    board.full_reward_deploy = full_reward_deploy;
-    event::emit(EmissionChanged { reward, step_rounds, decay_ppm, step_count, full_reward_deploy });
+    abort EFinal
 }
 
-/// Give up the AdminCap for good: settings are frozen as they are. The buyback and the liquidity share
-/// are fixed and keep running (v11).
+/// Give up the AdminCap for good: every setting is frozen as it is, and the game can never be paused.
 public fun renounce(cap: AdminCap, _board: &Board) {
     let AdminCap { id } = cap;
     object::delete(id);
@@ -841,8 +839,8 @@ fun schedule_take(board: &mut Board, ctx: &mut TxContext): Schedule {
 }
 fun schedule_put(board: &mut Board, s: Schedule) { df::add(&mut board.id, ScheduleKey {}, s) }
 
-/// Stake GTS: flexible (1x) or locked for 7 days (1.5x). New stake starts earning one hour later (v20).
-/// Yield is paid in SUI from every round.
+/// Stake GTS (`locked` must be false: there is one kind of stake, and it can leave at any time). New
+/// stake starts earning one hour later. Yield is paid in SUI from every round.
 public fun stake(board: &mut Board, gts: Coin<GTS>, locked: bool, clock: &Clock, ctx: &mut TxContext) {
     check_version(board);
     settle_gts_both(board, tx_context::sender(ctx));
@@ -851,7 +849,7 @@ public fun stake(board: &mut Board, gts: Coin<GTS>, locked: bool, clock: &Clock,
     schedule_put(board, s);
 }
 
-/// Take staked GTS out: flexible any time, locked once its 7 days have passed.
+/// Take staked GTS out, at any time. `locked`: true only for a stake made while the 7-day lock was offered.
 public fun unstake(board: &mut Board, amount: u64, locked: bool, clock: &Clock, ctx: &mut TxContext): Coin<GTS> {
     check_version(board);
     settle_gts_both(board, tx_context::sender(ctx));
@@ -1056,15 +1054,15 @@ entry fun settle(_board: &mut Board, _treasury: &mut Treasury, _r: &Random, _clo
 /// The plain draw, kept as a fallback for when the market draw `settle_v3` cannot run (the game's Cetus
 /// link out of date): draw the winner, take fees, assign the GTS reward, archive, start the next. It does
 /// not touch the market. It pays no draw reward while the market works; once the market has not been
-/// usable in a draw for 6 hours it pays up to 0.004 SUI (see `PLAIN_DRAW_REWARD_MAX`).
+/// usable in a draw for 6 hours it pays half the draw share (see `PLAIN_DRAW_PCT`).
 /// `entry` + non-`public` so it cannot be composed/aborted based on the outcome. Mints nothing: the
 /// round's GTS is minted when players claim.
 entry fun settle_v2(board: &mut Board, r: &Random, clock: &Clock, ctx: &mut TxContext) {
     check_version(board);
     let now = clock::timestamp_ms(clock);
-    let draw_max = if (now > market_alive_at(board, now) + PLAIN_DRAW_AFTER_MS) { PLAIN_DRAW_REWARD_MAX } else { 0 };
+    let draw_pct = if (now > market_alive_at(board, now) + PLAIN_DRAW_AFTER_MS) { PLAIN_DRAW_PCT } else { 0 };
     let odds = board.ml_odds;
-    settle_with_odds(board, r, clock, odds, draw_max, ctx)
+    settle_with_odds(board, r, clock, odds, draw_pct, ctx)
 }
 
 /// The draw (v18): first the market step on the Cetus GTS/SUI pool with the SUI saved by earlier rounds
@@ -1085,7 +1083,7 @@ entry fun settle_v3(
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
     market_step(board, config, pool, treasury, clock, ctx);
     let odds = board.ml_odds;
-    settle_with_odds(board, r, clock, odds, DRAW_REWARD_MAX, ctx)
+    settle_with_odds(board, r, clock, odds, DRAW_PCT, ctx)
 }
 
 /// When a market draw last found the market usable (ms); starts now the first time it is asked.
@@ -1094,8 +1092,8 @@ fun market_alive_at(board: &mut Board, now: u64): u64 {
     *df::borrow<MarketAliveKey, u64>(&board.id, MarketAliveKey {})
 }
 
-/// `draw_max`: the most the drawer is paid, out of the round's Wealth Fund share.
-fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, draw_max: u64, ctx: &mut TxContext) {
+/// `draw_pct`: the percent of the round's draw share (`fund_bps` of the losing pot) paid to the drawer.
+fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, draw_pct: u64, ctx: &mut TxContext) {
     check_version(board);
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
@@ -1131,10 +1129,10 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, dr
     let liq_full = mul_div(losing_pot, LIQ_BPS, 10_000);
     let stake_part = mul_div(losing_pot, stake_bps(board), 10_000);
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
-    // No reserve (v9): any reserve share goes to the Wealth Fund with its own share. The drawer is paid
-    // from the Wealth Fund share only (v19): the buyback and the liquidity share always stay whole.
+    // The draw share (`fund_bps`, with any reserve share: none) pays the drawer, and only it does: the
+    // buyback and the liquidity share always stay whole. What the drawer is not paid goes to the Wealth Fund.
     let fund_full = vault_full + fund_part;
-    let draw_reward = if (fund_full < draw_max) { fund_full } else { draw_max };
+    let draw_reward = mul_div(fund_full, draw_pct, 100);
     let market_share = buyback_full + liq_full;
     let buyback_part = if (market_dead) { 0 } else { buyback_full };
     let liq_part = if (market_dead) { 0 } else { liq_full };
@@ -1165,8 +1163,8 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, dr
         balance::join(&mut board.motherlode, saved);
     };
 
-    // Wealth Fund: every round adds its share; with no one on the winning square the whole rest goes
-    // to it too. Then, in any round, a 1 in `odds` chance it is paid to the holder of the drawn ticket.
+    // Wealth Fund: with no one on the winning square the whole rest of the pot goes to it. Then, in any
+    // round, a 1 in `odds` chance it is paid to the holder of the drawn ticket.
     if (winners_total == 0) {
         fund_in = fund_in + losing_after_fee;
         losing_after_fee = 0;
@@ -1188,14 +1186,17 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, dr
     };
     event::emit(MotherlodeUpdate { round_id: board.cur_id, added: ml_added, paid: ml_paid, balance: balance::value(&board.motherlode) });
 
-    // GTS: the step reward (scaled down below `full_reward_deploy`), shared by SUI deployed. Then the decay.
+    // GTS: the step reward (scaled down below `full_reward_deploy`), shared by SUI deployed. Then the
+    // halving: once the step has mined what `step_rounds` full rounds mint, the reward is cut in half
+    // and what was mined past the step counts toward the next one.
     let full = next_full_reward(board);
     let reward = if (board.cur_total >= board.full_reward_deploy) { full }
         else { mul_div(full, board.cur_total, board.full_reward_deploy) };
     board.committed = board.committed + reward;
-    board.step_count = board.step_count + 1;
-    if (board.step_count >= board.step_rounds) {
-        board.step_count = 0;
+    board.step_count = board.step_count + reward;
+    let step = step_gts(board);
+    if (board.reward > 0 && board.step_count >= step) {
+        board.step_count = board.step_count - step;
         board.reward = mul_div(board.reward, PPM - board.decay_ppm, PPM);
     };
 
@@ -1542,47 +1543,32 @@ public fun auto_install(_: &AdminCap, board: &mut Board, cap: PullCap) {
     dof::add(&mut board.id, AutoCapKey {}, cap);
 }
 
-/// Open the sender's Auto Mine seat (once per player; a second call does nothing).
-public fun auto_join(board: &mut Board, ctx: &mut TxContext) {
-    check_version(board);
-    let player = tx_context::sender(ctx);
-    if (df::exists(&board.id, AutoKey { player })) { return };
-    df::add(&mut board.id, AutoKey { player }, AutoSeat {
-        miner: new_miner(ctx), tickets: 0, ticket_epoch: 0, claims: 0, rounds: 0, wins: 0, deployed: 0, fees: 0, won: 0, mined: 0,
-    });
-    event::emit(AutoJoined { player });
+/// Closed: Auto Mine opens no new seats.
+public fun auto_join(_board: &mut Board, _ctx: &mut TxContext) {
+    abort EAutoClosed
 }
 
-/// Play the round for each of `players` by their Auto Mine plan. Anyone may call it; the caller is paid
-/// 1% of every deposit it makes. For each player: first the last automatic round is claimed (SUI won to
-/// their vault balance, mined GTS to their unrefined balance), then, if their plan is ready, the round is
-/// played. A player who cannot be played now is skipped, never an abort. `entry` + non-`public`, like the
-/// draw: the tiles are picked with `sui::random` and cannot be chosen or retried by the caller.
+/// Claim the last automatic round of each of `players` (SUI won to their vault balance, mined GTS to
+/// their unrefined balance, their tickets into the Wealth Fund draw). Anyone may call it. It plays no
+/// round: Auto Mine is closed, so nothing is taken from any vault balance and the caller is paid nothing.
 entry fun auto_run(
     board: &mut Board,
     vault: &mut Vault,
     treasury: &mut CappedTreasury<GTS>,
     players: vector<address>,
-    r: &Random,
+    _r: &Random,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
     check_version(board);
     assert!(dof::exists(&board.id, AutoCapKey {}), ENoAuto);
-    let mut gen = random::new_generator(r, ctx);
-    let mut keeper = balance::zero<SUI>();
     let mut i = 0;
     let n = vector::length(&players);
     while (i < n) {
         let player = *vector::borrow(&players, i);
-        if (df::exists(&board.id, AutoKey { player })) {
-            auto_claim(board, vault, treasury, player, clock, ctx);
-            auto_deploy(board, vault, player, &mut gen, &mut keeper, clock, ctx);
-        };
+        if (df::exists(&board.id, AutoKey { player })) { auto_claim(board, vault, treasury, player, clock, ctx) };
         i = i + 1;
     };
-    if (balance::value(&keeper) > 0) { transfer::public_transfer(coin::from_balance(keeper, ctx), tx_context::sender(ctx)) }
-    else { balance::destroy_zero(keeper) };
 }
 
 /// Add the sender's waiting Wealth Fund tickets to the draw now.
@@ -1600,13 +1586,6 @@ fun ticket_epoch(board: &Board): u64 {
     if (df::exists(&board.id, TicketsKey {})) { df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {}).epoch } else { 0 }
 }
 
-/// Whether adding tickets for `player` now extends the last range (no new storage).
-fun tickets_merge(board: &Board, player: address): bool {
-    if (!df::exists(&board.id, TicketsKey {})) { return false };
-    let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
-    t.count > 0 && df::borrow<TicketKey, TicketEntry>(&board.id, TicketKey { epoch: t.epoch, i: t.count - 1 }).player == player
-}
-
 /// Tickets earned before the last Wealth Fund payout are gone, like every ticket of that draw.
 fun auto_drop_old_tickets(board: &Board, seat: &mut AutoSeat) {
     let epoch = ticket_epoch(board);
@@ -1618,13 +1597,6 @@ fun auto_add_tickets(board: &mut Board, seat: &mut AutoSeat, player: address, ro
     if (seat.tickets > 0) { add_tickets(board, round_id, player, seat.tickets) };
     seat.tickets = 0;
     seat.claims = 0;
-}
-
-/// Whether `player`'s plan still has a round to play (the vault's 20 seconds between rounds aside).
-fun auto_live(vault: &Vault, player: address): bool {
-    let (on, _, per_round, rounds_left, keep, target, _) = vault::plan_of(vault, player);
-    let bal = vault::balance_of(vault, player);
-    on && rounds_left > 0 && per_round >= AUTO_MIN_ROUND && bal >= per_round && bal - per_round >= keep && (target == 0 || bal < target)
 }
 
 /// Claim `player`'s last automatic round, if it is settled. The day's GTS mint limit never holds it up
@@ -1648,85 +1620,12 @@ fun auto_claim(board: &mut Board, vault: &mut Vault, treasury: &mut CappedTreasu
         seat.claims = seat.claims + 1;
         event::emit(AutoClaimed { round_id, player, sui, gts: mined });
     };
-    // Tickets go into the draw every AUTO_TICKET_BATCH claims, at once when that only extends the last
-    // range, and whenever the plan has no round left to play (off, out of rounds or balance, target reached).
-    if (seat.tickets > 0 && (seat.claims >= AUTO_TICKET_BATCH || !auto_live(vault, player) || tickets_merge(board, player))) {
+    // No round is played after this one, so the tickets go into the draw at once.
+    if (seat.tickets > 0) {
         let at = if (round_id != 0) { round_id } else { board.cur_id };
         auto_add_tickets(board, &mut seat, player, at);
     };
     df::add(&mut board.id, AutoKey { player }, seat);
-}
-
-/// Play the current round for `player` if their plan is ready and the strategy allows it now.
-fun auto_deploy(board: &mut Board, vault: &mut Vault, player: address, gen: &mut RandomGenerator, keeper: &mut Balance<SUI>, clock: &Clock, ctx: &mut TxContext) {
-    if (board.paused || !vault::ready(vault, player, clock)) { return };
-    let (_, strategy, spent, _, _, _, _) = vault::plan_of(vault, player);
-    if (spent < AUTO_MIN_ROUND || strategy > AUTO_HUNTER) { return };
-    let now = clock::timestamp_ms(clock);
-    // A live round takes deposits until `freeze_ms` before its end; with no round live this deposit starts one.
-    if (board.cur_started && now + board.freeze_ms > board.cur_end_ms) { return };
-    if (strategy == AUTO_HUNTER && (!board.cur_started || now + board.freeze_ms + AUTO_HUNT_MS < board.cur_end_ms)) { return };
-    // One miner per player and round: not in a round the player already plays themselves.
-    if (df::exists(&board.id, SeatKey { round_id: board.cur_id, player })) { return };
-
-    let tiles = if (strategy == AUTO_SNIPER) { 1 } else if (AUTO_SPREAD_TILES < max_tiles(board)) { AUTO_SPREAD_TILES } else { max_tiles(board) };
-    let keeper_fee = mul_div(spent, AUTO_KEEPER_BPS, 10_000);
-    let per = (spent - keeper_fee - mul_div(spent, AUTO_BUYBACK_BPS, 10_000)) / tiles;
-    if (per < board.min_deploy) { return };
-
-    let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
-    // The last round must be claimed first (it waits for its draw).
-    if (seat.miner.round_id == 0) {
-        let mut funds = vault::pull(vault, dof::borrow<AutoCapKey, PullCap>(&board.id, AutoCapKey {}), player, clock);
-        balance::join(keeper, balance::split(&mut funds, keeper_fee));
-        let deployed = per * tiles;
-        let pay = coin::from_balance(balance::split(&mut funds, deployed), ctx);
-        // The buyback fee, with the few mist left by the split over the tiles.
-        let buyback_fee = balance::value(&funds);
-        balance::join(&mut board.buyback, funds);
-        let amounts = if (strategy == AUTO_HUNTER) { emptiest_tiles(&board.cur_deployed, tiles, per, gen) } else { random_tiles(tiles, per, gen) };
-        deploy_as(board, &mut seat.miner, player, pay, amounts, clock);
-        seat.rounds = seat.rounds + 1;
-        seat.deployed = seat.deployed + deployed;
-        seat.fees = seat.fees + keeper_fee + buyback_fee;
-        event::emit(AutoMined { round_id: board.cur_id, player, strategy, spent, deployed, keeper_fee, buyback_fee });
-    };
-    df::add(&mut board.id, AutoKey { player }, seat);
-}
-
-/// `per` on each of `tiles` different tiles, drawn at random.
-fun random_tiles(tiles: u64, per: u64, gen: &mut RandomGenerator): vector<u64> {
-    let mut v = zeros();
-    let mut picked = 0;
-    while (picked < tiles) {
-        let i = random::generate_u64_in_range(gen, 0, GRID - 1);
-        if (*vector::borrow(&v, i) == 0) {
-            *vector::borrow_mut(&mut v, i) = per;
-            picked = picked + 1;
-        };
-    };
-    v
-}
-
-/// `per` on each of the `tiles` tiles holding the least SUI. Ties go to the first one from a random start.
-fun emptiest_tiles(deployed: &vector<u64>, tiles: u64, per: u64, gen: &mut RandomGenerator): vector<u64> {
-    let mut v = zeros();
-    let start = random::generate_u64_in_range(gen, 0, GRID - 1);
-    let mut picked = 0;
-    while (picked < tiles) {
-        let mut best = GRID;
-        let mut low = 0;
-        let mut j = 0;
-        while (j < GRID) {
-            let i = (start + j) % GRID;
-            let d = *vector::borrow(deployed, i);
-            if (*vector::borrow(&v, i) == 0 && (best == GRID || d < low)) { best = i; low = d; };
-            j = j + 1;
-        };
-        *vector::borrow_mut(&mut v, best) = per;
-        picked = picked + 1;
-    };
-    v
 }
 
 /// Send accrued creator fees to DEV_ADDR. Anyone may call; funds can only go to DEV_ADDR.
@@ -2015,7 +1914,8 @@ public fun lp_positions(board: &Board): u64 {
 }
 /// ID of locked position `i` (from 0).
 public fun lp_position_id(board: &Board, i: u64): ID { *dof::id(&board.id, LpKey { i }).borrow() }
-/// (step reward, rounds per step, decay ppm, rounds into the step, full-reward deposit, GTS committed).
+/// (step reward, full rounds a step is worth, cut per step in ppm, GTS mined in the step so far, full-reward
+/// deposit, GTS committed). The step ends, and the reward is halved, at the GTS `emission_step` gives.
 public fun emission(board: &Board): (u64, u64, u64, u64, u64, u64) {
     (board.reward, board.step_rounds, board.decay_ppm, board.step_count, board.full_reward_deploy, board.committed)
 }
@@ -2041,8 +1941,10 @@ public fun market_alive(board: &Board): (u64, u64, u64) {
     let at = if (df::exists(&board.id, MarketAliveKey {})) { *df::borrow<MarketAliveKey, u64>(&board.id, MarketAliveKey {}) } else { 0 };
     (at, PLAIN_DRAW_AFTER_MS, MARKET_DEAD_MS)
 }
-/// Most SUI paid to whoever draws a round: (market draw, plain draw once the market has been down 6 hours).
-public fun draw_rewards(): (u64, u64) { (DRAW_REWARD_MAX, PLAIN_DRAW_REWARD_MAX) }
+/// Percent of a round's draw share paid to whoever draws it: (market draw, plain draw once the market has been down 6 hours).
+public fun draw_rewards(): (u64, u64) { (DRAW_PCT, PLAIN_DRAW_PCT) }
+/// The halving: (GTS mined in the current step so far, GTS the step mints before the reward is halved).
+public fun emission_step(board: &Board): (u64, u64) { (board.step_count, step_gts(board)) }
 /// Full GTS reward of the round now open.
 public fun current_reward(board: &Board): u64 { next_full_reward(board) }
 public fun unrefined_of(board: &Board, player: address): (u64, u64) {
@@ -2068,7 +1970,7 @@ public fun tickets_of(board: &Board, player: address): u64 {
     let pk = PlayerTicketsKey { epoch, player };
     if (df::exists(&board.id, pk)) { *df::borrow<PlayerTicketsKey, u64>(&board.id, pk) } else { 0 }
 }
-/// Wealth Fund's share of every round's losing pot in bps.
+/// The draw share: the part of every round's losing pot paid to whoever draws it, in bps.
 public fun wealth_fund_bps(board: &Board): u64 { fund_bps(board) }
 public fun max_tiles_per_player(board: &Board): u64 { max_tiles(board) }
 /// Stakers' share of the losing pot in bps (0 before staking is set up).
@@ -2119,7 +2021,7 @@ public fun staking_position(board: &Board, player: address, locked: bool): (u64,
     staking::position(df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}), player, locked)
 }
 
-/// Auto Mine fees in bps of every automatic deposit (keeper, buyback), and the least SUI a round (v17).
+/// Auto Mine terms while it ran: fees in bps of every automatic deposit (keeper, buyback), and the least SUI a round.
 public fun auto_terms(): (u64, u64, u64) { (AUTO_KEEPER_BPS, AUTO_BUYBACK_BPS, AUTO_MIN_ROUND) }
 public fun auto_installed(board: &Board): bool { dof::exists(&board.id, AutoCapKey {}) }
 public fun auto_joined(board: &Board, player: address): bool { df::exists(&board.id, AutoKey { player }) }
@@ -2143,13 +2045,13 @@ public fun auto_run_for_testing(board: &mut Board, vault: &mut Vault, treasury: 
 #[test_only]
 public fun settle_for_testing(board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, ctx: &mut TxContext) {
     let odds = board.ml_odds;
-    settle_with_odds(board, r, clock, odds, DRAW_REWARD_MAX, ctx)
+    settle_with_odds(board, r, clock, odds, DRAW_PCT, ctx)
 }
 
 #[test_only]
 public fun settle_with_odds_for_testing(
     board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
-) { settle_with_odds(board, r, clock, odds, DRAW_REWARD_MAX, ctx) }
+) { settle_with_odds(board, r, clock, odds, DRAW_PCT, ctx) }
 
 /// The plain draw `settle_v2`.
 #[test_only]
@@ -2217,3 +2119,42 @@ public fun mint_for_testing(board: &mut Board, t: &mut CappedTreasury<GTS>, amou
 
 #[test_only]
 public fun set_committed_for_testing(board: &mut Board, committed: u64) { board.committed = committed }
+
+/// Put the Board back as the version before the halving left it: emission by rounds, `rounds` into the step.
+#[test_only]
+public fun before_halving_for_testing(board: &mut Board, rounds: u64) {
+    board.version = VERSION - 1;
+    board.decay_ppm = 14_250;
+    board.step_count = rounds;
+}
+
+#[test_only]
+public fun set_reward_for_testing(board: &mut Board, reward: u64, step_count: u64) {
+    board.reward = reward;
+    board.step_count = step_count;
+}
+
+/// An Auto Mine seat as one opened while Auto Mine ran.
+#[test_only]
+public fun auto_seat_for_testing(board: &mut Board, player: address, ctx: &mut TxContext) {
+    df::add(&mut board.id, AutoKey { player }, AutoSeat {
+        miner: new_miner(ctx), tickets: 0, ticket_epoch: 0, claims: 0, rounds: 0, wins: 0, deployed: 0, fees: 0, won: 0, mined: 0,
+    });
+}
+
+/// Play the current round from `player`'s Auto Mine seat, as an automatic round did while Auto Mine ran.
+#[test_only]
+public fun auto_deploy_for_testing(board: &mut Board, player: address, payment: Coin<SUI>, amounts: vector<u64>, clock: &Clock) {
+    let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
+    deploy_as(board, &mut seat.miner, player, payment, amounts, clock);
+    seat.rounds = seat.rounds + 1;
+    df::add(&mut board.id, AutoKey { player }, seat);
+}
+
+/// A 7-day lock of the sender as one made while the lock was offered (earning 1.5x, queued).
+#[test_only]
+public fun old_lock_for_testing(board: &mut Board, gts: Coin<GTS>, clock: &Clock, ctx: &mut TxContext) {
+    let mut s = schedule_take(board, ctx);
+    staking::old_lock_for_testing(pool_mut(board), &mut s, gts, clock, ctx);
+    schedule_put(board, s);
+}

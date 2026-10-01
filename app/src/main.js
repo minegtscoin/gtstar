@@ -13,10 +13,13 @@ const CHAIN = `sui:${CFG.network}`;
 const GQL = `https://graphql.${CFG.network}.sui.io/graphql`;
 const SCAN = `https://suiscan.xyz/${CFG.network}`;
 const MIST = 1e9;
-// Emission at launch (game::init): 1 GTS a round, -1.425% every 15,658 rounds, stops at 1,000,000 GTS.
-// The live values come from the Board (STATE.em) and can be changed by the owner at once.
-const MAX_GTS = 1_000_000;
-const LAUNCH_EM = { reward: 1e9, step: 15_658, decay: 14_250, count: 0, full: 1e9, committed: 0 };
+// Emission (game::settle): 1 GTS for a full round, cut in half each time a step has mined what 15,658
+// full rounds mint at the current reward: at 15,658 GTS mined, then after 7,829 more, and so on. So
+// 31,316 GTS is the most that can ever be mined (MAX_GTS); the sealed supply cap is 1,000,000 (HARD_CAP).
+// The live values come from the Board (STATE.em); nobody can change them.
+const MAX_GTS = 31_316;
+const HARD_CAP = 1_000_000;
+const LAUNCH_EM = { reward: 1e9, step: 15_658, decay: 500_000, count: 0, full: 7e9, committed: 0 };
 const T = name => `${IDS.package}::${name}`;          // game package (upgradeable): types and events
 const C = name => `${IDS.latest || IDS.package}::${name}`; // latest game version: calls
 const TK = name => `${IDS.token}::${name}`;           // token package (immutable)
@@ -639,7 +642,7 @@ const ERRORS = {
   game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again.", 39: "The game was just upgraded. Refresh the page and try again.", 40: "The game was just upgraded. Refresh the page and try again.", 41: "Only the wallet that mined this GTS can collect it." },
   daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
-  staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
+  staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 4: "Nothing staked here.", 5: "The 7-day lock is closed. Stake without it." },
   vault: { 1: "You have no Auto Mine balance yet.", 2: "That is more than your Auto Mine balance. It may have just played a round: try again.", 3: "Set an amount per round and a number of rounds.", 5: "Enter an amount." },
 };
 function friendlyError(e) {
@@ -837,16 +840,16 @@ const lockPosition = () => {
     tx.moveCall({ target: C("game::lock_position"), arguments: [tx.object(IDS.board), tx.object(IDS.market), tx.object(p.id)] });
   });
 };
-let stakeMode = "deposit", stakeLocked = false;
-// A locked stake can leave once its 7 days are over.
-const lockFree = () => { const l = USER?.stake?.lock; return l && l.amount > 0 && l.until <= chainNow() ? l.amount : 0; };
+let stakeMode = "deposit";
+// A stake made while the 7-day lock was offered: the lock is closed, so it can leave at any time.
+const lockFree = () => USER?.stake?.lock?.amount || 0;
 const stakeTx = () => exec(stakeMode === "deposit" ? "Stake" : "Withdraw", "btnStake", tx => {
   const amt = toMist($("stakeAmt").value);
   if (amt <= 0) throw new Error("Enter an amount.");
   if (stakeMode === "deposit") {
-    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(stakeLocked), tx.object.clock()] });
+    tx.moveCall({ target: C("game::stake"), arguments: [tx.object(IDS.board), gtsCoin(tx, amt), tx.pure.bool(false), tx.object.clock()] });
   } else {
-    // Flexible first, then any locked stake whose 7 days are over.
+    // The stake itself first, then what is left of a stake made under the old lock.
     const flex = Math.min(amt, USER?.stake?.flex?.amount || 0), rest = Math.min(amt - flex, lockFree());
     const out = [];
     if (flex > 0) out.push(tx.moveCall({ target: C("game::unstake"), arguments: [tx.object(IDS.board), tx.pure.u64(flex), tx.pure.bool(false), tx.object.clock()] })[0]);
@@ -928,32 +931,34 @@ const swap = () => exec("Swap", "btnSwap", async tx => {
   tx.transferObjects([guardedCoin(tx, sui, POOL_T[1], minOut)], account.address);
 }).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
 
-// ---------- emission math (round-based, mirrors game::settle) ----------
-// Full GTS reward of the round now open: the step reward, never past the 1,000,000 cap.
+// ---------- emission math (mirrors game::settle) ----------
+// Full GTS reward of the round now open: the step reward, never past the sealed 1,000,000 cap.
 const em = () => STATE?.em || LAUNCH_EM;
-const roundReward = () => { const e = em(); return Math.max(0, Math.min(e.reward, MAX_GTS * MIST - e.committed)) / MIST; };
-// The schedule with every round at the full reward, from round 1 with 1 GTS and the current step and cut:
-// GTS mined after `n` rounds, and the reward of round n + 1.
+const roundReward = () => { const e = em(); return Math.max(0, Math.min(e.reward, HARD_CAP * MIST - e.committed)) / MIST; };
+// GTS still to be mined before the reward is cut in half (the step ends at `step` full rounds' worth of
+// GTS at the current reward; `count` is the GTS mined in the step so far).
+const toHalving = () => { const e = em(); return Math.max(0, e.step * e.reward - e.count) / MIST; };
+// The schedule in full rounds (a round with less SUI than the full reward needs mines a part of it, and
+// counts as that part of a round): GTS mined after `n` full rounds, and the reward of the next one.
 function schedule(n) {
   const { step, decay } = em(), q = 1 - decay / 1e6;
   let total = 0, r = 1, left = n;
-  while (left > 0 && total < MAX_GTS && r > 0) {
+  while (left > 0 && r > 1e-9) {
     const k = Math.min(step, left);
     total += r * k; left -= k;
     if (k === step) r *= q;
   }
-  return { total: Math.min(total, MAX_GTS), next: total >= MAX_GTS ? 0 : r };
+  return { total, next: r };
 }
-// Round at which the full-reward schedule reaches the cap.
-function lastRound() {
+// Full rounds it took to mine `gts` on that schedule.
+function fullRounds(gts) {
   const { step, decay } = em(), q = 1 - decay / 1e6;
-  let total = 0, r = 1, n = 0;
-  for (let i = 0; i < 100_000 && r > 0; i++) {
-    if (total + r * step >= MAX_GTS) return n + Math.ceil((MAX_GTS - total) / r);
-    total += r * step; n += step; r *= q;
-  }
-  return n;
+  let n = 0, r = 1, left = gts;
+  while (r > 1e-9 && left > r * step) { left -= r * step; n += step; r *= q; }
+  return n + left / r;
 }
+// The chart shows the first 8 steps: over 99% of all GTS.
+const lastRound = () => em().step * 8;
 
 // ---------- render: common ----------
 function toast(msg, err = false, html = false) {
@@ -1438,7 +1443,7 @@ function renderMine() {
     if (!selected.size) hint = "Your rewards from the last round are collected with your next deploy, or use Claim all.";
   } else if (p === "ended") hint = keeperDrawing(b)
     ? "The round has ended. The winner is drawn within seconds."
-    : "The round has ended. Draw the winner: whoever draws is paid up to 0.008 SUI for it.";
+    : "The round has ended. Draw the winner: whoever draws is paid 1% of the losing pot for it.";
   else if (p === "frozen") hint = "Deposits close 5 seconds before the round ends.";
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first 2 rounds free.";
@@ -1665,7 +1670,7 @@ function renderExplorer() {
   $("gVolume").textContent = t ? `${N.volume()} SUI` : "—";
   $("gMiners").textContent = t ? fmt(t.players, 0) : "—";
   $("gReward").textContent = `${fmt(roundReward(), 6)} GTS`;
-  $("gNextCut").textContent = roundReward() > 0 ? `In ${fmt(em().step - em().count, 0)} rounds` : "Mining ended";
+  $("gNextCut").textContent = roundReward() > 0 ? `After ${fmt(toHalving(), 2)} more GTS` : "Mining ended";
   $("gMined").textContent = `${N.mined()} GTS`;
   $("gSupply").textContent = `${N.supply()} GTS`;
   // Every GTS ever minted that is no longer in supply was burned (withdraw fees, the old buyback, old redemptions).
@@ -1750,7 +1755,7 @@ function renderRevenue() {
   }
   const cfg = {
     // Settle adds the round's share; a spread deposit's forfeit is added at claim (the split).
-    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `${fmt((STATE.fundBps || 0) / 100, 2)}% of every losing pot, all of it less fees when no one wins. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
+    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `The whole pot, less fees, of every round no one wins. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
   }[revTab];
   const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
   const total = rows.reduce((a, r) => a + cfg.v(r), 0);
@@ -1791,6 +1796,7 @@ function renderTokenomics() {
   if (!STATE) return;
   $("kSupply").textContent = N.supply();
   $("kSchedMax").textContent = fmt(MAX_GTS, 0);
+  $("whyLocked").hidden = !CFG.locked;
   $("kFund").textContent = `${N.fund()} SUI`;
   $("kPrice").textContent = PRICE.sui ? usd(gtsSui() * PRICE.sui) : `${fmt(gtsSui(), 5)} SUI`;
   // Locked liquidity: anyone can add to it, for good.
@@ -1814,8 +1820,8 @@ function renderTokenomics() {
   $("kEpochLbl").textContent = `${fmt(e.committed / MIST, 2)} of ${fmt(MAX_GTS, 0)} GTS mined`;
   $("kRound").textContent = `#${fmt(round, 0)}`;
   $("kReward").textContent = `Up to ${fmt(r, 6)} GTS`;
-  $("kToHalving").textContent = r > 0 ? `-${fmt(e.decay / 1e4, 3)}% in ${fmt(e.step - e.count, 0)} rounds` : "Mining ended";
-  drawChart(STATE.board.cur_id - 1);
+  $("kToHalving").textContent = r > 0 ? `After ${fmt(toHalving(), 2)} more GTS` : "Mining ended";
+  drawChart(fullRounds(e.committed / MIST));
 }
 let chartSize = 0;
 function drawChart(played) {
@@ -1834,11 +1840,11 @@ function drawChart(played) {
   const k = v => (v === 0 ? "0" : v >= 1e6 ? `${fmt(v / 1e6, 2)}M` : `${fmt(v / 1e3, 0)}K`);
   const yt = [0, Y / 4, Y / 2, Y * 3 / 4, Y];
   const narrow = W < 560;
-  const xt = (narrow ? [0, 0.5] : [0, 0.25, 0.5, 0.75]).map(f => Math.round(X1 * f / 100_000) * 100_000);
-  // The dot is what was really mined: rounds below the full-reward deposit mint less than the line.
+  const xt = (narrow ? [0, 0.5] : [0, 0.25, 0.5, 0.75]).map(f => Math.round(X1 * f / 10_000) * 10_000);
+  // The dot is what was really mined, at the number of full rounds that mines it.
   const now = Math.min(Math.max(played, X0), X1);
   const nx = x(now), ny = y(Math.min(em().committed / MIST, MAX_GTS));
-  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Maximum cumulative GTS by rounds played: the reward drops ${fmt(em().decay / 1e4, 3)}% every ${fmt(em().step, 0)} rounds until 1,000,000 GTS.">
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative GTS by full rounds played: the reward is cut in half at ${fmt(em().step, 0)} GTS mined, then after half as much each time, ${fmt(MAX_GTS, 0)} GTS in all.">
     ${yt.map(v => `<line class="ax" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" opacity="${v ? 0.5 : 1}"/><text class="tick" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join("")}
     ${xt.map(t => `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${t ? "middle" : "start"}">Round ${narrow ? k(t) : fmt(t, 0)}</text>`).join("")}
     <path class="ar" d="${area}"/><path class="ln" d="${line}"/>
@@ -1856,7 +1862,7 @@ function drawChart(played) {
     box.querySelector("#hx").setAttribute("x1", x(t)); box.querySelector("#hx").setAttribute("x2", x(t));
     box.querySelector("#hd").setAttribute("cx", x(t)); box.querySelector("#hd").setAttribute("cy", y(v));
     tip.hidden = false; tip.style.left = `${Math.min(Math.max(x(t), 100), W - 100)}px`; tip.style.top = `${y(v)}px`;
-    tip.innerHTML = `<b>Round ${fmt(t, 0)}</b><br>Up to <b>${fmt(v, 0)}</b> GTS · ${fmt(sc.next, 4)} per round`;
+    tip.innerHTML = `<b>${fmt(t, 0)} full rounds</b><br><b>${fmt(v, 0)}</b> GTS mined · ${fmt(sc.next, 4)} per round`;
   };
   hit.onmousemove = e => move(e.clientX);
   hit.ontouchmove = e => move(e.touches[0].clientX);
@@ -1872,10 +1878,7 @@ function renderStake() {
   const S = STATE.stake, U = USER?.stake, now = Date.now();
   const f = U?.flex, l = U?.lock, total = (f?.amount || 0) + (l?.amount || 0);
   $("sFlex").textContent = USER ? `${sui(total, 4)} GTS` : "—";
-  // The locked part, and when it can leave (the draw drops it to 1x by itself once the 7 days are over).
   const cnow = chainNow();
-  $("sLockRow").hidden = !(l?.amount > 0);
-  if (l?.amount > 0) $("sLock").textContent = `${sui(l.amount, 4)} GTS · ${l.until > cnow ? `unlocks in ${dhm(l.until - cnow)}` : "unlocked"}`;
   // New stake earns after an hour: what is still warming up, and when the last of it starts.
   const warmAmt = (f?.warm?.amount || 0) + (l?.warm?.amount || 0), warmAt = Math.max(f?.warm?.amount ? f.warm.at : 0, l?.warm?.amount ? l.warm.at : 0);
   $("sWarmRow").hidden = !(warmAmt > 0);
@@ -1900,14 +1903,11 @@ function renderStake() {
   const apr = stakedSui > 0 && days > 0 ? got / days * 365 / stakedSui * 100 : null;
   $("sApr").textContent = apr == null ? "—" : `${fmt(apr, apr < 10 ? 2 : 0)}%`;
   $("sStaked").textContent = S ? `${sui(S.amount, 3)} GTS` : "—";
-  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 1}% of every round's losing pot, paid in SUI, split by stake weight: flexible stake counts 1x, stake locked for 7 days counts 1.5x. New stake starts earning one hour after it is staked. Nothing is minted for staking. APR is what stakers got since launch, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
-  $("stakeKind").hidden = stakeMode !== "deposit";
-  document.querySelectorAll("#stakeKind button").forEach(b => b.setAttribute("aria-selected", String((b.dataset.kind === "lock") === stakeLocked)));
+  $("stakeNote").textContent = `Stakers share ${S ? fmt(S.bps / 100, 2) : 3}% of every round's losing pot, paid in SUI, split by the GTS each one staked. New stake starts earning one hour after it is staked, and it can leave at any time. Nothing is minted for staking. APR is what stakers got since launch, per year, against the value of all GTS staked. It is high now because little GTS is staked, and falls as more is staked or fewer people play. Nothing is fixed.`;
   document.querySelectorAll("#stakeSeg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.mode === stakeMode)));
   const avail = stakeMode === "deposit" ? (USER?.gts || 0) : stakedAvail();
   $("stakeBal").textContent = `${USER ? sui(avail, 4) : 0} GTS ${stakeMode === "deposit" ? "in wallet" : "available"}`;
-  $("stakeHint").textContent = stakeMode !== "deposit" ? "Flexible stake can leave any time. Locked stake can leave once its 7 days are over."
-    : stakeLocked ? "1.5x the yield. Locked for 7 days from now; adding more later restarts the 7 days for your whole locked stake. Starts earning after one hour."
+  $("stakeHint").textContent = stakeMode !== "deposit" ? "Your stake can leave at any time."
     : "Earn SUI from every round. Starts earning after one hour. Withdraw any time.";
   if (!busy) {
     const btn = $("btnStake"), amt = toMist($("stakeAmt").value);
@@ -2312,7 +2312,6 @@ $("liqSui").addEventListener("input", renderTokenomics);
 $("btnStake").onclick = () => (account ? stakeTx() : openWalletModal());
 $("btnStakeClaim").onclick = () => (account ? claimYield() : openWalletModal());
 document.querySelectorAll("#stakeSeg button").forEach(b => (b.onclick = () => { stakeMode = b.dataset.mode; $("stakeAmt").value = ""; renderStake(); }));
-document.querySelectorAll("#stakeKind button").forEach(b => (b.onclick = () => { stakeLocked = b.dataset.kind === "lock"; renderStake(); }));
 document.querySelectorAll("#view-stake [data-pct]").forEach(b => (b.onclick = () => {
   if (!USER) return openWalletModal();
   const avail = stakeMode === "deposit" ? USER.gts : stakedAvail();

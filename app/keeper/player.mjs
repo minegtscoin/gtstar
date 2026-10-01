@@ -17,7 +17,7 @@
 // Late money: the board is read again after the freeze; SUI others added after our read lands in the
 // log, and its average on our tiles is added to D in the next rounds (moving earlier cannot help:
 // who comes after us still sees our deposit).
-// Mined GTS: once its 7-day clock has passed (no withdraw fee) it is withdrawn and staked (7-day lock),
+// Mined GTS: once its 7-day clock has passed (no withdraw fee) it is withdrawn and staked,
 // never sold. SUI yield from staking is claimed back into the bankroll once a day.
 // No daily loss cap: in a round a real player is in it always deploys at least the minimum. Limits: at most
 // ROUND_PCT of the bankroll a round, and stops
@@ -370,7 +370,7 @@ async function chores() {
   if (amount > 0n && free) {
     await send("stake gts", tx => {
       const g = tx.moveCall({ target: C("game::withdraw_gts_v7"), arguments: [boardArg(tx), treasuryArg(tx), tx.object.clock()] });
-      tx.moveCall({ target: C("game::stake"), arguments: [boardArg(tx), g, tx.pure.bool(true), tx.object.clock()] });
+      tx.moveCall({ target: C("game::stake"), arguments: [boardArg(tx), g, tx.pure.bool(false), tx.object.clock()] });
     });
     state.staked = true; save();
   }

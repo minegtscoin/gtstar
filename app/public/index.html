@@ -109,7 +109,7 @@
       <div class="feed-live" id="feed"></div>
     </div>
       <div class="board-col">
-        <div class="ml-bar" title="3% of every losing pot goes into the Wealth Fund, and the whole pot less fees when no one is on the winning tile. Every round has a 1 in 250 chance to pay all of it to one ticket holder. Your tickets are the fees you paid on SUI you lost since the last payout.">
+        <div class="ml-bar" title="When no one is on the winning tile, the whole pot less fees goes into the Wealth Fund. Every round has a 1 in 250 chance to pay all of it to one ticket holder. Your tickets are the fees you paid on SUI you lost since the last payout.">
           <span class="ml-l">Wealth Fund</span><b id="sMotherlode">—</b><span class="ml-odds" id="sMlOdds"></span>
         </div>
         <div class="round-bar">
@@ -299,13 +299,13 @@
       <div class="group"><h2>Emission</h2>
         <dl class="dl">
           <div><dt>Reward per round</dt><dd id="gReward">—</dd></div>
-          <div><dt>Next cut (-1.425%)</dt><dd id="gNextCut">—</dd></div>
+          <div><dt>Next halving</dt><dd id="gNextCut">—</dd></div>
         </dl></div>
       <div class="group"><h2>Supply</h2>
         <dl class="dl">
           <div><dt>Mined</dt><dd id="gMined">—</dd></div>
           <div><dt>Circulating</dt><dd id="gSupply">—</dd></div>
-          <div><dt>Max</dt><dd>1,000,000 GTS</dd></div>
+          <div><dt>Max</dt><dd>31,316 GTS</dd></div>
           <div><dt>Burned</dt><dd id="gBurned">—</dd></div>
         </dl></div>
     </div>
@@ -358,22 +358,24 @@
       <div class="panel">
         <div class="panel-h"><h2>Emission schedule</h2><span class="muted" id="kEpochLbl"></span></div>
         <div class="chart" id="chart"></div>
-        <div class="chart-foot"><span>Reward drops 1.425% every 15,658 rounds</span><span class="now-key"><i></i>Now</span></div>
+        <div class="chart-foot"><span>The reward halves at 15,658 GTS mined, then after half as much each time</span><span class="now-key"><i></i>Now</span></div>
         <dl class="dl t-dl">
           <div><dt>Current round</dt><dd id="kRound">—</dd></div>
           <div><dt>Reward per round</dt><dd id="kReward">—</dd></div>
-          <div><dt>Next cut</dt><dd id="kToHalving">—</dd></div>
+          <div><dt>Next halving</dt><dd id="kToHalving">—</dd></div>
         </dl>
       </div>
       <div class="panel">
         <div class="panel-h"><h2>Built to hold value</h2><a class="muted" href="docs.html#value">How it works</a></div>
         <ul class="why">
           <li><b>0% team, 0% presale</b><span>Every GTS is mined by players.</span></li>
-          <li><b>Hard cap, sealed</b><span>1,000,000 GTS at most, and at most 2,000 minted a day. Both limits sit in immutable contracts no one can change, the owner included.</span></li>
-          <li><b>Expensive to create</b><span>A round needs 7 SUI to mint 1 GTS, so mining one costs about 0.67 SUI in fees on average.</span></li>
+          <li><b>Halving</b><span>The reward is cut in half at 15,658 GTS mined, then after half as much each time. 31,316 GTS is all that can ever be mined.</span></li>
+          <li id="whyLocked" hidden><b>Rules no one can change</b><span>The game's code and settings are locked, for the owner too. A sealed supply cap sits in immutable contracts on top of it.</span></li>
+          <li><b>Expensive to create</b><span>A round needs 7 SUI to mint its full reward, so 1 GTS costs about 0.67 SUI in fees now, and twice as much after every halving.</span></li>
           <li><b>Buyback &amp; burn every round</b><span>3% of every losing pot buys GTS on the market and burns it for good, inside the draw itself.</span></li>
           <li><b>Liquidity that only grows</b><span>2% of every losing pot goes into the GTS/SUI pool, in positions held by the game, which has no function to take them out. The trading fees they earn are added back.</span></li>
-          <li><b>Wealth Fund</b><span>3% of every losing pot builds a SUI jackpot that one player takes whole.</span></li>
+          <li><b>Holders earn SUI</b><span>3% of every losing pot is paid in SUI to everyone staking GTS.</span></li>
+          <li><b>Wealth Fund</b><span>The pot of every round no one wins builds a SUI jackpot that one player takes whole.</span></li>
         </ul>
       </div>
     </div>
@@ -400,10 +402,6 @@
         <button type="button" role="tab" data-mode="deposit" aria-selected="true">Deposit</button>
         <button type="button" role="tab" data-mode="withdraw" aria-selected="false">Withdraw</button>
       </div>
-      <div class="pilltabs" id="stakeKind" role="tablist" aria-label="Stake type">
-        <button type="button" role="tab" data-kind="flex" aria-selected="true">Flexible · 1x</button>
-        <button type="button" role="tab" data-kind="lock" aria-selected="false">7-day lock · 1.5x</button>
-      </div>
       <div class="amount big">
         <input id="stakeAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount of GTS" autocomplete="off" />
         <span class="unit" id="stakeBal">0 GTS</span>
@@ -420,7 +418,6 @@
       <h2 class="sum-h">Account</h2>
       <dl class="dl">
         <div><dt>Staked</dt><dd id="sFlex">—</dd></div>
-        <div id="sLockRow" hidden><dt>Locked · 1.5x</dt><dd id="sLock">—</dd></div>
         <div id="sWarmRow" hidden><dt>Warming up</dt><dd id="sWarm">—</dd></div>
         <div><dt>Yield</dt><dd class="gold"><span class="gain" id="sGain"></span><span id="sPending">—</span></dd></div>
         <div><dt>GTS yield</dt><dd class="gold" id="sPendingGts">—</dd></div>
@@ -432,7 +429,7 @@
         <div><dt>APR · since launch</dt><dd id="sApr" class="gold">—</dd></div>
         <div><dt>Total staked</dt><dd id="sStaked">—</dd></div>
       </dl>
-      <p class="note-sm" id="stakeNote">Stakers share 1% of every round's losing pot, paid in SUI, split by stake.</p>
+      <p class="note-sm" id="stakeNote">Stakers share 3% of every round's losing pot, paid in SUI, split by stake.</p>
     </div>
   </section>
 
@@ -454,14 +451,14 @@
         <li><b>Up to 5 tiles per round.</b> More tiles win more often, but the SUI on the other tiles is lost.</li>
       </ul>
       <h2>Wealth Fund</h2>
-      <p>Part of every losing pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
+      <p>When no one is on the winning tile, the pot goes into the Wealth Fund, a jackpot that keeps growing. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
       <div id="learnAuto" hidden>
       <h2>Auto Mine</h2>
       <p>Let a plan play for you. Put SUI into your Auto Mine balance on the Mine page, choose a strategy and an amount per round (0.05 SUI or more), and every round is played for you: Spread on 5 random tiles, Sniper on 1, Hunter on the 5 emptiest tiles in the last seconds. 1% of each round amount goes to whoever runs the plan and 1% to the buyback and burn; the rest plays like any deposit. Your balance sits in a contract no one can change or pause, and only you can withdraw it, at any time.</p>
       </div>
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
-        <li><b>Stake:</b> earn SUI from every round. Flexible, or locked for 7 days at 1.5x.</li>
+        <li><b>Stake:</b> earn SUI from every round: stakers share 3% of every losing pot. Withdraw any time.</li>
         <li><b>Trade:</b> swap GTS for SUI at the best available price.</li>
       </ul>
       <h2>Getting started</h2>
