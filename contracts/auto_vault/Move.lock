@@ -17,25 +17,7 @@ manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263
 deps = { MoveStdlib = "MoveStdlib" }
 
 [pinned.mainnet.auto_vault]
-source = { local = '..\auto_vault' }
-use_environment = "mainnet"
-manifest_digest = "BA49968BFF7C4A4D9F013B59535CF8B89D935A7C6D63C121606B1FE844829B72"
-deps = { Sui = "Sui" }
-
-[pinned.mainnet.gtstar]
 source = { root = true }
-use_environment = "mainnet"
-manifest_digest = "1AA22F4B73D65B8B5D808D9422DECBC7C0DAE9DDB0249C368364D53CB972E211"
-deps = { Sui = "Sui", auto_vault = "auto_vault", mint_limit = "mint_limit", supply_lock = "supply_lock" }
-
-[pinned.mainnet.mint_limit]
-source = { local = '..\mint_limit' }
-use_environment = "mainnet"
-manifest_digest = "2B4F49AC2CEE6DBB3CF688202CE0264EC605FCB5C6DAC5F1512A20A4B4C4241C"
-deps = { Sui = "Sui", supply_lock = "supply_lock" }
-
-[pinned.mainnet.supply_lock]
-source = { local = '..\supply_lock' }
 use_environment = "mainnet"
 manifest_digest = "BA49968BFF7C4A4D9F013B59535CF8B89D935A7C6D63C121606B1FE844829B72"
 deps = { Sui = "Sui" }

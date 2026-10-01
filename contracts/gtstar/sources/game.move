@@ -52,6 +52,17 @@
 /// pass the day's limit aborts and can be retried the next UTC day; nothing is lost. The emission
 /// settings can still be lowered (a longer curve), never raised past 2,000 GTS a day in effect.
 ///
+/// Auto Mine (v17): a player may keep SUI in the `auto_vault` package (immutable, so nobody can pause or
+/// block a withdrawal) with a plan: a strategy, an amount per round, a number of rounds. `auto_run`, which
+/// anyone may call (the keeper does, every round), then plays the round for them: it takes the player's
+/// per-round amount from the vault, pays 1% of it to the caller and 1% to the buyback and burn, and deploys
+/// the rest for the player exactly like `deploy` (same mining, same payout, same tickets, in the player's
+/// name). Spread: 5 random tiles. Sniper: 1 random tile. Hunter: the 5 tiles holding the least SUI, only in
+/// the last 10 seconds before deposits close. The round is claimed by the next `auto_run`: SUI won goes
+/// back to the player's vault balance, mined GTS to their unrefined balance. Wealth Fund tickets of
+/// automatic rounds are added to the draw every 10 claims (at once when that costs no new storage, and
+/// when the plan has no round left to play). At least 0.05 SUI a round. A pause stops automatic deposits too.
+///
 /// The owner holds the AdminCap (settings change at once, each fee within its own cap) and the
 /// UpgradeCap. `renounce` destroys the AdminCap for good. Fixed: the creator fee (1%), the 1,000,000
 /// cap (enforced by the immutable supply lock from v15), at most 2,000 GTS minted per UTC day (immutable
@@ -68,13 +79,14 @@ use sui::dynamic_field as df;
 use sui::dynamic_object_field as dof;
 use std::type_name;
 use sui::event;
-use sui::random::{Self, Random};
+use sui::random::{Self, Random, RandomGenerator};
 use sui::sui::SUI;
 use sui::table::{Self, Table};
 use gtstar::gts::{Self, Treasury, GTS};
 use gtstar::staking::{Self, Pool as StakePool};
 use supply_lock::capped::{Self, CappedTreasury, MinterCap};
 use mint_limit::daily::{Self, DailyLimiter};
+use auto_vault::vault::{Self, Vault, PullCap};
 
 // ===== Constants =====
 const GRID: u64 = 25;
@@ -146,8 +158,21 @@ const REFINE_SCALE: u256 = 1_000_000_000_000_000_000;
 /// v6: the withdraw fee falls to 0 over this long after the last withdrawal (7 days).
 const REFINE_WINDOW_MS: u64 = 604_800_000;
 
+/// Auto Mine (v17): of every automatic deposit, 1% to whoever runs it and 1% to the buyback and burn.
+const AUTO_KEEPER_BPS: u64 = 100;
+const AUTO_BUYBACK_BPS: u64 = 100;
+/// Least SUI a plan may spend per round (0.05).
+const AUTO_MIN_ROUND: u64 = 50_000_000;
+/// Hunter only deploys this long before deposits close.
+const AUTO_HUNT_MS: u64 = 10_000;
+/// Wealth Fund tickets of automatic rounds are added to the draw at the latest every this many claims.
+const AUTO_TICKET_BATCH: u64 = 10;
+const AUTO_SNIPER: u8 = 1;
+const AUTO_HUNTER: u8 = 2; // 0 is Spread
+const AUTO_SPREAD_TILES: u64 = 5;
+
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 16;
+const VERSION: u64 = 17;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -181,6 +206,8 @@ const EUseLockedSupply: u64 = 33;
 const EUseClaimV3: u64 = 34;
 const EUseBuybackBurn: u64 = 35;
 const EEmissionUp: u64 = 36;
+const EAutoInstalled: u64 = 37;
+const ENoAuto: u64 = 38;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -302,6 +329,24 @@ public struct MinterKey has copy, drop, store {}
 /// Dynamic object field on the Board (v16): the `DailyLimiter` holding the MinterCap for good.
 public struct LimiterKey has copy, drop, store {}
 
+/// Dynamic object field on the Board (v17): the `PullCap` of the immutable Auto Mine vault.
+public struct AutoCapKey has copy, drop, store {}
+/// Dynamic field on the Board (v17): one player's Auto Mine seat.
+public struct AutoKey has copy, drop, store { player: address }
+/// The Miner automatic rounds are played with, tickets not yet added to the Wealth Fund draw, and totals.
+public struct AutoSeat has store {
+    miner: Miner,
+    tickets: u64,      // earned in `ticket_epoch`, not in the draw yet
+    ticket_epoch: u64,
+    claims: u64,       // claims since tickets were last added
+    rounds: u64,       // automatic rounds played
+    wins: u64,         // of them, rounds that paid SUI
+    deployed: u64,     // SUI put on tiles
+    fees: u64,         // SUI paid in Auto Mine fees (keeper + buyback)
+    won: u64,          // SUI paid back by rounds
+    mined: u64,        // GTS mined
+}
+
 /// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
 
@@ -391,6 +436,15 @@ public struct SupplyLocked has copy, drop { capped_treasury: ID, minted: u64, ma
 public struct WithdrawFeeShared has copy, drop { player: address, amount: u64, holders_total: u64 }
 /// The MinterCap was sealed in the immutable daily mint limit (v16, once).
 public struct MintRateLimited has copy, drop { limiter: ID, per_day: u64 }
+/// The Auto Mine vault's PullCap was stored in the game (v17, once).
+public struct AutoInstalled has copy, drop { cap: ID }
+/// A player opened their Auto Mine seat (v17).
+public struct AutoJoined has copy, drop { player: address }
+/// One automatic deposit (v17): `spent` left the player's vault balance, `deployed` of it went on tiles
+/// (see the `Deployed` event of the same transaction), the rest is the two fees.
+public struct AutoMined has copy, drop { round_id: u64, player: address, strategy: u8, spent: u64, deployed: u64, keeper_fee: u64, buyback_fee: u64 }
+/// An automatic round was claimed (v17): `sui` went back to the player's vault balance, `gts` to their unrefined balance.
+public struct AutoClaimed has copy, drop { round_id: u64, player: address, sui: u64, gts: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
 
@@ -792,6 +846,11 @@ public fun deploy(
     ctx: &mut TxContext,
 ) {
     check_version(board);
+    deploy_as(board, miner, tx_context::sender(ctx), payment, amounts, clock)
+}
+
+/// `deploy` for `player` (the sender, or the owner of an Auto Mine seat).
+fun deploy_as(board: &mut Board, miner: &mut Miner, player: address, payment: Coin<SUI>, amounts: vector<u64>, clock: &Clock) {
     assert!(vector::length(&amounts) == GRID, EBadLen);
     assert!(!board.paused, EPaused);
     let now = clock::timestamp_ms(clock);
@@ -805,7 +864,7 @@ public fun deploy(
     assert!(now <= board.cur_end_ms - board.freeze_ms, EFrozen);
     assert!(miner.round_id == 0 || miner.round_id == board.cur_id, EUnclaimed);
 
-    let seat = SeatKey { round_id: board.cur_id, player: tx_context::sender(ctx) };
+    let seat = SeatKey { round_id: board.cur_id, player };
     if (df::exists(&board.id, seat)) {
         assert!(*df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner), EOneMinerPerRound);
     } else {
@@ -845,7 +904,7 @@ public fun deploy(
     board.cur_total = board.cur_total + sum;
     miner.total_deployed = miner.total_deployed + sum;
     balance::join(&mut board.pot, coin::into_balance(payment));
-    event::emit(Deployed { round_id: board.cur_id, player: tx_context::sender(ctx), amounts, total: sum });
+    event::emit(Deployed { round_id: board.cur_id, player, amounts, total: sum });
 }
 
 /// Replaced by `settle_v2` (v15: the old Treasury is gone).
@@ -1034,10 +1093,24 @@ public fun claim_v3(
     ctx: &mut TxContext,
 ): (Coin<GTS>, Coin<SUI>) {
     check_version(board);
+    let (g, s, _, _) = claim_as(board, miner, tx_context::sender(ctx), true, treasury, clock, ctx);
+    (g, s)
+}
+
+/// `claim_v3` for `player`. With `add_tickets_now` false the Wealth Fund tickets are not added to the draw
+/// but returned (Auto Mine adds them in batches). Returns (GTS, SUI, tickets not added, GTS mined).
+fun claim_as(
+    board: &mut Board,
+    miner: &mut Miner,
+    player: address,
+    add_tickets_now: bool,
+    treasury: &mut CappedTreasury<GTS>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): (Coin<GTS>, Coin<SUI>, u64, u64) {
     assert!(miner.round_id != 0, ENothingToClaim);
     assert!(table::contains(&board.rounds, miner.round_id), ENotSettled);
     let round_id = miner.round_id;
-    let player = tx_context::sender(ctx);
     let info = table::borrow(&board.rounds, round_id);
     let (round_reward, round_total, w) = (info.round_reward, info.total_deployed, (info.winning_square as u64));
     let (pot_after_fee, winners_total) = (info.losing_pot_after_fee, info.winners_total);
@@ -1098,7 +1171,10 @@ public fun claim_v3(
 
     // Wealth Fund tickets: the fee paid on the SUI lost this round (none for house bots).
     let n = mul_div(miner.total_deployed - my_win, fee_bps(board), 10_000);
-    if (n > 0 && !no_tickets(player)) { add_tickets(board, round_id, player, n) };
+    let mut owed = 0;
+    if (n > 0 && !no_tickets(player)) {
+        if (add_tickets_now) { add_tickets(board, round_id, player, n) } else { owed = n };
+    };
 
     let seat = SeatKey { round_id, player };
     if (df::exists(&board.id, seat) && *df::borrow<SeatKey, ID>(&board.id, seat) == object::id(miner)) {
@@ -1123,7 +1199,7 @@ public fun claim_v3(
     miner.total_deployed = 0;
     miner.deployed = zeros();
 
-    (gts_coin, sui_coin)
+    (gts_coin, sui_coin, owed, mined_amt)
 }
 
 /// Replaced by `claim_sui_v2` (v15: the old Treasury is gone).
@@ -1201,6 +1277,210 @@ public fun withdraw_gts_v7(board: &mut Board, treasury: &mut CappedTreasury<GTS>
     else { df::add(&mut board.id, ck, now) };
     event::emit(GtsWithdrawn { player, amount, fee, bonus, paid: amount - fee + bonus, burned });
     coin::from_balance(out, ctx)
+}
+
+// ===== Auto Mine (v17, see `auto_vault::vault`) =====
+
+/// Store the Auto Mine vault's only PullCap in the game for good (once). No function returns it.
+public fun auto_install(_: &AdminCap, board: &mut Board, cap: PullCap) {
+    check_version(board);
+    assert!(!dof::exists(&board.id, AutoCapKey {}), EAutoInstalled);
+    event::emit(AutoInstalled { cap: object::id(&cap) });
+    dof::add(&mut board.id, AutoCapKey {}, cap);
+}
+
+/// Open the sender's Auto Mine seat (once per player; a second call does nothing).
+public fun auto_join(board: &mut Board, ctx: &mut TxContext) {
+    check_version(board);
+    let player = tx_context::sender(ctx);
+    if (df::exists(&board.id, AutoKey { player })) { return };
+    df::add(&mut board.id, AutoKey { player }, AutoSeat {
+        miner: new_miner(ctx), tickets: 0, ticket_epoch: 0, claims: 0, rounds: 0, wins: 0, deployed: 0, fees: 0, won: 0, mined: 0,
+    });
+    event::emit(AutoJoined { player });
+}
+
+/// Play the round for each of `players` by their Auto Mine plan. Anyone may call it; the caller is paid
+/// 1% of every deposit it makes. For each player: first the last automatic round is claimed (SUI won to
+/// their vault balance, mined GTS to their unrefined balance), then, if their plan is ready, the round is
+/// played. A player who cannot be played now is skipped, never an abort. `entry` + non-`public`, like the
+/// draw: the tiles are picked with `sui::random` and cannot be chosen or retried by the caller.
+entry fun auto_run(
+    board: &mut Board,
+    vault: &mut Vault,
+    treasury: &mut CappedTreasury<GTS>,
+    players: vector<address>,
+    r: &Random,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    check_version(board);
+    assert!(dof::exists(&board.id, AutoCapKey {}), ENoAuto);
+    let mut gen = random::new_generator(r, ctx);
+    let mut keeper = balance::zero<SUI>();
+    let mut i = 0;
+    let n = vector::length(&players);
+    while (i < n) {
+        let player = *vector::borrow(&players, i);
+        if (df::exists(&board.id, AutoKey { player })) {
+            auto_claim(board, vault, treasury, player, clock, ctx);
+            auto_deploy(board, vault, player, &mut gen, &mut keeper, clock, ctx);
+        };
+        i = i + 1;
+    };
+    if (balance::value(&keeper) > 0) { transfer::public_transfer(coin::from_balance(keeper, ctx), tx_context::sender(ctx)) }
+    else { balance::destroy_zero(keeper) };
+}
+
+/// Add the sender's waiting Wealth Fund tickets to the draw now.
+public fun auto_flush(board: &mut Board, ctx: &TxContext) {
+    check_version(board);
+    let player = tx_context::sender(ctx);
+    if (!df::exists(&board.id, AutoKey { player })) { return };
+    let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
+    let round_id = board.cur_id;
+    auto_add_tickets(board, &mut seat, player, round_id);
+    df::add(&mut board.id, AutoKey { player }, seat);
+}
+
+fun ticket_epoch(board: &Board): u64 {
+    if (df::exists(&board.id, TicketsKey {})) { df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {}).epoch } else { 0 }
+}
+
+/// Whether adding tickets for `player` now extends the last range (no new storage).
+fun tickets_merge(board: &Board, player: address): bool {
+    if (!df::exists(&board.id, TicketsKey {})) { return false };
+    let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
+    t.count > 0 && df::borrow<TicketKey, TicketEntry>(&board.id, TicketKey { epoch: t.epoch, i: t.count - 1 }).player == player
+}
+
+/// Tickets earned before the last Wealth Fund payout are gone, like every ticket of that draw.
+fun auto_drop_old_tickets(board: &Board, seat: &mut AutoSeat) {
+    let epoch = ticket_epoch(board);
+    if (seat.ticket_epoch != epoch) { seat.tickets = 0; seat.ticket_epoch = epoch; };
+}
+
+fun auto_add_tickets(board: &mut Board, seat: &mut AutoSeat, player: address, round_id: u64) {
+    auto_drop_old_tickets(board, seat);
+    if (seat.tickets > 0) { add_tickets(board, round_id, player, seat.tickets) };
+    seat.tickets = 0;
+    seat.claims = 0;
+}
+
+/// Whether `player`'s plan still has a round to play (the vault's 20 seconds between rounds aside).
+fun auto_live(vault: &Vault, player: address): bool {
+    let (on, _, per_round, rounds_left, keep, target, _) = vault::plan_of(vault, player);
+    let bal = vault::balance_of(vault, player);
+    on && rounds_left > 0 && per_round >= AUTO_MIN_ROUND && bal >= per_round && bal - per_round >= keep && (target == 0 || bal < target)
+}
+
+/// GTS `miner` mines in its settled round (by SUI deployed).
+fun round_gts(board: &Board, miner: &Miner): u64 {
+    let info = table::borrow(&board.rounds, miner.round_id);
+    if (info.total_deployed == 0) { 0 } else { mul_div(info.round_reward, miner.total_deployed, info.total_deployed) }
+}
+
+/// Claim `player`'s last automatic round, if it is settled. Waits (does nothing) while today's GTS mint
+/// limit has no room for it.
+fun auto_claim(board: &mut Board, vault: &mut Vault, treasury: &mut CappedTreasury<GTS>, player: address, clock: &Clock, ctx: &mut TxContext) {
+    let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
+    let round_id = seat.miner.round_id;
+    let settled = round_id != 0 && table::contains(&board.rounds, round_id);
+    let room = daily::room_today(dof::borrow<LimiterKey, DailyLimiter<GTS>>(&board.id, LimiterKey {}), clock);
+    if (settled && round_gts(board, &seat.miner) <= room) {
+        let (g, s, owed, mined) = claim_as(board, &mut seat.miner, player, false, treasury, clock, ctx);
+        if (coin::value(&g) == 0) { coin::destroy_zero(g) } else { transfer::public_transfer(g, player) };
+        let sui = coin::value(&s);
+        if (sui > 0) {
+            seat.wins = seat.wins + 1;
+            seat.won = seat.won + sui;
+            vault::credit(vault, player, coin::into_balance(s));
+        } else { coin::destroy_zero(s) };
+        seat.mined = seat.mined + mined;
+        auto_drop_old_tickets(board, &mut seat);
+        seat.tickets = seat.tickets + owed;
+        seat.claims = seat.claims + 1;
+        event::emit(AutoClaimed { round_id, player, sui, gts: mined });
+    };
+    // Tickets go into the draw every AUTO_TICKET_BATCH claims, at once when that only extends the last
+    // range, and whenever the plan has no round left to play (off, out of rounds or balance, target reached).
+    if (seat.tickets > 0 && (seat.claims >= AUTO_TICKET_BATCH || !auto_live(vault, player) || tickets_merge(board, player))) {
+        let at = if (round_id != 0) { round_id } else { board.cur_id };
+        auto_add_tickets(board, &mut seat, player, at);
+    };
+    df::add(&mut board.id, AutoKey { player }, seat);
+}
+
+/// Play the current round for `player` if their plan is ready and the strategy allows it now.
+fun auto_deploy(board: &mut Board, vault: &mut Vault, player: address, gen: &mut RandomGenerator, keeper: &mut Balance<SUI>, clock: &Clock, ctx: &mut TxContext) {
+    if (board.paused || !vault::ready(vault, player, clock)) { return };
+    let (_, strategy, spent, _, _, _, _) = vault::plan_of(vault, player);
+    if (spent < AUTO_MIN_ROUND || strategy > AUTO_HUNTER) { return };
+    let now = clock::timestamp_ms(clock);
+    // A live round takes deposits until `freeze_ms` before its end; with no round live this deposit starts one.
+    if (board.cur_started && now + board.freeze_ms > board.cur_end_ms) { return };
+    if (strategy == AUTO_HUNTER && (!board.cur_started || now + board.freeze_ms + AUTO_HUNT_MS < board.cur_end_ms)) { return };
+    // One miner per player and round: not in a round the player already plays themselves.
+    if (df::exists(&board.id, SeatKey { round_id: board.cur_id, player })) { return };
+
+    let tiles = if (strategy == AUTO_SNIPER) { 1 } else if (AUTO_SPREAD_TILES < max_tiles(board)) { AUTO_SPREAD_TILES } else { max_tiles(board) };
+    let keeper_fee = mul_div(spent, AUTO_KEEPER_BPS, 10_000);
+    let per = (spent - keeper_fee - mul_div(spent, AUTO_BUYBACK_BPS, 10_000)) / tiles;
+    if (per < board.min_deploy) { return };
+
+    let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
+    // The last round must be claimed first (it waits for its draw, or for room under the daily mint limit).
+    if (seat.miner.round_id == 0) {
+        let mut funds = vault::pull(vault, dof::borrow<AutoCapKey, PullCap>(&board.id, AutoCapKey {}), player, clock);
+        balance::join(keeper, balance::split(&mut funds, keeper_fee));
+        let deployed = per * tiles;
+        let pay = coin::from_balance(balance::split(&mut funds, deployed), ctx);
+        // The buyback fee, with the few mist left by the split over the tiles.
+        let buyback_fee = balance::value(&funds);
+        balance::join(&mut board.buyback, funds);
+        let amounts = if (strategy == AUTO_HUNTER) { emptiest_tiles(&board.cur_deployed, tiles, per, gen) } else { random_tiles(tiles, per, gen) };
+        deploy_as(board, &mut seat.miner, player, pay, amounts, clock);
+        seat.rounds = seat.rounds + 1;
+        seat.deployed = seat.deployed + deployed;
+        seat.fees = seat.fees + keeper_fee + buyback_fee;
+        event::emit(AutoMined { round_id: board.cur_id, player, strategy, spent, deployed, keeper_fee, buyback_fee });
+    };
+    df::add(&mut board.id, AutoKey { player }, seat);
+}
+
+/// `per` on each of `tiles` different tiles, drawn at random.
+fun random_tiles(tiles: u64, per: u64, gen: &mut RandomGenerator): vector<u64> {
+    let mut v = zeros();
+    let mut picked = 0;
+    while (picked < tiles) {
+        let i = random::generate_u64_in_range(gen, 0, GRID - 1);
+        if (*vector::borrow(&v, i) == 0) {
+            *vector::borrow_mut(&mut v, i) = per;
+            picked = picked + 1;
+        };
+    };
+    v
+}
+
+/// `per` on each of the `tiles` tiles holding the least SUI. Ties go to the first one from a random start.
+fun emptiest_tiles(deployed: &vector<u64>, tiles: u64, per: u64, gen: &mut RandomGenerator): vector<u64> {
+    let mut v = zeros();
+    let start = random::generate_u64_in_range(gen, 0, GRID - 1);
+    let mut picked = 0;
+    while (picked < tiles) {
+        let mut best = GRID;
+        let mut low = 0;
+        let mut j = 0;
+        while (j < GRID) {
+            let i = (start + j) % GRID;
+            let d = *vector::borrow(deployed, i);
+            if (*vector::borrow(&v, i) == 0 && (best == GRID || d < low)) { best = i; low = d; };
+            j = j + 1;
+        };
+        *vector::borrow_mut(&mut v, best) = per;
+        picked = picked + 1;
+    };
+    v
 }
 
 /// Send accrued creator fees to DEV_ADDR. Anyone may call; funds can only go to DEV_ADDR.
@@ -1401,8 +1681,25 @@ public fun staking_position(board: &Board, player: address, locked: bool): (u64,
     staking::position(df::borrow<StakeKey, StakePool>(&board.id, StakeKey {}), player, locked)
 }
 
+/// Auto Mine fees in bps of every automatic deposit (keeper, buyback), and the least SUI a round (v17).
+public fun auto_terms(): (u64, u64, u64) { (AUTO_KEEPER_BPS, AUTO_BUYBACK_BPS, AUTO_MIN_ROUND) }
+public fun auto_installed(board: &Board): bool { dof::exists(&board.id, AutoCapKey {}) }
+public fun auto_joined(board: &Board, player: address): bool { df::exists(&board.id, AutoKey { player }) }
+/// `player`'s Auto Mine seat: (round waiting to be claimed (0 = none), SUI on each tile in it, tickets not
+/// in the draw yet, rounds, winning rounds, SUI deployed, SUI paid in fees, SUI won, GTS mined).
+public fun auto_seat(board: &Board, player: address): (u64, vector<u64>, u64, u64, u64, u64, u64, u64, u64) {
+    let s = df::borrow<AutoKey, AutoSeat>(&board.id, AutoKey { player });
+    let tickets = if (s.ticket_epoch == ticket_epoch(board)) { s.tickets } else { 0 };
+    (s.miner.round_id, s.miner.deployed, tickets, s.rounds, s.wins, s.deployed, s.fees, s.won, s.mined)
+}
+
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) { init(ctx) }
+
+#[test_only]
+public fun auto_run_for_testing(board: &mut Board, vault: &mut Vault, treasury: &mut CappedTreasury<GTS>, players: vector<address>, r: &Random, clock: &Clock, ctx: &mut TxContext) {
+    auto_run(board, vault, treasury, players, r, clock, ctx)
+}
 
 #[test_only]
 public fun settle_for_testing(board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, ctx: &mut TxContext) {

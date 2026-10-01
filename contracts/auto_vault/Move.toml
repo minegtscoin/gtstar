@@ -1,14 +1,10 @@
 [package]
-name = "gtstar"
+name = "auto_vault"
 edition = "2024.beta"
-version = "2.0.0"
+version = "1.0.0"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
 
-supply_lock = { local = "../supply_lock" }
-mint_limit = { local = "../mint_limit" }
-auto_vault = { local = "../auto_vault" }
-
 [addresses]
-gtstar = "0x0"
+auto_vault = "0x0"

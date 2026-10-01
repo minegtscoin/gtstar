@@ -131,6 +131,11 @@
         </div>
       </div>
       <aside class="side">
+        <div class="pilltabs mode-tabs" id="modeSeg" role="tablist" aria-label="How to mine" hidden>
+          <button type="button" role="tab" data-mode="manual" aria-selected="true">Manual</button>
+          <button type="button" role="tab" data-mode="auto" aria-selected="false">Auto Mine<i class="am-live" id="amLive" hidden></i></button>
+        </div>
+        <div class="pane" id="manualPane">
         <div class="amount">
           <input id="amt" type="text" inputmode="decimal" value="0" aria-label="SUI per tile" autocomplete="off" />
           <span class="unit">SUI per tile</span>
@@ -153,6 +158,59 @@
         </div>
         <button class="primary" id="btnPlay" type="button">Deploy</button>
         <p class="hint" id="playHint"></p>
+        </div>
+        <div class="pane" id="autoPane" hidden>
+          <div class="am-dash" id="amDash" hidden>
+            <div class="am-head"><span class="am-status" id="amStatus"><i></i><b id="amStatusTxt">Stopped</b></span><span class="am-plan" id="amPlan"></span></div>
+            <div class="am-bal"><b id="amBal">0</b><span>SUI in your Auto Mine balance</span></div>
+            <p class="am-now" id="amNow"></p>
+            <div class="am-stats">
+              <div><span>Mined</span><b id="amMined">0</b><small>GTS</small></div>
+              <div><span>Paid</span><b id="amPaid">0</b><small>SUI</small></div>
+              <div><span>Won back</span><b id="amWon">0</b><small>SUI</small></div>
+              <div><span>Rounds</span><b id="amRounds">0</b><small id="amWins">0 wins</small></div>
+            </div>
+            <div class="am-last" id="amLast" hidden></div>
+            <button type="button" class="primary" id="btnAutoToggle">Stop</button>
+            <div class="am-row">
+              <button type="button" class="ghost-btn" id="btnAutoAdd">Add SUI</button>
+              <button type="button" class="ghost-btn" id="btnAutoOut">Withdraw</button>
+              <button type="button" class="ghost-btn" id="btnAutoEdit">Change plan</button>
+            </div>
+            <form class="am-move" id="amMove" hidden>
+              <div class="input-row"><input id="amMoveAmt" type="text" inputmode="decimal" placeholder="0" aria-label="Amount in SUI" autocomplete="off" /><button type="button" class="chip" id="amMoveMax">Max</button><span class="suffix">SUI</span></div>
+              <button type="submit" class="primary" id="btnAutoMove">Add SUI</button>
+            </form>
+            <button type="button" class="gold-btn" id="btnAutoCollect" hidden>Collect last round</button>
+            <p class="hint" id="amDashHint"></p>
+          </div>
+          <div class="am-form" id="amForm" hidden>
+            <div class="am-strats" id="amStrats" role="radiogroup" aria-label="Strategy">
+              <button type="button" role="radio" data-s="0" aria-checked="false"><b>Spread</b><span>5 random tiles every round. One of them wins about 1 round in 5.</span></button>
+              <button type="button" role="radio" data-s="1" aria-checked="false"><b>Sniper</b><span>1 random tile every round, with your whole deposit on it. It wins about 1 round in 25.</span></button>
+              <button type="button" role="radio" data-s="2" aria-checked="false"><b>Hunter</b><span>The 5 tiles holding the least SUI, picked in the last seconds before deposits close. Same odds as Spread, usually a bigger share of the pot when one wins.</span></button>
+            </div>
+            <label class="am-field"><span>SUI per round</span>
+              <div class="input-row"><input id="amPer" type="text" inputmode="decimal" value="0.05" autocomplete="off" /><span class="suffix">SUI</span></div></label>
+            <div class="quick" data-for="amPer"><button type="button" data-v="0.05">0.05</button><button type="button" data-v="0.1">0.1</button><button type="button" data-v="0.5">0.5</button><button type="button" data-v="1">1</button></div>
+            <label class="am-field"><span>Rounds</span>
+              <div class="input-row"><input id="amRoundsIn" type="text" inputmode="numeric" value="20" autocomplete="off" /><span class="suffix">at most</span></div></label>
+            <div class="quick" data-for="amRoundsIn"><button type="button" data-v="10">10</button><button type="button" data-v="20">20</button><button type="button" data-v="50">50</button><button type="button" data-v="100">100</button></div>
+            <label class="am-field"><span id="amDepLbl">Deposit</span>
+              <div class="input-row"><input id="amDep" type="text" inputmode="decimal" value="1" placeholder="0" autocomplete="off" /><button type="button" class="chip" id="amDepFit" title="Enough for every round of the plan">Fill</button><span class="suffix">SUI</span></div></label>
+            <details class="am-more">
+              <summary>Stop rules (optional)</summary>
+              <label class="am-field"><span>Always keep at least</span>
+                <div class="input-row"><input id="amKeep" type="text" inputmode="decimal" placeholder="0" autocomplete="off" /><span class="suffix">SUI</span></div></label>
+              <label class="am-field"><span>Stop when the balance reaches</span>
+                <div class="input-row"><input id="amTarget" type="text" inputmode="decimal" placeholder="No target" autocomplete="off" /><span class="suffix">SUI</span></div></label>
+            </details>
+            <p class="am-sum" id="amSum"></p>
+            <button class="primary" id="btnAuto" type="button">Start Auto Mine</button>
+            <button class="text-btn" id="btnAutoCancel" type="button" hidden>Cancel</button>
+            <p class="hint" id="amHint"></p>
+          </div>
+        </div>
         <div class="rewards">
           <div class="rw-h"><span class="lbl">Rewards</span><span class="rw-bal">Wallet <b id="mySui">—</b> SUI · <b id="myGts">—</b> GTS</span></div>
           <div class="rw"><span><i class="tok sui" aria-hidden="true"></i>SUI to claim</span><b id="rwSui">0</b></div>
@@ -376,6 +434,10 @@
       </ul>
       <h2>Wealth Fund</h2>
       <p>Part of every losing pot goes into the Wealth Fund, a jackpot that keeps growing, and more when no one is on the winning tile. Every round has a small chance to pay the whole fund to one player. Every round you lose earns you tickets, so the more you have played since the last payout, the better your chance.</p>
+      <div id="learnAuto" hidden>
+      <h2>Auto Mine</h2>
+      <p>Let a plan play for you. Put SUI into your Auto Mine balance on the Mine page, choose a strategy and an amount per round (0.05 SUI or more), and every round is played for you: Spread on 5 random tiles, Sniper on 1, Hunter on the 5 emptiest tiles in the last seconds. 1% of each round amount goes to whoever runs the plan and 1% to the buyback and burn; the rest plays like any deposit. Your balance sits in a contract no one can change or pause, and only you can withdraw it, at any time.</p>
+      </div>
       <h2>What to do with GTS</h2>
       <ul class="learn-list">
         <li><b>Stake:</b> earn SUI from every round. Withdraw any time.</li>

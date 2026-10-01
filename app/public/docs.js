@@ -9,6 +9,11 @@
 (function(){
   var C = window.GTSTAR_CONFIG; if (!C) return;
   var scan = "https://suiscan.xyz/" + C.network;
+  // Auto Mine text is shown only once it is live (its ids are in config.js then).
+  if (C.ids.autoVault) {
+    document.querySelectorAll("[data-auto]").forEach(function (e) { e.hidden = false; });
+    document.querySelectorAll("[data-noauto]").forEach(function (e) { e.hidden = true; });
+  }
   document.getElementById("netName").textContent = "Sui " + C.network.charAt(0).toUpperCase() + C.network.slice(1);
   var A = C.accounts || {};
   var rows = [
@@ -17,6 +22,8 @@
     ["Daily mint limit", C.ids.mintLimit, "object", "Immutable contract that holds the only key to the supply lock and lets at most 2,000 GTS through per UTC day. No one can change it."],
     ["Daily limiter", C.ids.mintLimiter, "object", "The limiter itself, kept in the game board: the 2,000 GTS a day limit and what was minted today."],
     ["Capped treasury", C.ids.treasury, "object", "The GTS mint authority, sealed in the supply lock: minted so far and the 1,000,000 limit. Holds no SUI."],
+    ["Auto Mine vault contract", C.ids.autoVaultPkg, "object", "Immutable contract that holds players' Auto Mine balances. Only the player can withdraw, at any time, and no one can change it or pause it."],
+    ["Auto Mine vault", C.ids.autoVault, "object", "The vault itself: every player's Auto Mine balance and plan."],
     ["Game contract", C.ids.package, "object", "Rounds, the draw, fees and emission."],
     ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund and unrefined GTS."],
     ["GTS/SUI pool", C.ids.market, "object", "Cetus trading pool."]

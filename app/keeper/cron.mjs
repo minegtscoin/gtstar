@@ -57,6 +57,15 @@ if (process.env.BOT1_KEY && fs.existsSync(runner) && (!fs.existsSync(rhb) || Dat
   spawn(process.execPath, [runner], { detached: true, stdio: ["ignore", out, out], env: { ...process.env, BOTS_DIR: dir } }).unref();
 }
 
+// The Auto Mine keeper (auto.mjs, its own gas wallet) the same way: plays every round for the players' plans.
+const auto = path.join(dir, "auto.mjs"), ahb = path.join(dir, ".auto-hb");
+if (process.env.AUTO_KEY && fs.existsSync(auto) && (!fs.existsSync(ahb) || Date.now() - fs.statSync(ahb).mtimeMs > 30_000)) {
+  fs.writeFileSync(ahb, "");
+  const { spawn } = await import("child_process");
+  const out = fs.openSync(path.join(dir, "auto-out.txt"), "a");
+  spawn(process.execPath, [auto], { detached: true, stdio: ["ignore", out, out], env: { ...process.env, BOTS_DIR: dir } }).unref();
+}
+
 try {
   const { default: keeper } = await import("./keeper.mjs");
   await keeper();

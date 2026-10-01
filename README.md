@@ -25,22 +25,25 @@ GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, 
 | Staking | Stake GTS, earn SUI (1% of every losing pot), split by stake. Withdraw any time. Nothing is minted. With nobody staked, the stakers' share goes to the Wealth Fund. Until 2026-09-30 stakers also got the GTS the buyback bought; GTS yield earned before stays claimable |
 | No reserve | GTS cannot be redeemed for SUI. Until the 2026-09-29 upgrade it could; the SUI left in the old reserve moved to the Wealth Fund |
 | Draw | Anyone can draw a round and is paid up to 0.005 SUI for it, out of the round's Wealth Fund share, then its liquidity share. The buyback, the stakers' 1% and the 1% creator fee are never used for it. GTStar's bots draw every round |
+| Auto Mine | Built and tested, not deployed to mainnet yet. A player sets SUI aside in the immutable `auto_vault` and picks a plan: Spread (5 random tiles), Sniper (1 random tile) or Hunter (the 5 tiles holding the least SUI, in the last 10 seconds before deposits close), at least 0.05 SUI a round. `game::auto_run`, open to anyone and called by the keeper every round, takes the player's per-round amount, pays 1% to the caller and 1% to the buyback and burn, and deploys the other 98% in the player's name, exactly like a deposit made by hand. SUI won goes back to the vault balance, mined GTS to the unrefined balance. Only the player can withdraw the balance, at any time; nothing can pause or block that |
 | Randomness | `sui::random` (validator-generated, unbiasable) |
 
 ## Contract
 
-Three packages.
+Four packages.
 
 [`contracts/supply_lock`](contracts/supply_lock), immutable (its upgrade key was destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ)): holds the GTS mint authority in a `CappedTreasury` that never lets the total ever minted pass 1,000,000. No function returns the mint authority or changes the limit, and no one can change this code, the owner included. The game mints round rewards through it (via `mint_limit` below) and can never go past the cap. Package `0xd4e17df7d3fe860fd7d3487a445ef7d96c23a52442469eb66bea5ffd38004e77`, CappedTreasury `0xd2629e21af2fa4f532f55e04f9caf19c1dec04719b7c1d3b84bed95bcf67cf28`.
 
 [`contracts/mint_limit`](contracts/mint_limit), immutable (upgrade key destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk)): holds the only key to the supply lock (its `MinterCap`) in a `DailyLimiter` that lets at most 2,000 GTS through per UTC day. No function returns or lends the key or changes the limit. Package `0xc4c743f6b2c9c1d9cf729785fbf2393d2e8b7836300b349dbfed0e5321932c7c`, DailyLimiter `0x18f58d695534c18d28bc7d38f3f4a3433e0df0cdef6e223b07ab0c4264169753` (kept in the game board).
+
+[`contracts/auto_vault`](contracts/auto_vault), immutable once published: the Auto Mine vault. Every player has an account in it, a SUI balance and a plan (strategy, SUI per round, rounds left, a balance to keep, a balance to stop at). Only the player can change the plan and withdraw, and `withdraw` has no condition other than the balance: no owner, admin, fee, setting or pause exists in the package. The game holds the single `PullCap`, with which it can take exactly a player's per-round amount, at most once every 20 seconds, only while their plan is on, has rounds left and stays above the balance they chose to keep. So a game upgrade could misuse per-round amounts of running plans, but can never block a withdrawal or take a balance.
 
 [`contracts/gtstar`](contracts/gtstar), the game (upgradable by the owner):
 
 | Module | Contents |
 |---|---|
 | `gts` | GTS coin type (redemption closed, no reserve). Its mint authority moved to `supply_lock` on 2026-09-30 |
-| `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances |
+| `game` | Rounds, the draw, fees, emission, the Wealth Fund, unrefined balances, Auto Mine (`auto_run`) |
 | `staking` | GTS staking with SUI yield |
 
 What the owner can still do with a game upgrade: change the rules, the fees and who receives GTS that is not mined yet (up to 2,000 GTS a day). What no one can do: mint past 1,000,000 GTS in total or 2,000 GTS in a UTC day.
@@ -52,9 +55,11 @@ Deployed addresses and every upgrade transaction are in [`deployments/mainnet.js
 ## Repository
 
 ```
-contracts/gtstar  GTS token, game and staking (Move)
+contracts/gtstar      GTS token, game and staking (Move)
+contracts/auto_vault  Auto Mine vault: players' balances and plans (Move, immutable)
+contracts/supply_lock, contracts/mint_limit  the 1,000,000 cap and the 2,000 GTS a day limit (Move, immutable)
 app/              Web app (static, non-custodial) and the keeper
-scripts/          publish2.js (launch), admin2.mjs (settings)
+scripts/          publish2.js (launch), admin2.mjs (settings), auto-deploy.mjs (Auto Mine)
 deployments/      Live object IDs
 legacy/           The first token and game (archived)
 ```
@@ -65,6 +70,7 @@ Requirements: [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui
 
 ```sh
 cd contracts/gtstar && sui move test
+cd contracts/auto_vault && sui move test
 ```
 
 ```sh
@@ -83,7 +89,7 @@ node scripts/admin2.mjs set odds=1000
 
 ## Keeper
 
-Rounds are drawn by a permissionless `settle` call. The keeper (`app/keeper/`) runs every minute as a cron job on the host. Anyone can draw a round if the keeper is down, and is paid for it.
+Rounds are drawn by a permissionless `settle` call. The keeper (`app/keeper/`) runs every minute as a cron job on the host. Anyone can draw a round if the keeper is down, and is paid for it. Auto Mine plans are run the same way: `auto_run` is permissionless and pays its caller 1% of every deposit it makes (`app/keeper/auto.mjs` calls it every round from its own gas wallet).
 
 ## License
 

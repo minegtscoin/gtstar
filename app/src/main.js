@@ -2,6 +2,7 @@
 import { Transaction } from "@mysten/sui/transactions";
 import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { deriveDynamicFieldID } from "@mysten/sui/utils";
 import { getWallets } from "@wallet-standard/app";
 import { signAndExecuteTransaction } from "@mysten/wallet-standard";
 import { SlushWallet, SLUSH_WALLET_ICON } from "@mysten/slush-wallet";
@@ -214,7 +215,7 @@ const boardOf = (b, tGenesis) => ({
   cur_id: num(b.cur_id), cur_total: num(b.cur_total), cur_started: b.cur_started === true, cur_players: num(b.cur_players),
   round_ms: num(b.round_ms) || 60_000,
   cur_deployed: (b.cur_deployed || []).map(num), cur_end_ms: num(b.cur_end_ms),
-  freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees),
+  freeze_ms: num(b.freeze_ms), min_deploy: num(b.min_deploy) || 10_000_000, dev_fees: num(b.dev_fees), paused: b.paused === true,
   vault_bps: num(b.vault_bps), dev_bps: 100, buyback_bps: num(b.buyback_bps), liq_bps: 200, // liquidity 2%, fixed (3% until 2026-09-30)
 });
 // The GraphQL indexer sometimes lags behind the chain for a while. A round that still looks unsettled
@@ -318,6 +319,77 @@ async function loadStake(addr) {
 const posYield = p => (p && STATE?.stake ? p.pending + p.weight * (STATE.stake.acc - p.snap) / STAKE_SCALE : 0n);
 // GTS from the buyback, same weights, its own accumulator (same 1e18 scale).
 const posGts = p => (p && V12_PKG ? p.gts.pending + p.weight * ((STATE?.gtsAcc || 0n) - p.gts.snap) / STAKE_SCALE : 0n);
+
+// ---------- Auto Mine: state ----------
+// A plan plays every round for the player from their own balance in the Auto Mine vault (the immutable
+// auto_vault package): game::auto_run, which anyone may call and the keeper calls every round, takes the
+// per-round amount, pays 1% to the caller and 1% to the buyback, and deploys the rest in the player's name.
+// Live only once the vault's pull key is installed in the game (config.js carries its ids then).
+const AUTO = IDS.auto && IDS.autoVault && IDS.autoVaultPkg ? { pkg: IDS.auto, vault: IDS.autoVault, vaultPkg: IDS.autoVaultPkg } : null;
+const AV = name => `${AUTO.vaultPkg}::vault::${name}`;
+const AUTO_MIN = 50_000_000;   // game::AUTO_MIN_ROUND: least SUI a round
+const AUTO_FEE_BPS = 100;      // each of the two fees (keeper, buyback and burn), in bps of the round amount
+// game::auto_deploy: Spread 5 random tiles, Sniper 1 random tile, Hunter the 5 emptiest tiles in the last seconds.
+const STRATS = [{ name: "Spread", tiles: 5 }, { name: "Sniper", tiles: 1 }, { name: "Hunter", tiles: 5 }];
+const HUNTER = 2;
+let autoMode = "manual";       // which controls the Mine page shows: "manual" or "auto"
+let autoStrat = HUNTER, autoEdit = false, autoMove = null; // the plan form: strategy, open over the dashboard, add/withdraw box
+let AU = null;                 // { addr, acct, seat } of the signed-in wallet, read from a fullnode
+let autoTable = null, autoBusy = false, autoAt = 0;
+// round -> the seat's stake in it. Kept after the keeper claims the round (the seat is empty then), so the
+// board and the result still show what the player had on it.
+const AUTO_STAKES = new Map();
+const addrBytes = a => Uint8Array.from(a.slice(2).padStart(64, "0").match(/../g).map(h => parseInt(h, 16)));
+// The vault account (an entry of its accounts table) and the game seat (a dynamic field of the Board), in
+// one fullnode read: the indexer can lag by a round, and this view follows every round.
+async function loadAuto() {
+  const addr = account?.address;
+  if (!AUTO || !addr) { AU = null; return; }
+  if (autoBusy) return;
+  autoBusy = true;
+  try {
+    if (!autoTable) {
+      autoTable = store.get(`gtstar.autoTable.${AUTO.vault}`) || (await within(NODE.getObject({ objectId: AUTO.vault, include: { json: true } }), 5000)).object.json.accounts.id;
+      store.set(`gtstar.autoTable.${AUTO.vault}`, autoTable);
+    }
+    const key = addrBytes(addr);
+    const ids = [deriveDynamicFieldID(autoTable, "address", key), deriveDynamicFieldID(IDS.board, `${AUTO.pkg}::game::AutoKey`, key)];
+    const r = await within(NODE.getObjects({ objectIds: ids, include: { json: true } }), 4000);
+    if (account?.address !== addr) return;
+    const val = o => (o && !(o instanceof Error) && o.json ? o.json.value : null);
+    const a = val(r.objects[0]), s = val(r.objects[1]);
+    AU = {
+      addr,
+      acct: a && {
+        balance: num(a.balance), on: a.on === true, strategy: num(a.strategy), perRound: num(a.per_round), roundsLeft: num(a.rounds_left),
+        keep: num(a.keep), target: num(a.target), lastMs: num(a.last_ms), rounds: num(a.rounds),
+      },
+      seat: s && {
+        round: num(s.miner.round_id), deployed: (s.miner.deployed || []).map(num), total: num(s.miner.total_deployed),
+        rounds: num(s.rounds), wins: num(s.wins), onTiles: num(s.deployed), fees: num(s.fees), won: num(s.won), mined: num(s.mined),
+      },
+    };
+    if (AU.seat?.round) {
+      AUTO_STAKES.set(AU.seat.round, { deployed: AU.seat.deployed, total: AU.seat.total });
+      if (AUTO_STAKES.size > 30) AUTO_STAKES.delete(AUTO_STAKES.keys().next().value);
+    }
+    autoAt = Date.now();
+    render();
+  } catch (e) { console.warn("auto mine read failed", e); }
+  finally { autoBusy = false; }
+}
+const myAuto = () => (AU && AU.addr === account?.address ? AU : null);
+// vault::ready without its 20 seconds between rounds: the plan still has a round to play.
+const autoLive = a => !!a && a.on && a.roundsLeft > 0 && a.perRound >= AUTO_MIN && a.balance >= a.perRound + a.keep && (!a.target || a.balance < a.target);
+// The signed-in wallet's stake in `round`: its own miner, or its Auto Mine seat.
+function myStake(round) {
+  const m = USER?.miner;
+  if (m && m.round_id === round && m.total > 0) return { deployed: m.deployed, total: m.total, auto: false };
+  const s = myAuto() && AUTO_STAKES.get(round);
+  return s && s.total > 0 ? { ...s, auto: true } : null;
+}
+// SUI that stake gets back from settled round r: 0 when none of its tiles won.
+const stakeBack = (r, st) => payoutOf(r, st.deployed[r.tile] || 0, st.total, account?.address).back;
 
 // Event history (newest first). Capped per type; the UI states the scope when capped.
 const PAGE = 50, MAX_PAGES = 20;
@@ -448,7 +520,7 @@ async function connect(w, silent = false) {
     : await within(w.features["standard:connect"].connect(), 120_000);
   const accs = res?.accounts?.length ? res.accounts : w.accounts;
   if (!accs.length) return false;
-  wallet = w; account = accs[0]; USER = null;
+  wallet = w; account = accs[0]; USER = null; AU = null; AUTO_STAKES.clear();
   try { localStorage.setItem("gtstar.wallet", isWeb(w) ? WEB_KEY : w.name); } catch {}
   if (isWeb(w)) try { localStorage.setItem("gtstar.webUsed", "1"); } catch {}
   // One listener, for the wallet in use: account switches in the wallet show up here.
@@ -457,7 +529,7 @@ async function connect(w, silent = false) {
     if (wallet !== w || !accounts) return;
     const next = accounts[0] || null;
     if (next?.address === account?.address) return;
-    account = next; if (!account) wallet = null; USER = null; renderWallet(); refresh(); loadWelcome();
+    account = next; if (!account) wallet = null; USER = null; AU = null; AUTO_STAKES.clear(); renderWallet(); refresh(); loadWelcome();
   }) || null;
   renderWallet(); refresh(); loadWelcome();
   return true;
@@ -467,7 +539,7 @@ async function disconnect() {
   offChange?.(); offChange = null;
   try { await within(wallet?.features["standard:disconnect"]?.disconnect() ?? Promise.resolve(), 4000); } catch {}
   try { localStorage.removeItem("gtstar.wallet"); } catch {}
-  wallet = null; account = null; USER = null;
+  wallet = null; account = null; USER = null; AU = null; AUTO_STAKES.clear();
   $("acctMenu").hidden = true; $("mNameForm").hidden = true;
   renderWallet(); refresh();
   // Slush keeps the Google login on its own site, so signing in again would return the same account.
@@ -540,16 +612,17 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again." },
+  game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again." },
   daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
+  vault: { 1: "You have no Auto Mine balance yet.", 2: "That is more than your Auto Mine balance. It may have just played a round: try again.", 3: "Set an amount per round and a number of rounds.", 5: "Enter an amount." },
 };
 function friendlyError(e) {
   const m = String(e?.message || e);
   // e.g. "MoveAbort in 1st command, abort code: 9, in '0x…::game::settle'" or "MoveAbort(…::game::…, 9)"
   const a1 = m.match(/abort code:\s*(\d+)[^']*'0x[0-9a-f]+::(\w+)::/i);
-  const a2 = m.match(/::(game|gts|staking|daily)::[^,]*?,\s*(\d+)\)/);
+  const a2 = m.match(/::(game|gts|staking|daily|vault)::[^,]*?,\s*(\d+)\)/);
   const mod = a1 ? a1[2] : a2 && a2[1], code = a1 ? +a1[1] : a2 && +a2[2];
   if (mod && ERRORS[mod]?.[code]) return ERRORS[mod][code];
   if (/reject|cancel/i.test(m)) return "Transaction cancelled.";
@@ -872,6 +945,8 @@ function buildBoard() {
     c.onclick = () => {
       // Picking a tile while the last result is on the board jumps straight to the live round.
       if (holding()) reveal.skip = true;
+      // Auto Mine picks the tiles itself: tiles are not selected in that mode.
+      if (autoMode === "auto") { render(); return; }
       if (selected.has(i)) selected.delete(i);
       else if (tilesHeld(new Set([...selected, i])).size > tileCap()) { toast(`Up to ${tileCap()} tiles per round.`); return; }
       else selected.add(i);
@@ -927,10 +1002,10 @@ setInterval(() => { if (flashTitle) paintTitle(); }, 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { flashTitle = null; paintTitle(); } });
 // A round you played has ended while you were in another tab: flash the title.
 function roundAlert(L) {
-  const m = USER?.miner;
-  if (!document.hidden || !m || m.round_id !== L.round) return;
-  const r = rewards(), net = r.sui - m.total;
-  const head = net > 0 ? "You won!" : r.sui > 0 ? "Your tile won" : `Tile ${L.tile + 1} won`;
+  const st = myStake(L.round);
+  if (!document.hidden || !st) return;
+  const back = stakeBack(L, st), net = back - st.total;
+  const head = net > 0 ? "You won!" : back > 0 ? "Your tile won" : `Tile ${L.tile + 1} won`;
   flashTitle = `${head} · GTStar`;
 }
 function lastDeploy() {
@@ -972,7 +1047,7 @@ function renderBoard() {
   if (b && (showWin >= 0 || !b.cur_started) && players.length) { dep = Array(25).fill(0); players.forEach(pl => pl.amounts.forEach((v, i) => (dep[i] += v))); }
   const counts = Array(25).fill(0);
   players.forEach(pl => pl.amounts.forEach((v, i) => { if (v > 0) counts[i]++; }));
-  const mine = USER?.miner && USER.miner.round_id === shown ? USER.miner.deployed : null;
+  const stake = shown ? myStake(shown) : null, mine = stake ? stake.deployed : null;
   const max = Math.max(...dep, 1);
   const per = parseAmt($("amt").value), minPer = b ? b.min_deploy / MIST : 0.01;
   // Flash tiles that just received a deploy in the live round.
@@ -982,7 +1057,7 @@ function renderBoard() {
   const auto = p === "ended" && keeperDrawing(b);
   if (auto && !landing) startScan(); else if (!landing) stopScan();
   $("board").classList.toggle("settled", showWin >= 0);
-  renderVerdict(showWin >= 0 ? L : null, mine);
+  renderVerdict(showWin >= 0 ? L : null, stake);
   $("board").classList.toggle("drawing", auto || !!landing);
   tileEls.forEach(c => {
     const i = +c.dataset.i, v = dep[i] / MIST, sel = selected.has(i);
@@ -1010,15 +1085,15 @@ function renderBoard() {
 }
 let bumpRound = null, bumpDep = [];
 // Banner over the board while the result is held: the winning tile, and whether you won or lost.
-function renderVerdict(L, mine) {
+function renderVerdict(L, stake) {
   const el = $("verdict");
   if (!L) { el.hidden = true; el.dataset.round = ""; return; }
-  const m = USER?.miner, played = !!(mine && m?.total > 0);
-  const back = played ? rewards().sui : 0, net = back - (played ? m.total : 0);
+  const played = !!stake;
+  const back = played ? stakeBack(L, stake) : 0, net = back - (played ? stake.total : 0);
   const cls = !played ? "" : net > 0 ? "won" : back > 0 ? "even" : "lost";
   const head = !played ? `Tile ${L.tile + 1} wins` : net > 0 ? "You won" : back > 0 ? "Your tile won" : "Not this time";
   const line = !played ? (L.winners > 0 ? `${sui(L.total, 3)} SUI pot · round #${fmt(L.round, 0)}` : `No one was on tile ${L.tile + 1}`)
-    : net > 0 ? `+${sui(net, 4)} SUI · tile ${L.tile + 1}` : back > 0 ? `${sui(back, 4)} SUI back · tile ${L.tile + 1}` : `-${sui(m.total, 4)} SUI · tile ${L.tile + 1} won`;
+    : net > 0 ? `+${sui(net, 4)} SUI · tile ${L.tile + 1}` : back > 0 ? `${sui(back, 4)} SUI back · tile ${L.tile + 1}` : `-${sui(stake.total, 4)} SUI · tile ${L.tile + 1} won`;
   const left = Math.max(0, Math.ceil((HOLD_MS - (Date.now() - reveal.at)) / 1000));
   if (el.dataset.round !== String(L.round)) { el.dataset.round = L.round; el.classList.remove("in"); void el.offsetWidth; el.classList.add("in"); }
   // Sit over the half of the board away from the winning tile, so the tile itself stays in view.
@@ -1045,8 +1120,8 @@ function renderResult() {
   if (top && topProfit > 0) sub += ` · Top <span${nameOf(top.p.player) ? "" : ' class="mono"'}>${esc(top.p.player === account?.address ? "You" : label(top.p.player))}</span> +${sui(topProfit, 4)} SUI`;
   // Your result is net of everything you deployed this round, so a win that returns less than you put in never reads as a gain.
   let me = "";
-  const m = USER?.miner, back = m && m.round_id === L.round ? rewards().sui : 0, net = back - (m?.total || 0);
-  if (m && m.round_id === L.round && m.total > 0 && back === 0) me = `<div class="res-me lost">Not this time · <b>-${sui(m.total, 4)} SUI</b></div>`;
+  const st = myStake(L.round), back = st ? stakeBack(L, st) : 0, net = back - (st?.total || 0);
+  if (st && back === 0) me = `<div class="res-me lost">Not this time · <b>-${sui(st.total, 4)} SUI</b></div>`;
   if (back > 0) me = `<div class="res-me won">${net > 0 ? `You won <b>+${sui(net, 4)} SUI</b>` : `Your tile won · <b>${sui(back, 4)} SUI back</b>`}</div>${shareRow(net, back, L)}`;
   const youWon = back > 0 && net > 0;
   if (youWon && fresh && cheered !== L.round) { cheered = L.round; toast(`You won +${sui(net, 4)} SUI on tile ${L.tile + 1}. ${shareLink(net, L)}`, false, true); }
@@ -1272,6 +1347,8 @@ function renderMine() {
     else if (p === "ended" && keeperDrawing(b)) { label = "Picking the winner"; dis = true; }
     else if (p === "ended") label = selected.size ? "Draw winner, then deploy" : "Draw winner";
     else if (p === "frozen") { label = "Round closing"; dis = true; }
+    // One miner per wallet and round: a round the Auto Mine seat is in cannot also be played by hand.
+    else if (p === "live" && myAuto()?.seat?.round === b.cur_id) { label = "Auto Mine is in this round"; dis = true; }
     else if (!selected.size) { label = "Select tiles"; dis = true; }
     else if (per < min) { label = `Minimum ${min} SUI per tile`; dis = true; }
     else if (overCap()) { label = `Up to ${tileCap()} tiles per round`; dis = true; }
@@ -1290,11 +1367,200 @@ function renderMine() {
   else if (p === "open") hint = "The next round starts with the first deploy and runs for 60 seconds.";
   if (!account && WELCOME_OPEN) hint = "New here? Continue with Google and play your first 2 rounds free.";
   $("playHint").textContent = hint;
-  $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing;
+  $("boardHint").hidden = selected.size > 0 || p === "ended" || p === "frozen" || !!reveal?.landing || autoMode === "auto";
+  renderAuto();
   $("myGts").textContent = USER ? sui(USER.gts, 3) : "—";
   $("mySui").textContent = USER ? sui(USER.sui, 3) : "—";
   document.querySelector(".rw-bal").hidden = !USER;
   renderRewards(); renderResult(); renderRecent(); renderFeed();
+}
+
+// ---------- Auto Mine: plan form, dashboard, transactions ----------
+// What the plan form says, in mist. Of every round amount 1% goes to whoever runs the plan and 1% to the
+// buyback and burn; the rest is split evenly over the strategy's tiles (any mist left goes to the buyback).
+function autoPlan() {
+  const per = toMist($("amPer").value), rounds = Math.floor(parseAmt($("amRoundsIn").value));
+  const tiles = Math.min(STRATS[autoStrat].tiles, tileCap());
+  const fee = Math.floor(per * AUTO_FEE_BPS / 10_000), perTile = Math.floor((per - 2 * fee) / tiles);
+  return {
+    strategy: autoStrat, per, rounds, dep: toMist($("amDep").value), keep: toMist($("amKeep").value), target: toMist($("amTarget").value),
+    tiles, perTile, onTiles: perTile * tiles, keeperFee: fee, buybackFee: per - fee - perTile * tiles,
+  };
+}
+// GTS one SUI on tiles mines while the round holds no more than the full-reward deposit (1 GTS per SUI at launch).
+const gtsPerSui = () => roundReward() / (em().full / MIST);
+function renderAutoForm(a, has) {
+  const p = autoPlan(), b = STATE?.board, bal = a?.balance || 0;
+  document.querySelectorAll("#amStrats button").forEach(x => x.setAttribute("aria-checked", String(+x.dataset.s === autoStrat)));
+  $("amDepLbl").textContent = has ? `Add to your balance (${sui(bal, 4)} SUI now)` : "Deposit";
+  $("btnAutoCancel").hidden = !has;
+  const covers = p.per > 0 ? Math.max(0, Math.floor((bal + p.dep - p.keep) / p.per)) : 0;
+  $("amSum").innerHTML = p.per >= AUTO_MIN
+    ? `Each round takes <b>${sui(p.per, 4)} SUI</b> from your balance: <b>${sui(p.onTiles, 4)}</b> on ${p.tiles === 1 ? "1 tile" : `${p.tiles} tiles`}, `
+      + `<b>${sui(p.keeperFee, 4)}</b> to the keeper that runs it and <b>${sui(p.buybackFee, 4)}</b> to buyback and burn. `
+      + `The ${sui(p.onTiles, 4)} SUI on tiles mines about <b>${fmt(p.onTiles / MIST * gtsPerSui(), 4)} GTS</b> a round, win or lose, less in rounds above ${sui(em().full, 2)} SUI. `
+      + (covers > 0 ? `Your balance covers <b>${fmt(Math.min(covers, p.rounds || covers), 0)} ${Math.min(covers, p.rounds || covers) === 1 ? "round" : "rounds"}</b> before any win; SUI you win goes back into it.` : "")
+    : `At least ${AUTO_MIN / MIST} SUI per round.`;
+  if (!busy) {
+    const minPer = b ? Math.ceil(b.min_deploy * p.tiles / (1 - 2 * AUTO_FEE_BPS / 10_000)) : 0;
+    let label = !has ? `Deposit ${sui(p.dep, 4)} SUI and start` : a.on ? "Update plan" : "Start Auto Mine", dis = false;
+    if (!account) label = "Sign in";
+    else if (b?.paused) { label = "The game is paused"; dis = true; }
+    else if (p.per < AUTO_MIN) { label = `Minimum ${AUTO_MIN / MIST} SUI per round`; dis = true; }
+    else if (b && p.perTile < b.min_deploy) { label = `Minimum ${sui(minPer, 4)} SUI per round on ${p.tiles} tiles`; dis = true; }
+    else if (!(p.rounds >= 1)) { label = "Set the number of rounds"; dis = true; }
+    else if (USER && p.dep > Math.max(0, USER.sui - GAS_RESERVE)) { label = "Not enough SUI in your wallet"; dis = true; }
+    else if (bal + p.dep < p.per + p.keep) { label = `Deposit at least ${sui(p.per + p.keep - bal, 4)} SUI`; dis = true; }
+    else if (p.target && p.target <= bal + p.dep) { label = "The stop balance must be above your balance"; dis = true; }
+    else if (has && p.dep > 0) label = `Add ${sui(p.dep, 4)} SUI and ${a.on ? "update" : "start"}`;
+    $("btnAuto").textContent = label; $("btnAuto").disabled = dis;
+  } else if (busy !== "btnAuto") $("btnAuto").disabled = true;
+  $("amHint").textContent = "Your balance sits in a contract that can never be changed or paused. Only you can withdraw it, at any time, plan running or not. Auto Mine plays the same game: SUI on tiles that do not win is lost, so it can use up the whole balance.";
+}
+// Status of the plan: what it is doing now, in plain words.
+function autoStatus(a, s) {
+  const b = STATE?.board, p = phase(), strat = STRATS[a.strategy];
+  if (autoLive(a)) {
+    if (b?.paused) return { cls: "wait", label: "Waiting", now: "The game is paused. Your balance can be withdrawn at any time." };
+    const st = b && s && s.round === b.cur_id && b.cur_started ? s : null;
+    if (st && p !== "ended") { const idx = st.deployed.map((v, i) => (v > 0 ? i : -1)).filter(i => i >= 0); return { cls: "run", label: "Running", now: `In round #${fmt(b.cur_id, 0)} with <b>${sui(st.total, 4)} SUI</b> on ${tilesTxt(idx).toLowerCase()}` }; }
+    if (p === "ended") return { cls: "run", label: "Running", now: st ? "Your round has ended. The winner is being drawn." : "Waiting for the draw." };
+    if (USER?.miner && b && USER.miner.round_id === b.cur_id && b.cur_started) return { cls: "run", label: "Running", now: "You played this round yourself. Auto Mine joins the next one." };
+    if (a.strategy === HUNTER) return { cls: "run", label: "Running", now: b?.cur_started ? "Hunter joins in the last seconds before deposits close." : "Hunter waits for a live round." };
+    return { cls: "run", label: "Running", now: p === "frozen" ? "This round is closing. Joins the next one." : "Joins the round within seconds." };
+  }
+  if (a.on && strat && a.roundsLeft > 0) return { cls: "wait", label: "Out of SUI", now: `A round needs <b>${sui(a.perRound + a.keep, 4)} SUI</b>${a.keep ? ` (${sui(a.keep, 4)} of it is kept)` : ""}. Add SUI to keep mining.` };
+  if (a.target && a.balance >= a.target) return { cls: "", label: "Target reached", now: `Your balance reached ${sui(a.target, 4)} SUI, so the plan stopped.` };
+  if (a.roundsLeft === 0 && a.rounds > 0) return { cls: "", label: "Finished", now: "All the rounds of your plan were played." };
+  return { cls: "", label: "Stopped", now: "Your balance stays here until you withdraw it or start again." };
+}
+// The wallet's last rounds (by hand or automatic), newest first: the winning tile, and how it went for them.
+function myLastRounds(n) {
+  if (!HIST || !account) return [];
+  const out = [];
+  for (const r of HIST.rounds) {
+    const mine = (HIST.byRound.get(r.round) || []).filter(d => d.player === account.address);
+    if (!mine.length) continue;
+    const total = mine.reduce((x, d) => x + d.total, 0), onWin = mine.reduce((x, d) => x + (d.amounts[r.tile] || 0), 0);
+    const back = payoutOf(r, onWin, total, account.address).back;
+    out.push({ round: r.round, tile: r.tile, total, back, net: back - total });
+    if (out.length >= n) break;
+  }
+  return out;
+}
+let amBalShown = null, amLastTop = null;
+function renderAutoDash(a, s) {
+  const st = autoStatus(a, s), b = STATE?.board;
+  $("amStatus").className = `am-status ${st.cls}`;
+  $("amStatusTxt").textContent = st.label;
+  $("amPlan").textContent = `${STRATS[a.strategy]?.name || "Plan"} · ${sui(a.perRound, 4)} SUI a round · ${fmt(a.roundsLeft, 0)} ${a.roundsLeft === 1 ? "round" : "rounds"} left`;
+  // The balance flashes green when a win lands in it, red when a round takes its amount.
+  const balEl = $("amBal");
+  if (amBalShown !== null && a.balance !== amBalShown) {
+    balEl.classList.remove("up", "down"); void balEl.offsetWidth;
+    balEl.classList.add(a.balance > amBalShown ? "up" : "down");
+    clearTimeout(balEl._t); balEl._t = setTimeout(() => balEl.classList.remove("up", "down"), 1600);
+  }
+  amBalShown = a.balance;
+  balEl.textContent = sui(a.balance, 4);
+  $("amNow").innerHTML = st.now;
+  $("amMined").textContent = s ? sui(s.mined, 4) : "0";
+  $("amPaid").textContent = s ? sui(s.onTiles + s.fees, 4) : "0";
+  $("amWon").textContent = s ? sui(s.won, 4) : "0";
+  $("amWon").classList.toggle("won", !!s && s.won > 0);
+  $("amRounds").textContent = s ? fmt(s.rounds, 0) : "0";
+  $("amWins").textContent = s ? `${fmt(s.wins, 0)} ${s.wins === 1 ? "win" : "wins"}` : "0 wins";
+  const last = myLastRounds(10);
+  $("amLast").hidden = !last.length;
+  if (last.length) {
+    const top = last[0].round;
+    $("amLast").innerHTML = `<span class="lbl">Last rounds</span>` + last.map((r, i) =>
+      `<i class="${r.net > 0 ? "won" : r.back > 0 ? "even" : ""}${i === 0 && amLastTop !== null && top !== amLastTop ? " new" : ""}" title="Round #${r.round}: tile ${r.tile + 1} won. ${r.net > 0 ? `You won +${sui(r.net, 4)} SUI` : r.back > 0 ? `${sui(r.back, 4)} SUI back for ${sui(r.total, 4)} in` : `-${sui(r.total, 4)} SUI`}">${r.net > 0 ? `+${sui(r.net, 3)}` : r.back > 0 ? sui(r.back, 3) : "&minus;"}</i>`).join("");
+    amLastTop = top;
+  }
+  $("btnAutoAdd").classList.toggle("on", autoMove === "add");
+  $("btnAutoOut").classList.toggle("on", autoMove === "out");
+  $("amMove").hidden = !autoMove;
+  const amt = toMist($("amMoveAmt").value);
+  if (!busy) {
+    $("btnAutoToggle").textContent = a.on ? "Stop" : "Start again";
+    $("btnAutoToggle").disabled = false;
+    $("btnAutoOut").disabled = !(a.balance > 0);
+    if (autoMove) {
+      const out = autoMove === "out", max = out ? a.balance : Math.max(0, (USER?.sui || 0) - 2 * GAS_RESERVE);
+      $("btnAutoMove").textContent = amt <= 0 ? "Enter an amount" : amt > max ? (out ? "More than your balance" : "Not enough SUI in your wallet") : out ? `Withdraw ${sui(Math.min(amt, a.balance), 4)} SUI` : `Add ${sui(amt, 4)} SUI`;
+      $("btnAutoMove").disabled = amt <= 0 || amt > max;
+    }
+  } else ["btnAutoToggle", "btnAutoMove", "btnAutoCollect"].forEach(id => { if (busy !== id) $(id).disabled = true; });
+  // The keeper claims a finished round within seconds. If it has not after 2 minutes, the player can do it:
+  // the call is open to anyone, and it only moves the player's own winnings into their own balance.
+  const done = s && s.round !== 0 && b && s.round < b.cur_id ? (STATE.recent || []).find(r => r.round === s.round) : null;
+  const late = !!s && s.round !== 0 && !!b && s.round < b.cur_id && (!done || Date.now() - new Date(done.ts).getTime() > 120_000);
+  $("btnAutoCollect").hidden = !late;
+  $("amDashHint").textContent = late ? "Your last round is not collected yet. Collect it yourself: SUI you won goes into this balance, mined GTS into your unrefined GTS."
+    : "SUI you win goes back into this balance. Mined GTS goes to your unrefined GTS below. Withdraw this balance at any time.";
+}
+function renderAuto() {
+  if (!AUTO) return;
+  const A = myAuto(), a = A?.acct || null, s = A?.seat || null;
+  $("modeSeg").hidden = false;
+  $("amLive").hidden = !autoLive(a);
+  document.querySelectorAll("#modeSeg button").forEach(x => x.setAttribute("aria-selected", String(x.dataset.mode === autoMode)));
+  $("manualPane").hidden = autoMode !== "manual";
+  $("autoPane").hidden = autoMode !== "auto";
+  syncBar();
+  if (autoMode !== "auto") return;
+  const has = !!a && (a.balance > 0 || a.on || !!(s && s.round));
+  const form = !has || autoEdit;
+  $("amForm").hidden = !form; $("amDash").hidden = form;
+  if (form) renderAutoForm(a, has); else renderAutoDash(a, s);
+}
+// Start or change the plan: open the seat (once), deposit, set the plan. One transaction, signed by the player.
+const startAuto = () => {
+  const p = autoPlan();
+  return exec("Auto Mine", "btnAuto", tx => {
+    // A second auto_join does nothing, so it is safe even if the seat was opened a moment ago.
+    if (!myAuto()?.seat) tx.moveCall({ target: C("game::auto_join"), arguments: [tx.object(IDS.board)] });
+    if (p.dep > 0) {
+      const [c] = tx.splitCoins(tx.gas, [p.dep]);
+      tx.moveCall({ target: AV("deposit"), arguments: [tx.object(AUTO.vault), c] });
+    }
+    tx.moveCall({ target: AV("start"), arguments: [tx.object(AUTO.vault), tx.pure.u8(p.strategy), tx.pure.u64(p.per), tx.pure.u64(p.rounds), tx.pure.u64(p.keep), tx.pure.u64(p.target)] });
+  }, p.dep).then(r => { if (r) { autoEdit = false; $("amDep").value = ""; autoRefresh(); } });
+};
+// Stop: nothing more leaves the balance. Tickets still waiting in the seat go into the Wealth Fund draw.
+const stopAuto = () => exec("Stop", "btnAutoToggle", tx => {
+  tx.moveCall({ target: AV("stop"), arguments: [tx.object(AUTO.vault)] });
+  if (myAuto()?.seat) tx.moveCall({ target: C("game::auto_flush"), arguments: [tx.object(IDS.board)] });
+}).then(r => { if (r) autoRefresh(); });
+// Add SUI to the balance, or take SUI out of it (all of it when the amount covers the balance).
+const moveAuto = () => {
+  const amt = toMist($("amMoveAmt").value), out = autoMove === "out";
+  return exec(out ? "Withdraw" : "Deposit", "btnAutoMove", tx => {
+    if (out) {
+      const all = amt >= (myAuto()?.acct?.balance || 0);
+      const [c] = tx.moveCall({ target: AV(all ? "withdraw_all" : "withdraw"), arguments: all ? [tx.object(AUTO.vault)] : [tx.object(AUTO.vault), tx.pure.u64(amt)] });
+      tx.transferObjects([c], account.address);
+    } else {
+      const [c] = tx.splitCoins(tx.gas, [amt]);
+      tx.moveCall({ target: AV("deposit"), arguments: [tx.object(AUTO.vault), c] });
+    }
+  }, out ? 0 : amt).then(r => { if (r) { autoMove = null; $("amMoveAmt").value = ""; autoRefresh(); } });
+};
+// The keeper's call, made by the player for their own seat only (fallback when the keeper is down).
+const collectAuto = () => exec("Collect", "btnAutoCollect", tx => {
+  tx.setGasBudget(50_000_000);
+  tx.moveCall({ target: C("game::auto_run"), arguments: [tx.object(IDS.board), tx.object(AUTO.vault), tx.object(IDS.treasury), tx.pure.vector("address", [account.address]), tx.object.random(), tx.object.clock()] });
+}).then(r => { if (r) autoRefresh(); });
+const autoRefresh = () => { loadAuto(); setTimeout(loadAuto, 1200); setTimeout(loadAuto, 3500); };
+// Fill the form from the plan in the vault (to change it, or to start again).
+function autoFormFrom(a) {
+  autoStrat = STRATS[a.strategy] ? a.strategy : HUNTER;
+  $("amPer").value = String((a.perRound || AUTO_MIN) / MIST);
+  $("amRoundsIn").value = String(a.roundsLeft > 0 ? a.roundsLeft : 20);
+  $("amKeep").value = a.keep ? String(a.keep / MIST) : "";
+  $("amTarget").value = a.target && a.target > a.balance ? String(a.target / MIST) : "";
+  $("amDep").value = "";
 }
 
 // ---------- render: explorer ----------
@@ -1662,6 +1928,8 @@ async function refresh() {
     if (su < shownU || account?.address !== addr) return;
     shownU = su; USER = u; render(); renderWelcome();
   }, e => console.warn("wallet refresh failed", e));
+  // The Auto Mine balance and seat: on the board every refresh, elsewhere only to keep the tab's dot right.
+  if (AUTO && addr && (view === "mine" || Date.now() - autoAt > 20_000)) loadAuto();
   await Promise.all([g, u]);
   // The first load reads the wallet before the staking pool is known: read the positions once it is.
   if (USER && !USER.stake && STATE?.stake && account?.address === addr) {
@@ -1859,12 +2127,15 @@ $("selRepeat").onclick = () => {
   $("amt").value = l.per; render();
 };
 // Phones: while the real Deploy button is off screen, a fixed bar mirrors it (same label, same state, same action).
-const syncBar = () => { $("mbPlay").textContent = $("btnPlay").textContent; $("mbPlay").disabled = $("btnPlay").disabled; };
-new MutationObserver(syncBar).observe($("btnPlay"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
-new IntersectionObserver(([e]) => {
-  $("mbar").hidden = e.isIntersecting;
+// Not in Auto Mine mode: there is no Deploy button to mirror there.
+let playSeen = true;
+const syncBar = () => {
+  $("mbPlay").textContent = $("btnPlay").textContent; $("mbPlay").disabled = $("btnPlay").disabled;
+  $("mbar").hidden = playSeen || autoMode === "auto";
   document.body.classList.toggle("mbar-on", !$("mbar").hidden);
-}).observe($("btnPlay"));
+};
+new MutationObserver(syncBar).observe($("btnPlay"), { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+new IntersectionObserver(([e]) => { playSeen = e.isIntersecting; syncBar(); }).observe($("btnPlay"));
 $("mbPlay").onclick = () => $("btnPlay").click();
 $("mbSum").onclick = () => $("amt").scrollIntoView({ behavior: "smooth", block: "center" });
 $("btnPlay").onclick = async () => {
@@ -1873,6 +2144,43 @@ $("btnPlay").onclick = async () => {
   if (r && selected.size) { await refresh(); play(); }
 };
 $("btnClaimAll").onclick = () => (account ? claimAll() : openWalletModal());
+// Auto Mine: the mode switch, the plan form and the dashboard.
+if (AUTO) {
+  $("learnAuto").hidden = false;
+  if (store.get("gtstar.mode") === "auto") autoMode = "auto";
+  document.querySelectorAll("#modeSeg button").forEach(b => (b.onclick = () => {
+    autoMode = b.dataset.mode; store.set("gtstar.mode", autoMode);
+    if (autoMode === "auto") { selected.clear(); loadAuto(); }
+    render();
+  }));
+  document.querySelectorAll("#amStrats button").forEach(b => (b.onclick = () => { autoStrat = +b.dataset.s; renderAuto(); }));
+  document.querySelectorAll("#amForm .quick").forEach(q => q.querySelectorAll("button").forEach(b => (b.onclick = () => { $(q.dataset.for).value = b.dataset.v; renderAuto(); })));
+  ["amPer", "amRoundsIn", "amDep", "amKeep", "amTarget", "amMoveAmt"].forEach(id => $(id).addEventListener("input", renderAuto));
+  // Enough for every round of the plan, on top of what is already in the balance and what is kept.
+  $("amDepFit").onclick = () => {
+    const p = autoPlan(), bal = myAuto()?.acct?.balance || 0;
+    const need = Math.max(0, p.per * Math.max(1, p.rounds || 1) + p.keep - bal), max = Math.max(0, (USER?.sui || need) - 2 * GAS_RESERVE);
+    $("amDep").value = String(Math.min(need, max) / MIST); renderAuto();
+  };
+  $("btnAuto").onclick = () => (account ? startAuto() : openWalletModal());
+  $("btnAutoCancel").onclick = () => { autoEdit = false; renderAuto(); };
+  $("btnAutoToggle").onclick = () => {
+    const a = myAuto()?.acct;
+    if (a?.on) return stopAuto();
+    if (a) autoFormFrom(a);
+    autoEdit = true; renderAuto();
+  };
+  $("btnAutoEdit").onclick = () => { const a = myAuto()?.acct; if (a) autoFormFrom(a); autoEdit = true; autoMove = null; renderAuto(); };
+  const openMove = kind => { autoMove = autoMove === kind ? null : kind; $("amMoveAmt").value = ""; renderAuto(); if (autoMove) $("amMoveAmt").focus(); };
+  $("btnAutoAdd").onclick = () => openMove("add");
+  $("btnAutoOut").onclick = () => openMove("out");
+  $("amMoveMax").onclick = () => {
+    const max = autoMove === "out" ? myAuto()?.acct?.balance || 0 : Math.max(0, (USER?.sui || 0) - 2 * GAS_RESERVE);
+    $("amMoveAmt").value = String(max / MIST); renderAuto();
+  };
+  $("amMove").onsubmit = e => { e.preventDefault(); if (!$("btnAutoMove").disabled) moveAuto(); };
+  $("btnAutoCollect").onclick = collectAuto;
+}
 $("btnWithdraw").onclick = withdrawGts;
 $("hdrClaim").onclick = claimAll;
 // Random keeps the current tile count (at least 1) and picks that many distinct tiles.
