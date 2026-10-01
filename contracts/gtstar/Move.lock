@@ -4,38 +4,68 @@
 [move]
 version = 4
 
+[pinned.mainnet.CetusClmm]
+source = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = 'packages\cetus_clmm', rev = "f7f62b49b74cf4da948c325f210638d73cdefac7" }
+use_environment = "mainnet"
+manifest_digest = "1E932E9C4C15B3E671C5AACEE3107A26421CD5F431977EB48BE64EF5BE1AD9CA"
+deps = { IntegerMate = "IntegerMate", MoveSTL = "MoveSTL", std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.IntegerMate]
+source = { git = "https://github.com/CetusProtocol/integer-mate.git", subdir = ".", rev = "09a12d9b171122883d9350039d4ed6e8400033b9" }
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
+deps = { std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.MoveSTL]
+source = { git = "https://github.com/CetusProtocol/move-stl.git", subdir = ".", rev = "0681fec63a310ae753d03a06f7c05d3e2925bb09" }
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
+deps = { std = "MoveStdlib", sui = "Sui" }
+
 [pinned.mainnet.MoveStdlib]
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\move-stdlib', rev = "b0535f1f3a3310e71790e90d8ae4e8ca840c897e" }
+use_environment = "mainnet"
+manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
+deps = {}
+
+[pinned.mainnet.MoveStdlib_1]
 source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\move-stdlib', rev = "782577ca40c9ef0b3f400ade8bc2cc2dcd0e2b23" }
 use_environment = "mainnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
 [pinned.mainnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\sui-framework', rev = "782577ca40c9ef0b3f400ade8bc2cc2dcd0e2b23" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\sui-framework', rev = "b0535f1f3a3310e71790e90d8ae4e8ca840c897e" }
 use_environment = "mainnet"
 manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
 deps = { MoveStdlib = "MoveStdlib" }
+
+[pinned.mainnet.Sui_1]
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\sui-framework', rev = "782577ca40c9ef0b3f400ade8bc2cc2dcd0e2b23" }
+use_environment = "mainnet"
+manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
+deps = { MoveStdlib = "MoveStdlib_1" }
 
 [pinned.mainnet.auto_vault]
 source = { local = '..\auto_vault' }
 use_environment = "mainnet"
 manifest_digest = "BA49968BFF7C4A4D9F013B59535CF8B89D935A7C6D63C121606B1FE844829B72"
-deps = { Sui = "Sui" }
+deps = { Sui = "Sui_1" }
 
 [pinned.mainnet.gtstar]
 source = { root = true }
 use_environment = "mainnet"
-manifest_digest = "1AA22F4B73D65B8B5D808D9422DECBC7C0DAE9DDB0249C368364D53CB972E211"
-deps = { Sui = "Sui", auto_vault = "auto_vault", mint_limit = "mint_limit", supply_lock = "supply_lock" }
+manifest_digest = "8BEB1BD84012AC485EA3657E059C91A2A42463CB317E3442D2C5043BDB9D9B43"
+deps = { CetusClmm = "CetusClmm", MoveStdlib = "MoveStdlib_1", Sui = "Sui_1", auto_vault = "auto_vault", mint_limit = "mint_limit", supply_lock = "supply_lock" }
 
 [pinned.mainnet.mint_limit]
 source = { local = '..\mint_limit' }
 use_environment = "mainnet"
 manifest_digest = "2B4F49AC2CEE6DBB3CF688202CE0264EC605FCB5C6DAC5F1512A20A4B4C4241C"
-deps = { Sui = "Sui", supply_lock = "supply_lock" }
+deps = { Sui = "Sui_1", supply_lock = "supply_lock" }
 
 [pinned.mainnet.supply_lock]
 source = { local = '..\supply_lock' }
 use_environment = "mainnet"
 manifest_digest = "BA49968BFF7C4A4D9F013B59535CF8B89D935A7C6D63C121606B1FE844829B72"
-deps = { Sui = "Sui" }
+deps = { Sui = "Sui_1" }

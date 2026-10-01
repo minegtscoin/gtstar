@@ -4,11 +4,14 @@ edition = "2024.beta"
 version = "2.0.0"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet", override = true }
+MoveStdlib = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/mainnet", override = true }
 
 supply_lock = { local = "../supply_lock" }
 mint_limit = { local = "../mint_limit" }
 auto_vault = { local = "../auto_vault" }
+# Cetus CLMM (the GTS/SUI pool the game buys back on and adds liquidity to), pinned to the published source.
+CetusClmm = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = "packages/cetus_clmm", rev = "f7f62b49b74cf4da948c325f210638d73cdefac7" }
 
 [addresses]
 gtstar = "0x0"

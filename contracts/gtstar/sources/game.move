@@ -23,23 +23,38 @@
 /// `decay_ppm` (1.425%). Mining stops for good once 1,000,000 GTS have been assigned to rounds.
 /// No staker or other mint: the round reward is the only source of GTS.
 ///
-/// Mined GTS waits in the player's unrefined balance. Withdrawing it is free once 7 days have passed
-/// since the player's last withdrawal (or first mining); before that the fee falls linearly from
-/// `refine_fee_bps` to 0 over the 7 days. From v16 half the fee GTS is burned and half is shared by
-/// everyone still holding unrefined GTS, by their unrefined amount (paid when they withdraw); with no
-/// one else holding, all of it is burned. (v6 to v15 burned all of it.)
+/// Mined GTS waits in the player's unrefined balance, for house bots too (v18). Withdrawing it is free
+/// once the player's 7-day clock has run out; before that the fee falls linearly from `refine_fee_bps`
+/// to 0 over the 7 days. The clock is one per player, weighted by amount (v18): GTS mined now starts its
+/// own 7 days, and the player's clock moves to the average of the GTS already held and the new GTS, by
+/// their amounts (5 GTS with 3 days left plus 1 new GTS: 3.67 days left for all 6). GTS held longer than
+/// 7 days counts as 7 days. A withdrawal takes the whole balance, so the next GTS starts a new clock.
+/// (Before v18 new GTS joined the running clock as it was, so a small old balance could free a large new
+/// one at once.) From v16 half the fee GTS is burned and half is shared by everyone still holding
+/// unrefined GTS, by their unrefined amount (paid when they withdraw); with no one else holding, all of
+/// it is burned. (v6 to v15 burned all of it.)
 ///
-/// Buyback and burn (v16): 3% of every losing pot is saved in the game (1% in v14-v15, 2% in v11-v13).
-/// Only the keeper may take it (`buyback_take`), and the same transaction must hand back GTS for it
-/// (`buyback_burn_v2` closes the receipt), which is burned for good, together with any GTS left from
-/// liquidity. `BuybackDone` shows the SUI spent and the GTS burned. (v12 to v15 paid the GTS bought to the
-/// stakers instead; GTS already credited to stakers stays claimable with `claim_gts`.)
+/// The market (v18): the buyback and the liquidity add run inside the draw `settle_v3`, straight on the
+/// Cetus GTS/SUI pool `MARKET_POOL`, with no keeper and no privileged address: `buyback_take`,
+/// `liquidity_take` and their receipts are closed. A draw's buys may lift the pool price at most 2% above
+/// a reference price (the pool price after the last market step, itself rising at most 2% a draw), so
+/// pushing the price up just before a draw does not make the game buy higher; what the limit leaves
+/// unspent stays saved for the next draw. If Cetus is paused or has moved to a version this package is
+/// not linked to, `settle_v3` may abort; the plain draw `settle_v2` stays open for that, runs no market
+/// step and pays no draw reward, and the saved SUI waits.
 ///
-/// Liquidity (v11): 2% of every losing pot (v16; 3% in v14-v15, 1% before) is saved in the game. Only the keeper may take it
-/// (`liquidity_take`); in the same transaction it buys GTS with about half, adds both halves to the
-/// Cetus GTS/SUI pool as a new position, and `liquidity_lock` closes the receipt: the position (a Cetus
-/// `Position`, checked by type) is stored in the game for good, SUI not used goes back to the liquidity
-/// balance and GTS not used is burned with the next buyback (v16). No function can take a position out.
+/// Buyback and burn: 3% of every losing pot (v16; 1% in v14-v15, 2% in v11-v13) and 1% of every Auto
+/// Mine deposit are saved in the game. Once 0.005 SUI is saved, the draw spends it on GTS and burns the
+/// GTS for good in the same transaction, together with any GTS left from liquidity. `BuybackDone` shows
+/// the SUI spent and the GTS burned. (v12 to v15 paid the GTS bought to the stakers instead; GTS already
+/// credited to stakers stays claimable with `claim_gts`.)
+///
+/// Liquidity: 2% of every losing pot (v16; 3% in v14-v15, 1% before) is saved in the game. Once 0.05 SUI
+/// is saved, the draw buys GTS with 49% of it and adds the GTS with the matching SUI to a Cetus position
+/// locked in the game (`LiquidityAdded`). SUI not used stays saved, GTS not used is burned with the next
+/// buyback. The positions (20, opened by the keeper before v18) are stored in the game for good: no
+/// function can take one out or remove its liquidity. `compound_fees`, open to anyone, collects the
+/// trading fees they earn and adds them back to the pool the same way.
 ///
 /// Supply lock (v15): `lock_supply` moved the GTS TreasuryCap into `supply_lock::capped`, a separate
 /// package made immutable, and deleted the old Treasury. GTS can only be minted through its
@@ -48,9 +63,11 @@
 ///
 /// Daily mint limit (v16): `limit_mint_rate` sealed the `MinterCap` in `mint_limit::daily`, another
 /// package made immutable. GTS can only be minted through that `DailyLimiter`, at most 2,000 GTS per UTC
-/// day (by the on-chain clock), and no upgrade of this game can change or bypass that. A claim that would
-/// pass the day's limit aborts and can be retried the next UTC day; nothing is lost. The emission
-/// settings can still be lowered (a longer curve), never raised past 2,000 GTS a day in effect.
+/// day (by the on-chain clock), and no upgrade of this game can change or bypass that. A claim never
+/// fails over it (v18): the SUI is paid, and GTS that does not fit under the day's limit is recorded as
+/// owed to the player (`GtsOwed`) and minted to their unrefined balance once there is room, by their
+/// next claim or by `claim_owed`, which anyone may call for them. The emission settings can still be
+/// lowered (a longer curve), never raised past 2,000 GTS a day in effect.
 ///
 /// Auto Mine (v17): a player may keep SUI in the `auto_vault` package (immutable, so nobody can pause or
 /// block a withdrawal) with a plan: a strategy, an amount per round, a number of rounds. `auto_run`, which
@@ -59,7 +76,7 @@
 /// the rest for the player exactly like `deploy` (same mining, same payout, same tickets, in the player's
 /// name). Spread: 5 random tiles. Sniper: 1 random tile. Hunter: the 5 tiles holding the least SUI, only in
 /// the last 10 seconds before deposits close. The round is claimed by the next `auto_run`: SUI won goes
-/// back to the player's vault balance, mined GTS to their unrefined balance. Wealth Fund tickets of
+/// back to the player's vault balance, mined GTS to their unrefined balance (owed if the day's mint limit is full). Wealth Fund tickets of
 /// automatic rounds are added to the draw every 10 claims (at once when that costs no new storage, and
 /// when the plan has no round left to play). At least 0.05 SUI a round. A pause stops automatic deposits too.
 ///
@@ -77,7 +94,6 @@ use sui::clock::{Self, Clock};
 use sui::coin::{Self, Coin};
 use sui::dynamic_field as df;
 use sui::dynamic_object_field as dof;
-use std::type_name;
 use sui::event;
 use sui::random::{Self, Random, RandomGenerator};
 use sui::sui::SUI;
@@ -87,6 +103,10 @@ use gtstar::staking::{Self, Pool as StakePool};
 use supply_lock::capped::{Self, CappedTreasury, MinterCap};
 use mint_limit::daily::{Self, DailyLimiter};
 use auto_vault::vault::{Self, Vault, PullCap};
+use cetus_clmm::config::GlobalConfig;
+use cetus_clmm::pool::{Self as cetus_pool, Pool as CetusPool};
+use cetus_clmm::position::{Self as cetus_position, Position};
+use cetus_clmm::tick_math;
 
 // ===== Constants =====
 const GRID: u64 = 25;
@@ -106,8 +126,22 @@ const DEV_ADDR: address = @0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3
 const BUYBACK_BPS: u64 = 300;
 /// Liquidity: 2% of the losing pot, fixed (v16; 3% in v14-v15, 1% in v11-v13). Added to the Cetus GTS/SUI pool and locked in the game.
 const LIQ_BPS: u64 = 200;
-/// The only object type `liquidity_lock` accepts: a Cetus CLMM position.
-const CETUS_POSITION: vector<u8> = b"1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb::position::Position";
+
+/// The market (v18): the Cetus GTS/SUI pool the draw buys back on and adds liquidity to. Fixed: no other
+/// pool is accepted, so nobody can point the game at a pool they control.
+const MARKET_POOL: address = @0x0628902c5acd5b5755c9b1a6494e925d0c5327177486b5e3b25d0e9b0211de71;
+/// A draw's buys may lift the pool price at most 2% above the reference price (see `market_step`).
+/// Cetus prices are square roots: sqrt(1.02) = 1.009950, so this is 2% in price.
+const PRICE_CAP_NUM: u128 = 1_009_950;
+const PRICE_CAP_DEN: u128 = 1_000_000;
+/// No buy with less than 0.05% of square-root price room left under the limit (it would buy dust).
+const PRICE_ROOM_NUM: u128 = 1_000_500;
+/// The buyback runs once this much SUI is saved (0.005), the liquidity add once this much is (0.05), so
+/// the gas of a draw stays small next to what it buys. Smaller amounts wait for the next draws.
+const MARKET_BUY_MIN: u64 = 5_000_000;
+const MARKET_LIQ_MIN: u64 = 50_000_000;
+/// Of the liquidity SUI, this part buys GTS; the GTS and the matching SUI then go into the pool.
+const LIQ_BUY_PCT: u64 = 49;
 
 // Default settings (see `set_params`).
 const DEFAULT_VAULT_BPS: u64 = 0;          // no reserve (v9)
@@ -133,7 +167,8 @@ const MAX_DECAY_PPM: u64 = 500_000;
 const MIN_FULL_REWARD_DEPLOY: u64 = 1_000_000;         // 0.001 SUI
 const MAX_FULL_REWARD_DEPLOY: u64 = 1_000_000_000_000; // 1,000 SUI
 
-/// House bots: paid mined GTS at claim, outside the unrefined balances, and get no Wealth Fund tickets.
+/// House bots: no Wealth Fund tickets. Nothing else sets them apart (v18): their mined GTS goes to the
+/// unrefined balance under the same 7-day clock and withdraw fee as every player's.
 const HOUSE_ADDR: address = @0x4a6e7d021beb465ce1a68ffe45d6e18cd30f6aea45560364a8c59bcdd497458a;
 const BOT1_ADDR: address = @0xab4deb30e34487f75bf5632038e46d419c6238b4ea52d35f3ad3421a5bb268fa;
 const BOT2_ADDR: address = @0x779b49acf4db04d835440c12ffe24929de505a9b8112b4040da5103d225b37e7;
@@ -141,12 +176,10 @@ const BOT3_ADDR: address = @0x0b8d118f954c90a87abc2b3e07c408681efed88b552ebcd94f
 const MATCHER_ADDR: address = @0x2a869532f55594a9ffed4a5d7ee2a48cf5c857ac740090d39c733e0279b6a8de;
 /// Shield bot: no Wealth Fund tickets either.
 const SHIELD_ADDR: address = @0xadf4446b0340e1b8d4c0abde15da3381db54057a1e4bda533cc3c8ca1abbc077;
-/// Keeper: the only address that may spend the buyback SUI (only on GTS kept in the game) and the
-/// liquidity SUI (only on a Cetus position locked in the game).
-const BUYER_ADDR: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
-/// Draw reward: whoever settles a round is paid up to this much SUI (0.005) out of the round's Wealth
-/// Fund share, then its liquidity share, so the draw pays its gas. The buyback is never touched (v13).
+/// Draw reward: whoever draws a round with `settle_v3` (the draw that also runs the market) is paid up
+/// to this much SUI (0.005) out of the round's Wealth Fund share, then its liquidity share, so the draw
+/// pays its gas. The buyback is never touched (v13). The plain draw `settle_v2` pays nothing (v18).
 const DRAW_REWARD_MAX: u64 = 5_000_000;
 
 /// Daily mint limit (v16): at most 2,000 GTS minted per UTC day, sealed in the immutable `mint_limit` package.
@@ -172,7 +205,7 @@ const AUTO_HUNTER: u8 = 2; // 0 is Spread
 const AUTO_SPREAD_TILES: u64 = 5;
 
 /// Package version: only the latest version may change the Board. Bump it on every upgrade.
-const VERSION: u64 = 17;
+const VERSION: u64 = 18;
 
 // ===== Errors =====
 const EBadLen: u64 = 1;
@@ -194,20 +227,17 @@ const ENothingToWithdraw: u64 = 20;
 const ENoStaking: u64 = 22;
 const EBuybackOff: u64 = 23;
 const EUseWithdrawV6: u64 = 24;
-const ENotBuyer: u64 = 25;
-const ENoBuyback: u64 = 26;
-const ENothingBought: u64 = 27;
 const ENoReserve: u64 = 28;
 const ETooManyTiles: u64 = 29;
 const EUseBuybackKeep: u64 = 30;
-const ENoLiquidity: u64 = 31;
-const ENotPosition: u64 = 32;
 const EUseLockedSupply: u64 = 33;
 const EUseClaimV3: u64 = 34;
 const EUseBuybackBurn: u64 = 35;
 const EEmissionUp: u64 = 36;
 const EAutoInstalled: u64 = 37;
 const ENoAuto: u64 = 38;
+const EInDraw: u64 = 39;
+const EWrongPool: u64 = 40;
 
 /// Archived, settled round.
 public struct RoundInfo has store {
@@ -302,9 +332,9 @@ public struct RefineClockKey has copy, drop, store { player: address }
 /// Dynamic field on the Board (v6): time of the first round settled by v6 (ms).
 public struct RefineFromKey has copy, drop, store {}
 
-/// Dynamic field on the Board (v11): SUI saved for liquidity, waiting for the keeper.
+/// Dynamic field on the Board (v11): SUI saved for liquidity, waiting for a draw.
 public struct LiquidityKey has copy, drop, store {}
-/// Dynamic field on the Board (v11): GTS bought back, waiting to go to the stakers (v12).
+/// Dynamic field on the Board (v11): GTS left from liquidity adds, burned with the next buyback (v16).
 public struct BoughtKey has copy, drop, store {}
 /// Dynamic object fields on the Board (v11): the Cetus positions locked for good, `i` from 0.
 public struct LpKey has copy, drop, store { i: u64 }
@@ -329,6 +359,15 @@ public struct MinterKey has copy, drop, store {}
 /// Dynamic object field on the Board (v16): the `DailyLimiter` holding the MinterCap for good.
 public struct LimiterKey has copy, drop, store {}
 
+/// Dynamic field on the Board (v18): GTS `player` mined that did not fit under the day's mint limit.
+/// It is minted to their unrefined balance once there is room again (`claim_owed`, or their next claim).
+public struct OwedKey has copy, drop, store { player: address }
+/// Dynamic field on the Board (v18): the reference price (a Cetus square-root price) the 2% limit of a
+/// draw's buys is measured from: the pool price at the end of the last market step, rising at most 2% a draw.
+public struct PriceRefKey has copy, drop, store {}
+/// Dynamic field on the Board, tests only: the pool that stands in for `MARKET_POOL`.
+public struct TestPoolKey has copy, drop, store {}
+
 /// Dynamic object field on the Board (v17): the `PullCap` of the immutable Auto Mine vault.
 public struct AutoCapKey has copy, drop, store {}
 /// Dynamic field on the Board (v17): one player's Auto Mine seat.
@@ -350,9 +389,9 @@ public struct AutoSeat has store {
 /// Right to change the settings.
 public struct AdminCap has key, store { id: UID }
 
-/// Hot potato from `buyback_take`: the transaction only succeeds once `buyback_keep` takes GTS for it.
+/// Receipts of the keeper's buyback and liquidity add (before v18). None can be made any more: both
+/// now run inside the draw, see `market_step`.
 public struct BuybackReceipt { sui: u64 }
-/// Hot potato from `liquidity_take`: the transaction only succeeds once `liquidity_lock` locks a position.
 public struct LiquidityReceipt { sui: u64 }
 
 /// Per-player miner (owned). Holds the current unclaimed round only.
@@ -410,6 +449,7 @@ public struct MotherlodeReturned has copy, drop { round_id: u64, amount: u64, ba
 public struct Forfeited has copy, drop { round_id: u64, player: address, to_reserve: u64, to_fund: u64 }
 public struct GtsWithdrawn has copy, drop { player: address, amount: u64, fee: u64, bonus: u64, paid: u64, burned: u64 }
 public struct Deployed has copy, drop { round_id: u64, player: address, amounts: vector<u64>, total: u64 }
+/// `gts`: the GTS the player mined in the round (from v18 part of it may be owed, see `GtsOwed`).
 public struct Claimed has copy, drop { round_id: u64, player: address, gts: u64, sui: u64 }
 /// Buyback SUI taken by the owner (before v5; closed).
 public struct BuybackTaken has copy, drop { amount: u64 }
@@ -445,6 +485,18 @@ public struct AutoJoined has copy, drop { player: address }
 public struct AutoMined has copy, drop { round_id: u64, player: address, strategy: u8, spent: u64, deployed: u64, keeper_fee: u64, buyback_fee: u64 }
 /// An automatic round was claimed (v17): `sui` went back to the player's vault balance, `gts` to their unrefined balance.
 public struct AutoClaimed has copy, drop { round_id: u64, player: address, sui: u64, gts: u64 }
+/// Liquidity added to the Cetus pool by a draw, into a position locked in the game (v18): `sui_swapped`
+/// bought the GTS, `gts_added` and `sui_added` went into `position`, `gts_left` waits to be burned.
+public struct LiquidityAdded has copy, drop { sui_swapped: u64, sui_added: u64, gts_added: u64, gts_left: u64, position: ID }
+/// Trading fees collected from the locked positions and added back to the pool (v18). What could not be
+/// paired stays in the game: `sui_left` for the next liquidity add, `gts_left` burned with the next buyback.
+public struct FeesCompounded has copy, drop { sui_fees: u64, gts_fees: u64, sui_added: u64, gts_added: u64, sui_left: u64, gts_left: u64 }
+/// The reference price after a draw's market step (v18), a Cetus square-root price.
+public struct PriceRefSet has copy, drop { sqrt_price: u128 }
+/// GTS a player mined that did not fit under the day's mint limit (v18): `owed` is their whole debt now.
+public struct GtsOwed has copy, drop { round_id: u64, player: address, amount: u64, owed: u64 }
+/// Owed GTS minted to the player's unrefined balance (v18): `owed` is what is still owed.
+public struct OwedPaid has copy, drop { player: address, amount: u64, owed: u64 }
 /// The SUI of the old reserve moved to the Wealth Fund (v9, once).
 public struct ReserveToFund has copy, drop { amount: u64, balance: u64 }
 
@@ -912,15 +964,39 @@ entry fun settle(_board: &mut Board, _treasury: &mut Treasury, _r: &Random, _clo
     abort EUseLockedSupply
 }
 
-/// Settle the ended round: draw the winner, take fees, assign the GTS reward, archive, start the next.
+/// The plain draw, kept as a fallback for when the market draw `settle_v3` cannot run (Cetus paused or
+/// upgraded): draw the winner, take fees, assign the GTS reward, archive, start the next. It does not
+/// touch the market and, from v18, pays no draw reward, so nobody gains by picking it over `settle_v3`;
+/// the buyback and liquidity SUI stay saved for the next `settle_v3`.
 /// `entry` + non-`public` so it cannot be composed/aborted based on the outcome. Mints nothing: the
 /// round's GTS is minted when players claim.
 entry fun settle_v2(board: &mut Board, r: &Random, clock: &Clock, ctx: &mut TxContext) {
     let odds = board.ml_odds;
-    settle_with_odds(board, r, clock, odds, ctx)
+    settle_with_odds(board, r, clock, odds, false, ctx)
 }
 
-fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext) {
+/// The draw (v18): first the market step on the Cetus GTS/SUI pool with the SUI saved by earlier rounds
+/// (liquidity add, then buyback and burn, see `market_step`), then the same draw as `settle_v2`, with
+/// the draw reward. Anyone may call it. The market step runs before the winner is drawn and uses nothing
+/// of this round, so what it costs and does cannot depend on the outcome of the draw.
+entry fun settle_v3(
+    board: &mut Board,
+    config: &GlobalConfig,
+    pool: &mut CetusPool<GTS, SUI>,
+    treasury: &mut CappedTreasury<GTS>,
+    r: &Random,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    check_version(board);
+    assert!(board.cur_started, ENotStarted);
+    assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
+    market_step(board, config, pool, treasury, clock, ctx);
+    let odds = board.ml_odds;
+    settle_with_odds(board, r, clock, odds, true, ctx)
+}
+
+fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, pay_draw: bool, ctx: &mut TxContext) {
     check_version(board);
     assert!(board.cur_started, ENotStarted);
     assert!(clock::timestamp_ms(clock) >= board.cur_end_ms, ERoundNotEnded);
@@ -954,9 +1030,11 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, ct
     let fund_part = mul_div(losing_pot, fund_bps(board), 10_000);
     // No reserve (v9): any reserve share goes to the Wealth Fund with its own share. The drawer is paid
     // from that first, then from the liquidity share. The buyback always keeps its full share (v13).
+    // The plain draw pays the drawer nothing (v18): both shares stay whole.
+    let draw_max = if (pay_draw) { DRAW_REWARD_MAX } else { 0 };
     let fund_full = vault_full + fund_part;
-    let from_fund = if (fund_full < DRAW_REWARD_MAX) { fund_full } else { DRAW_REWARD_MAX };
-    let rest = DRAW_REWARD_MAX - from_fund;
+    let from_fund = if (fund_full < draw_max) { fund_full } else { draw_max };
+    let rest = draw_max - from_fund;
     let from_liq = if (liq_full < rest) { liq_full } else { rest };
     let draw_reward = from_fund + from_liq;
     let buyback_part = buyback_full;
@@ -1051,26 +1129,82 @@ fun settle_with_odds(board: &mut Board, r: &Random, clock: &Clock, odds: u64, ct
 
 fun earned(amount: u64, acc: u256, snap: u256): u64 { (((amount as u256) * (acc - snap)) / REFINE_SCALE) as u64 }
 
-fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>, ctx: &TxContext) {
+/// Start of the 7-day clock after `add` GTS joins `held` GTS whose clock started at `start` (v18): the
+/// average of the two starts weighted by the amounts, the new GTS starting `now`. GTS held longer than
+/// the 7 days counts as held exactly 7 days, so a balance that is already free cannot carry new GTS out
+/// with it. With nothing held the clock starts now.
+fun blended_start(start: u64, held: u64, add: u64, now: u64): u64 {
+    if (held == 0 || start == 0) { return now };
+    let floor = if (now > REFINE_WINDOW_MS) { now - REFINE_WINDOW_MS } else { 0 };
+    let s = if (start > now) { now } else if (start < floor) { floor } else { start };
+    ((((s as u128) * (held as u128) + (now as u128) * (add as u128)) / ((held as u128) + (add as u128))) as u64)
+}
+
+/// Add mined GTS to `player`'s unrefined balance. Their 7-day withdraw clock moves to the weighted
+/// average of the GTS they hold and the GTS added now (`blended_start`).
+fun add_unrefined(board: &mut Board, player: address, gts: Balance<GTS>, now: u64) {
     let amount = balance::value(&gts);
     let acc = board.acc;
     let key = UnrefinedKey { player };
     if (!df::exists(&board.id, key)) {
         df::add(&mut board.id, key, Unrefined { amount: 0, bonus: 0, snap: acc });
     };
-    // Start the 7-day clock the first time (the end of the last round is "now" enough here).
+    let held = df::borrow<UnrefinedKey, Unrefined>(&board.id, key).amount;
+    let start = blended_start(refine_start(board, player), held, amount, now);
     let ck = RefineClockKey { player };
-    if (!df::exists(&board.id, ck)) {
-        let now = tx_context::epoch_timestamp_ms(ctx);
-        let t = if (board.cur_end_ms > now) { board.cur_end_ms } else { now };
-        df::add(&mut board.id, ck, t);
-    };
+    if (df::exists(&board.id, ck)) { *df::borrow_mut<RefineClockKey, u64>(&mut board.id, ck) = start }
+    else { df::add(&mut board.id, ck, start) };
     let u = df::borrow_mut<UnrefinedKey, Unrefined>(&mut board.id, key);
     u.bonus = u.bonus + earned(u.amount, acc, u.snap);
     u.snap = acc;
     u.amount = u.amount + amount;
     board.unrefined_total = board.unrefined_total + amount;
     balance::join(&mut board.unrefined, gts);
+}
+
+fun mint_room(board: &Board, clock: &Clock): u64 {
+    daily::room_today(dof::borrow<LimiterKey, DailyLimiter<GTS>>(&board.id, LimiterKey {}), clock)
+}
+
+fun owed(board: &Board, player: address): u64 {
+    let k = OwedKey { player };
+    if (df::exists(&board.id, k)) { *df::borrow<OwedKey, u64>(&board.id, k) } else { 0 }
+}
+
+/// Mint up to `amount` GTS into `player`'s unrefined balance, as much as today's mint limit has room
+/// for. Returns what was asked for and did not fit.
+fun mint_unrefined(board: &mut Board, treasury: &mut CappedTreasury<GTS>, player: address, amount: u64, clock: &Clock, ctx: &mut TxContext): u64 {
+    let room = mint_room(board, clock);
+    let take = if (amount < room) { amount } else { room };
+    if (take > 0) {
+        // Clamped by the 1,000,000 cap in the supply lock; past it nothing more can ever be minted.
+        let c = mint_gts(board, treasury, take, clock, ctx);
+        if (coin::value(&c) > 0) { add_unrefined(board, player, coin::into_balance(c), clock::timestamp_ms(clock)) }
+        else { coin::destroy_zero(c) };
+    };
+    amount - take
+}
+
+/// Mint the GTS `player` is owed, as far as today's mint limit has room. Returns the GTS still owed.
+fun pay_owed(board: &mut Board, treasury: &mut CappedTreasury<GTS>, player: address, clock: &Clock, ctx: &mut TxContext): u64 {
+    let was = owed(board, player);
+    if (was == 0) { return 0 };
+    let left = mint_unrefined(board, treasury, player, was, clock, ctx);
+    if (left < was) {
+        let k = OwedKey { player };
+        if (left == 0) { let _: u64 = df::remove(&mut board.id, k); }
+        else { *df::borrow_mut<OwedKey, u64>(&mut board.id, k) = left };
+        event::emit(OwedPaid { player, amount: was - left, owed: left });
+    };
+    left
+}
+
+/// Mint the GTS `player` is owed from days when the mint limit was full (v18). Anyone may call it, for
+/// any player: the GTS can only go to that player's unrefined balance. Does nothing while there is no
+/// room today.
+public fun claim_owed(board: &mut Board, treasury: &mut CappedTreasury<GTS>, player: address, clock: &Clock, ctx: &mut TxContext) {
+    check_version(board);
+    pay_owed(board, treasury, player, clock, ctx);
 }
 
 /// Replaced by `claim_v2` (v15: the old Treasury is gone).
@@ -1084,7 +1218,9 @@ public fun claim_v2(_board: &mut Board, _miner: &mut Miner, _treasury: &mut Capp
 }
 
 /// Claim a settled round: GTS mining reward (everyone) + SUI winnings (if on the winning square).
-/// Mined GTS goes to the unrefined balance (a House bot gets it here). Returns (GTS, SUI).
+/// Mined GTS goes to the unrefined balance, for house bots too (v18), so the GTS coin returned is always
+/// empty. GTS that does not fit under today's mint limit is owed (see `claim_owed`); the SUI is paid
+/// either way. Returns (GTS, SUI).
 public fun claim_v3(
     board: &mut Board,
     miner: &mut Miner,
@@ -1098,7 +1234,8 @@ public fun claim_v3(
 }
 
 /// `claim_v3` for `player`. With `add_tickets_now` false the Wealth Fund tickets are not added to the draw
-/// but returned (Auto Mine adds them in batches). Returns (GTS, SUI, tickets not added, GTS mined).
+/// but returned (Auto Mine adds them in batches). Returns (GTS, SUI, tickets not added, GTS mined: minted
+/// now or owed).
 fun claim_as(
     board: &mut Board,
     miner: &mut Miner,
@@ -1124,12 +1261,20 @@ fun claim_as(
         let lost_total = round_total - winners_total;
         if (lost_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed - my_win, lost_total) }
     } else if (round_total == 0) { 0 } else { mul_div(round_reward, miner.total_deployed, round_total) };
-    let mined = mint_gts(board, treasury, gts_amt, clock, ctx);
-    let mined_amt = coin::value(&mined);
-    let gts_coin = if (mined_amt == 0 || is_bot(player)) { mined } else {
-        add_unrefined(board, player, coin::into_balance(mined), ctx);
-        coin::zero<GTS>(ctx)
+    // The round's GTS goes to the unrefined balance, for house bots too (v18). The day's mint limit
+    // never blocks a claim (v18): GTS already owed is minted first, then this round's; what does not fit
+    // today is owed and minted once there is room (`claim_owed`, or the player's next claim), and the
+    // SUI below is paid either way.
+    let owed_before = pay_owed(board, treasury, player, clock, ctx);
+    let short = if (owed_before > 0) { gts_amt } else { mint_unrefined(board, treasury, player, gts_amt, clock, ctx) };
+    if (short > 0) {
+        let k = OwedKey { player };
+        if (df::exists(&board.id, k)) { let v = df::borrow_mut<OwedKey, u64>(&mut board.id, k); *v = *v + short; }
+        else { df::add(&mut board.id, k, short) };
+        event::emit(GtsOwed { round_id, player, amount: short, owed: owed_before + short });
     };
+    let mined_amt = gts_amt;
+    let gts_coin = coin::zero<GTS>(ctx);
 
     // SUI: own stake on the winning square back, plus a share of the losing pot in proportion to it.
     // Rounds settled by v9 (and before v5) kept only the part of that share matching the part of the
@@ -1374,20 +1519,13 @@ fun auto_live(vault: &Vault, player: address): bool {
     on && rounds_left > 0 && per_round >= AUTO_MIN_ROUND && bal >= per_round && bal - per_round >= keep && (target == 0 || bal < target)
 }
 
-/// GTS `miner` mines in its settled round (by SUI deployed).
-fun round_gts(board: &Board, miner: &Miner): u64 {
-    let info = table::borrow(&board.rounds, miner.round_id);
-    if (info.total_deployed == 0) { 0 } else { mul_div(info.round_reward, miner.total_deployed, info.total_deployed) }
-}
-
-/// Claim `player`'s last automatic round, if it is settled. Waits (does nothing) while today's GTS mint
-/// limit has no room for it.
+/// Claim `player`'s last automatic round, if it is settled. The day's GTS mint limit never holds it up
+/// (v18): GTS that does not fit today is owed to the player, like in `claim_v3`.
 fun auto_claim(board: &mut Board, vault: &mut Vault, treasury: &mut CappedTreasury<GTS>, player: address, clock: &Clock, ctx: &mut TxContext) {
     let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
     let round_id = seat.miner.round_id;
     let settled = round_id != 0 && table::contains(&board.rounds, round_id);
-    let room = daily::room_today(dof::borrow<LimiterKey, DailyLimiter<GTS>>(&board.id, LimiterKey {}), clock);
-    if (settled && round_gts(board, &seat.miner) <= room) {
+    if (settled) {
         let (g, s, owed, mined) = claim_as(board, &mut seat.miner, player, false, treasury, clock, ctx);
         if (coin::value(&g) == 0) { coin::destroy_zero(g) } else { transfer::public_transfer(g, player) };
         let sui = coin::value(&s);
@@ -1429,7 +1567,7 @@ fun auto_deploy(board: &mut Board, vault: &mut Vault, player: address, gen: &mut
     if (per < board.min_deploy) { return };
 
     let mut seat: AutoSeat = df::remove(&mut board.id, AutoKey { player });
-    // The last round must be claimed first (it waits for its draw, or for room under the daily mint limit).
+    // The last round must be claimed first (it waits for its draw).
     if (seat.miner.round_id == 0) {
         let mut funds = vault::pull(vault, dof::borrow<AutoCapKey, PullCap>(&board.id, AutoCapKey {}), player, clock);
         balance::join(keeper, balance::split(&mut funds, keeper_fee));
@@ -1492,18 +1630,14 @@ entry fun withdraw_dev_fees(board: &mut Board, ctx: &mut TxContext) {
     };
 }
 
-/// Closed (v5): the owner cannot take the buyback SUI; only the keeper spends it, see `buyback_take`.
+/// Closed (v5): the owner cannot take the buyback SUI. Only the draw spends it, on GTS that is burned (`settle_v3`).
 public fun take_buyback(_: &AdminCap, _board: &mut Board, _ctx: &mut TxContext): Coin<SUI> {
     abort EBuybackOff
 }
 
-/// Buyback, step 1 (keeper only): take all the saved buyback SUI to buy GTS in the same transaction.
-public fun buyback_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, BuybackReceipt) {
-    check_version(board);
-    assert!(tx_context::sender(ctx) == BUYER_ADDR, ENotBuyer);
-    let sui = balance::value(&board.buyback);
-    assert!(sui > 0, ENoBuyback);
-    (coin::from_balance(balance::withdraw_all(&mut board.buyback), ctx), BuybackReceipt { sui })
+/// Closed (v18): the buyback runs inside the draw, see `settle_v3`. No address can take the buyback SUI.
+public fun buyback_take(_board: &mut Board, _ctx: &mut TxContext): (Coin<SUI>, BuybackReceipt) {
+    abort EInDraw
 }
 
 /// Closed (v11): the GTS bought is kept, not burned; see `buyback_keep`.
@@ -1518,55 +1652,170 @@ public fun buyback_keep(_board: &mut Board, receipt: BuybackReceipt, _gts: Coin<
     abort EUseBuybackBurn
 }
 
-/// Buyback, step 2 (v16): burn the GTS bought for good, with any GTS left from liquidity, and return any
-/// SUI not spent. Closes the receipt.
-public fun buyback_burn_v2(board: &mut Board, treasury: &mut CappedTreasury<GTS>, receipt: BuybackReceipt, gts: Coin<GTS>, left: Coin<SUI>, ctx: &mut TxContext) {
-    check_version(board);
-    let BuybackReceipt { sui } = receipt;
-    let back = coin::value(&left);
-    assert!(back <= sui, EAmountMismatch);
-    assert!(coin::value(&gts) > 0, ENothingBought);
-    balance::join(&mut board.buyback, coin::into_balance(left));
-    let mut all = coin::into_balance(gts);
-    balance::join(&mut all, balance::withdraw_all(bought_mut(board)));
-    let gts_burned = balance::value(&all);
-    capped::burn(treasury, coin::from_balance(all, ctx));
-    event::emit(BuybackDone { sui_spent: sui - back, gts_burned });
+/// Closed (v18) with `buyback_take`: no receipt can be made any more.
+public fun buyback_burn_v2(_board: &mut Board, _treasury: &mut CappedTreasury<GTS>, receipt: BuybackReceipt, _gts: Coin<GTS>, _left: Coin<SUI>, _ctx: &mut TxContext) {
+    let BuybackReceipt { sui: _ } = receipt;
+    abort EInDraw
 }
 
-/// Liquidity, step 1 (keeper only): take all the saved liquidity SUI to add to the Cetus pool in the
-/// same transaction.
-public fun liquidity_take(board: &mut Board, ctx: &mut TxContext): (Coin<SUI>, LiquidityReceipt) {
-    check_version(board);
-    assert!(tx_context::sender(ctx) == BUYER_ADDR, ENotBuyer);
-    let liq = liquidity_mut(board);
-    let sui = balance::value(liq);
-    assert!(sui > 0, ENoLiquidity);
-    (coin::from_balance(balance::withdraw_all(liq), ctx), LiquidityReceipt { sui })
+/// Closed (v18): the liquidity add runs inside the draw, see `settle_v3`. No address can take the liquidity SUI.
+public fun liquidity_take(_board: &mut Board, _ctx: &mut TxContext): (Coin<SUI>, LiquidityReceipt) {
+    abort EInDraw
 }
 
-/// Liquidity, step 2: lock the new Cetus position in the game for good. SUI not used goes back to the
-/// liquidity balance, GTS not used waits for the stakers (paid with the next buyback). Closes the receipt.
-public fun liquidity_lock<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
-    check_version(board);
-    let LiquidityReceipt { sui } = receipt;
-    assert!(type_name::with_defining_ids<P>().into_string().into_bytes() == CETUS_POSITION, ENotPosition);
-    lock_position(board, sui, position, left_sui, left_gts)
+/// Closed (v18) with `liquidity_take`: no receipt can be made any more. Positions already locked stay
+/// locked, and the draw adds to them.
+public fun liquidity_lock<P: key + store>(_board: &mut Board, receipt: LiquidityReceipt, _position: P, _left_sui: Coin<SUI>, _left_gts: Coin<GTS>) {
+    let LiquidityReceipt { sui: _ } = receipt;
+    abort EInDraw
 }
 
-/// Store `position` for good; `sui` was taken, `left_sui` of it comes back (some must have been used).
-fun lock_position<P: key + store>(board: &mut Board, sui: u64, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
-    let back = coin::value(&left_sui);
-    assert!(back < sui, EAmountMismatch);
-    let gts_left = coin::value(&left_gts);
-    balance::join(liquidity_mut(board), coin::into_balance(left_sui));
-    balance::join(bought_mut(board), coin::into_balance(left_gts));
-    if (!df::exists(&board.id, LpCountKey {})) { df::add(&mut board.id, LpCountKey {}, 0u64) };
-    let n = *df::borrow<LpCountKey, u64>(&board.id, LpCountKey {});
-    let id = object::id(&position);
-    dof::add(&mut board.id, LpKey { i: n }, position);
-    *df::borrow_mut<LpCountKey, u64>(&mut board.id, LpCountKey {}) = n + 1;
-    event::emit(LiquidityLocked { sui_spent: sui - back, gts_left, position: id, positions: n + 1 });
+// ===== Market (v18): buyback, liquidity and trading fees on the Cetus GTS/SUI pool, inside the game =====
+
+fun market_pool(board: &Board): address {
+    if (df::exists(&board.id, TestPoolKey {})) { *df::borrow<TestPoolKey, address>(&board.id, TestPoolKey {}) } else { MARKET_POOL }
+}
+
+fun min128(a: u128, b: u128): u128 { if (a < b) { a } else { b } }
+
+/// The highest square-root price a buy may reach: 2% in price above `base`.
+fun price_cap(base: u128): u128 { min128(base * PRICE_CAP_NUM / PRICE_CAP_DEN, tick_math::max_sqrt_price()) }
+
+/// The market step of a draw. Uses only SUI saved by earlier rounds.
+///
+/// The 2% limit: buys may lift the pool price at most 2% above the reference price, or above the price
+/// now if that is lower. The reference is the pool price at the end of the last market step, and it
+/// rises at most 2% from one step to the next (it falls freely). So lifting the pool price just before a
+/// draw does not move the limit: the draw then simply buys less, or nothing, and the SUI waits. The very
+/// first step only records the price.
+///
+/// The buyback and the liquidity add share that room, and take turns going first (liquidity first in
+/// even rounds, the buyback first in odd ones), so neither can keep the other waiting when the limit is
+/// tight. Nothing here aborts over a full limit, a paused pool or dust amounts: that part is skipped and
+/// its SUI stays saved for a later draw.
+fun market_step(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, treasury: &mut CappedTreasury<GTS>, clock: &Clock, ctx: &mut TxContext) {
+    assert!(object::id_address(pool) == market_pool(board), EWrongPool);
+    let price = cetus_pool::current_sqrt_price(pool);
+    if (!df::exists(&board.id, PriceRefKey {})) {
+        df::add(&mut board.id, PriceRefKey {}, price);
+        event::emit(PriceRefSet { sqrt_price: price });
+        return
+    };
+    let reference = *df::borrow<PriceRefKey, u128>(&board.id, PriceRefKey {});
+    let limit = price_cap(min128(reference, price));
+    if (board.cur_id % 2 == 0) {
+        market_liquidity(board, config, pool, limit, clock);
+        market_buyback(board, config, pool, treasury, limit, clock, ctx);
+    } else {
+        market_buyback(board, config, pool, treasury, limit, clock, ctx);
+        market_liquidity(board, config, pool, limit, clock);
+    };
+    let next = min128(cetus_pool::current_sqrt_price(pool), price_cap(reference));
+    if (next != reference) {
+        *df::borrow_mut<PriceRefKey, u128>(&mut board.id, PriceRefKey {}) = next;
+        event::emit(PriceRefSet { sqrt_price: next });
+    };
+}
+
+/// Buy GTS on the pool with up to `amount` of `funds`, never lifting the price past `limit`. Returns the
+/// GTS bought (none when the pool takes no swaps, the limit leaves no real room, or `amount` is dust).
+fun buy_gts(config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, funds: &mut Balance<SUI>, amount: u64, limit: u128, clock: &Clock): Balance<GTS> {
+    let price = cetus_pool::current_sqrt_price(pool);
+    if (amount < MARKET_BUY_MIN / 5 || !cetus_pool::is_allow_swap(pool) || cetus_pool::liquidity(pool) == 0
+        || price * PRICE_ROOM_NUM / PRICE_CAP_DEN > limit) {
+        return balance::zero<GTS>()
+    };
+    // SUI in (coin B), GTS out (coin A), exact input; the swap stops at `limit` and takes only what it used.
+    let (gts, none, receipt) = cetus_pool::flash_swap<GTS, SUI>(config, pool, false, true, amount, limit, clock);
+    balance::destroy_zero(none);
+    let pay = cetus_pool::swap_pay_amount(&receipt);
+    cetus_pool::repay_flash_swap<GTS, SUI>(config, pool, balance::zero<GTS>(), balance::split(funds, pay), receipt);
+    gts
+}
+
+/// Add as much of `gts` and `sui` as pairs up at the pool price to the first locked position. Returns
+/// (GTS added, SUI added); the rest stays in the two balances. Adds nothing when the pool takes no
+/// liquidity, no position is locked, or the amounts are dust.
+fun add_to_pool(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, gts: &mut Balance<GTS>, sui: &mut Balance<SUI>, clock: &Clock): (u64, u64) {
+    let (g, s) = (balance::value(gts), balance::value(sui));
+    if (g == 0 || s == 0 || lp_positions(board) == 0 || !cetus_pool::is_allow_add_liquidity(pool)) { return (0, 0) };
+    let position = dof::borrow_mut<LpKey, Position>(&mut board.id, LpKey { i: 0 });
+    if (cetus_position::pool_id(position) != object::id(pool)) { return (0, 0) };
+    let (lower, upper) = cetus_position::tick_range(position);
+    let (tick, price) = (cetus_pool::current_tick_index(pool), cetus_pool::current_sqrt_price(pool));
+    if (price <= tick_math::get_sqrt_price_at_tick(lower) || price >= tick_math::get_sqrt_price_at_tick(upper)) { return (0, 0) };
+    // All the GTS if the SUI covers its match, else all the SUI if the GTS covers its match.
+    let (liq_a, _, need_sui) = cetus_pool::get_liquidity_from_amount(lower, upper, tick, price, g, true);
+    let (fix_gts, amount) = if (liq_a > 0 && need_sui <= s) { (true, g) } else {
+        let (liq_b, need_gts, _) = cetus_pool::get_liquidity_from_amount(lower, upper, tick, price, s, false);
+        if (liq_b == 0 || need_gts > g) { return (0, 0) };
+        (false, s)
+    };
+    let receipt = cetus_pool::add_liquidity_fix_coin<GTS, SUI>(config, pool, position, amount, fix_gts, clock);
+    let (pay_gts, pay_sui) = cetus_pool::add_liquidity_pay_amount(&receipt);
+    cetus_pool::repay_add_liquidity<GTS, SUI>(config, pool, balance::split(gts, pay_gts), balance::split(sui, pay_sui), receipt);
+    (pay_gts, pay_sui)
+}
+
+/// Liquidity: once `MARKET_LIQ_MIN` SUI is saved, 49% of it buys GTS (within the 2% limit), and the GTS
+/// with the matching SUI goes into the first locked position. SUI not used stays saved for the next
+/// draw; GTS not used is burned with the next buyback.
+fun market_liquidity(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, limit: u128, clock: &Clock) {
+    let saved = liquidity_value(board);
+    if (saved < MARKET_LIQ_MIN || lp_positions(board) == 0 || !cetus_pool::is_allow_add_liquidity(pool)) { return };
+    let mut sui = balance::withdraw_all(liquidity_mut(board));
+    let mut gts = buy_gts(config, pool, &mut sui, saved * LIQ_BUY_PCT / 100, limit, clock);
+    let sui_swapped = saved - balance::value(&sui);
+    let (gts_added, sui_added) = add_to_pool(board, config, pool, &mut gts, &mut sui, clock);
+    let gts_left = balance::value(&gts);
+    balance::join(liquidity_mut(board), sui);
+    balance::join(bought_mut(board), gts);
+    if (sui_swapped > 0) {
+        event::emit(LiquidityAdded { sui_swapped, sui_added, gts_added, gts_left, position: lp_position_id(board, 0) });
+    };
+}
+
+/// Buyback and burn: once `MARKET_BUY_MIN` SUI is saved, all of it buys GTS (within the 2% limit) and
+/// the GTS is burned for good, with any GTS left from liquidity. SUI the limit left unspent stays saved.
+fun market_buyback(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, treasury: &mut CappedTreasury<GTS>, limit: u128, clock: &Clock, ctx: &mut TxContext) {
+    let saved = balance::value(&board.buyback);
+    let mut gts = if (saved >= MARKET_BUY_MIN) { buy_gts(config, pool, &mut board.buyback, saved, limit, clock) } else { balance::zero<GTS>() };
+    let sui_spent = saved - balance::value(&board.buyback);
+    balance::join(&mut gts, balance::withdraw_all(bought_mut(board)));
+    let gts_burned = balance::value(&gts);
+    if (gts_burned == 0) { balance::destroy_zero(gts); return };
+    capped::burn(treasury, coin::from_balance(gts, ctx));
+    event::emit(BuybackDone { sui_spent, gts_burned });
+}
+
+/// Collect the trading fees the locked positions `from` to `to - 1` have earned and add them back to
+/// the pool (v18). Anyone may call it; it pays the caller nothing and nothing leaves the game. The GTS
+/// fees are paired with SUI fees and, if those are short, with SUI saved for liquidity. SUI that cannot
+/// be paired stays saved for the next liquidity add; GTS that cannot is burned with the next buyback.
+public fun compound_fees(board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, from: u64, to: u64, clock: &Clock) {
+    check_version(board);
+    assert!(object::id_address(pool) == market_pool(board), EWrongPool);
+    let n = lp_positions(board);
+    let end = if (to < n) { to } else { n };
+    let mut gts = balance::zero<GTS>();
+    let mut sui = balance::zero<SUI>();
+    let mut i = from;
+    while (i < end) {
+        let position = dof::borrow<LpKey, Position>(&board.id, LpKey { i });
+        let (a, b) = cetus_pool::collect_fee<GTS, SUI>(config, pool, position, true);
+        balance::join(&mut gts, a);
+        balance::join(&mut sui, b);
+        i = i + 1;
+    };
+    let (gts_fees, sui_fees) = (balance::value(&gts), balance::value(&sui));
+    balance::join(&mut sui, balance::withdraw_all(liquidity_mut(board)));
+    let (gts_added, sui_added) = add_to_pool(board, config, pool, &mut gts, &mut sui, clock);
+    let (gts_left, sui_left) = (balance::value(&gts), balance::value(&sui));
+    balance::join(liquidity_mut(board), sui);
+    balance::join(bought_mut(board), gts);
+    if (gts_fees > 0 || sui_fees > 0) {
+        event::emit(FeesCompounded { sui_fees, gts_fees, sui_added, gts_added, sui_left, gts_left });
+    };
 }
 
 /// Replaced by `supply_lock::capped::burn`, where anyone may burn their own GTS (v15: the old Treasury is gone).
@@ -1592,11 +1841,11 @@ public fun current_params(board: &Board): (u64, u64, u64, u64, u64, u64, bool) {
 }
 /// Liquidity share of the losing pot in bps (fixed, v11).
 public fun liquidity_bps(): u64 { LIQ_BPS }
-/// SUI saved for liquidity, waiting for the keeper.
+/// SUI saved for liquidity, waiting for a draw.
 public fun liquidity_value(board: &Board): u64 {
     if (df::exists(&board.id, LiquidityKey {})) { balance::value(df::borrow<LiquidityKey, Balance<SUI>>(&board.id, LiquidityKey {})) } else { 0 }
 }
-/// GTS bought back, waiting to go to the stakers.
+/// GTS left from liquidity adds, waiting to be burned with the next buyback.
 public fun bought_value(board: &Board): u64 {
     if (df::exists(&board.id, BoughtKey {})) { balance::value(df::borrow<BoughtKey, Balance<GTS>>(&board.id, BoughtKey {})) } else { 0 }
 }
@@ -1616,6 +1865,14 @@ public fun mint_limiter_id(board: &Board): ID { *dof::id(&board.id, LimiterKey {
 public fun mint_room_today(board: &Board, clock: &Clock): (u64, u64) {
     let l = dof::borrow<LimiterKey, DailyLimiter<GTS>>(&board.id, LimiterKey {});
     (daily::room_today(l, clock), daily::per_day(l))
+}
+/// GTS `player` is owed: mined, waiting for room under the daily mint limit (v18).
+public fun owed_of(board: &Board, player: address): u64 { owed(board, player) }
+/// The market (v18): (the Cetus pool, the reference square-root price the 2% limit is measured from (0
+/// before the first market draw), least saved SUI for a buyback, least saved SUI for a liquidity add).
+public fun market(board: &Board): (address, u128, u64, u64) {
+    let reference = if (df::exists(&board.id, PriceRefKey {})) { *df::borrow<PriceRefKey, u128>(&board.id, PriceRefKey {}) } else { 0 };
+    (market_pool(board), reference, MARKET_BUY_MIN, MARKET_LIQ_MIN)
 }
 /// Full GTS reward of the round now open.
 public fun current_reward(board: &Board): u64 { next_full_reward(board) }
@@ -1701,15 +1958,62 @@ public fun auto_run_for_testing(board: &mut Board, vault: &mut Vault, treasury: 
     auto_run(board, vault, treasury, players, r, clock, ctx)
 }
 
+/// The draw of `settle_v3` (with the draw reward) without its market step.
 #[test_only]
 public fun settle_for_testing(board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, ctx: &mut TxContext) {
-    settle_v2(board, r, clock, ctx)
+    let odds = board.ml_odds;
+    settle_with_odds(board, r, clock, odds, true, ctx)
 }
 
 #[test_only]
 public fun settle_with_odds_for_testing(
     board: &mut Board, _treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, odds: u64, ctx: &mut TxContext,
-) { settle_with_odds(board, r, clock, odds, ctx) }
+) { settle_with_odds(board, r, clock, odds, true, ctx) }
+
+/// The plain draw `settle_v2`.
+#[test_only]
+public fun settle_plain_for_testing(board: &mut Board, r: &Random, clock: &Clock, ctx: &mut TxContext) {
+    settle_v2(board, r, clock, ctx)
+}
+
+/// The market draw `settle_v3`.
+#[test_only]
+public fun settle_market_for_testing(
+    board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, treasury: &mut CappedTreasury<GTS>, r: &Random, clock: &Clock, ctx: &mut TxContext,
+) { settle_v3(board, config, pool, treasury, r, clock, ctx) }
+
+/// Only the market step of `settle_v3`.
+#[test_only]
+public fun market_step_for_testing(
+    board: &mut Board, config: &GlobalConfig, pool: &mut CetusPool<GTS, SUI>, treasury: &mut CappedTreasury<GTS>, clock: &Clock, ctx: &mut TxContext,
+) { market_step(board, config, pool, treasury, clock, ctx) }
+
+/// Make `pool` the market pool of this test.
+#[test_only]
+public fun set_market_pool_for_testing(board: &mut Board, pool: address) {
+    if (df::exists(&board.id, TestPoolKey {})) { *df::borrow_mut<TestPoolKey, address>(&mut board.id, TestPoolKey {}) = pool }
+    else { df::add(&mut board.id, TestPoolKey {}, pool) };
+}
+
+/// Lock a position in the game, as the keeper's liquidity add did before v18.
+#[test_only]
+public fun lock_position_for_testing<P: key + store>(board: &mut Board, position: P) {
+    if (!df::exists(&board.id, LpCountKey {})) { df::add(&mut board.id, LpCountKey {}, 0u64) };
+    let n = *df::borrow<LpCountKey, u64>(&board.id, LpCountKey {});
+    dof::add(&mut board.id, LpKey { i: n }, position);
+    *df::borrow_mut<LpCountKey, u64>(&mut board.id, LpCountKey {}) = n + 1;
+}
+
+/// Add SUI to the saved buyback and liquidity balances, and GTS to the GTS waiting to be burned.
+#[test_only]
+public fun fund_market_for_testing(board: &mut Board, buyback: Coin<SUI>, liquidity: Coin<SUI>, bought: Coin<GTS>) {
+    balance::join(&mut board.buyback, coin::into_balance(buyback));
+    balance::join(liquidity_mut(board), coin::into_balance(liquidity));
+    balance::join(bought_mut(board), coin::into_balance(bought));
+}
+
+#[test_only]
+public fun blended_start_for_testing(start: u64, held: u64, add: u64, now: u64): u64 { blended_start(start, held, add, now) }
 
 #[test_only]
 public fun round_info_exists_for_testing(board: &Board, round_id: u64): bool { table::contains(&board.rounds, round_id) }
@@ -1723,13 +2027,6 @@ public fun winning_square_for_testing(board: &Board, round_id: u64): u64 {
 public fun ticket_holder_for_testing(board: &Board, r: u64): address {
     let t = df::borrow<TicketsKey, Tickets>(&board.id, TicketsKey {});
     ticket_holder(board, t.epoch, t.count, r)
-}
-
-/// `liquidity_lock` without the Cetus type check, for tests.
-#[test_only]
-public fun liquidity_lock_for_testing<P: key + store>(board: &mut Board, receipt: LiquidityReceipt, position: P, left_sui: Coin<SUI>, left_gts: Coin<GTS>) {
-    let LiquidityReceipt { sui } = receipt;
-    lock_position(board, sui, position, left_sui, left_gts)
 }
 
 #[test_only]

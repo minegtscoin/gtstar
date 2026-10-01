@@ -565,10 +565,10 @@ fun test_waiting_tickets_reset_with_the_draw() {
     ts::end(sc);
 }
 
-/// With no room left under today's GTS mint limit the claim waits: the run does not abort, the round
-/// stays in the seat, no new round is played, and the next UTC day it is claimed in full.
+/// A full daily GTS mint limit does not hold an automatic round up: the round is claimed, its SUI goes
+/// back to the vault, the next round is played, and the GTS is owed until there is room (the next UTC day).
 #[test]
-fun test_claim_waits_for_daily_limit() {
+fun test_claim_not_held_by_daily_limit() {
     let mut sc = ts::begin(@0x0);
     let mut clk = setup(&mut sc);
     start(&mut sc, BOB, SUI1, SPREAD, ROUND, 100);
@@ -582,19 +582,18 @@ fun test_claim_waits_for_daily_limit() {
     ts::return_shared(board); ts::return_shared(treasury);
     run(&mut sc, vector[BOB], &clk);
     ts::next_tx(&mut sc, BOB);
-    let board = ts::take_shared<Board>(&sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
     let (round, _, _, rounds, _, _, _, _, mined) = game::auto_seat(&board, BOB);
-    assert!(round == 1 && rounds == 1 && mined == 0, 1);
-    ts::return_shared(board);
-    assert!(vault_balance(&mut sc, BOB) == SUI1 - ROUND, 2);
-    // Next UTC day.
+    assert!(round == 2 && rounds == 2 && mined == ON_TILES, 1);
+    let (unrefined, _) = game::unrefined_of(&board, BOB);
+    assert!(unrefined == 0 && game::owed_of(&board, BOB) == ON_TILES, 2);
+    // Next UTC day: the owed GTS is minted to Bob's unrefined balance.
     clock::set_for_testing(&mut clk, 86_400_000 + 5_000);
-    run(&mut sc, vector[BOB], &clk);
-    ts::next_tx(&mut sc, BOB);
-    let board = ts::take_shared<Board>(&sc);
-    let (round, _, _, rounds, _, _, _, _, mined) = game::auto_seat(&board, BOB);
-    assert!(round == 2 && rounds == 2 && mined == ON_TILES, 3);
-    ts::return_shared(board);
+    game::claim_owed(&mut board, &mut treasury, BOB, &clk, ts::ctx(&mut sc));
+    let (unrefined, _) = game::unrefined_of(&board, BOB);
+    assert!(unrefined == ON_TILES && game::owed_of(&board, BOB) == 0, 3);
+    ts::return_shared(board); ts::return_shared(treasury);
     clock::destroy_for_testing(clk);
     ts::end(sc);
 }

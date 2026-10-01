@@ -30,6 +30,7 @@ import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import CFG from "./keeper-config.json" with { type: "json" };
+import { drawCall, marketDrawOk } from "./draw.mjs";
 
 const dir = process.env.BOTS_DIR || path.dirname(new URL(import.meta.url).pathname);
 if (fs.existsSync(path.join(dir, ".env"))) {
@@ -349,7 +350,11 @@ async function afterRound(b) {
   }
   if (!w.miner || w.miner.round === 0) { owe = false; return false; }
   if (b.cur_started && w.miner?.round === cur && Date.now() > Number(b.cur_end_ms) + SETTLE_AFTER_MS) {
-    await send(`settle #${cur}`, tx => tx.moveCall({ target: C("game::settle_v2"), arguments: [boardArg(tx), tx.object.random(), tx.object.clock()] }));
+    // The market draw; the plain draw only when the market draw cannot run (see draw.mjs).
+    const why = {};
+    const market = await marketDrawOk(node, CFG, me, why);
+    if (!market && why.retry) return false;
+    await send(`settle #${cur}${market ? "" : " (plain)"}`, tx => drawCall(tx, CFG, market));
     return true;
   }
   return false;

@@ -8,6 +8,7 @@
   "board": "0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b",
   "treasury": "0xd2629e21af2fa4f532f55e04f9caf19c1dec04719b7c1d3b84bed95bcf67cf28",
   "treasuryIsv": 1029366237,
+  "mintLimiter": "0x18f58d695534c18d28bc7d38f3f4a3433e0df0cdef6e223b07ab0c4264169753",
   "autoPkg": "0x49941dd43c4e089ccbfd7eca0985e4476f6278f30b1241fbd34025eafb7efa03",
   "autoVault": "0xcacceb6d9871af2797ddb46041c7ad3246af0c4654960ca40184b2188211ec3a",
   "autoVaultIsv": 1

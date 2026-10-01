@@ -36,9 +36,14 @@ const STAKE_SCALE = 10n ** 18n;
 // drawn by weight; a ticket is one mist of fee paid on SUI lost since the last payout.
 const WF_PKG = IDS.wf;
 const EV_WF_WON = WF_PKG ? `${WF_PKG}::game::WealthFundWon` : "";
-// Withdraw clock (game v6): free once 7 days have passed since the last withdrawal (or first mining);
-// before that the fee falls linearly from the full fee to 0 and is burned.
+// Withdraw clock (game v6): free once the player's 7-day clock has run out; before that the fee falls
+// linearly from the full fee to 0 (half burned, half shared by the other holders). The clock is weighted
+// by amount: every mining moves its start to the average of the GTS held and the GTS mined (the game does
+// this; the site only reads the start).
 const V6_PKG = IDS.v6;
+// The market upgrade (2026-10-01): buyback and liquidity inside the draw, and GTS owed when the daily mint
+// limit is full (OwedKey, a type introduced by that version).
+const MARKET_PKG = IDS.v18;
 const REFINE_WINDOW_MS = 7 * 86_400_000;
 
 const $ = id => document.getElementById(id);
@@ -270,14 +275,17 @@ async function loadUser(addr) {
   const ep = STATE?.tickets?.epoch;
   const epBcs = ep == null ? "" : btoa(String.fromCharCode(...Array.from({ length: 8 }, (_, i) => Number((BigInt(ep) >> BigInt(8 * i)) & 255n)), ...atob(addrBcs).split("").map(c => c.charCodeAt(0))));
   const tkQ = WF_PKG && epBcs ? ` t:dynamicField(name:{type:"${WF_PKG}::game::PlayerTicketsKey",bcs:"${epBcs}"}){value{... on MoveValue{json}}}` : "";
+  const owQ = MARKET_PKG ? ` ow:dynamicField(name:{type:"${MARKET_PKG}::game::OwedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}` : "";
   const ckQ = V6_PKG ? ` ck:dynamicField(name:{type:"${V6_PKG}::game::RefineClockKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}} cf:dynamicField(name:{type:"${V6_PKG}::game::RefineFromKey",bcs:"AA=="}){value{... on MoveValue{json}}}` : "";
-  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}${ckQ}}`;
+  const refQ = `rf:object(address:"${IDS.board}"){asMoveObject{contents{json}} u:dynamicField(name:{type:"${REFINE_PKG}::game::UnrefinedKey",bcs:"${addrBcs}"}){value{... on MoveValue{json}}}${tkQ}${ckQ}${owQ}}`;
   const d = await gql(`{address(address:"${addr}"){s:balance(coinType:"0x2::sui::SUI"){totalBalance} g:balance(coinType:"${T_GTS}"){totalBalance addressBalance}
     ${objs("m", T_MINER, 10)} ${objs("c", T_COIN, 50)}} ${refQ}}`);
   const uj = d.rf?.u?.value?.json, acc = BigInt(d.rf?.asMoveObject?.contents?.json?.acc || 0);
   const unrefined = uj ? { amount: num(uj.amount), bonus: Number(BigInt(uj.bonus) + BigInt(uj.amount) * (acc - BigInt(uj.snap)) / REFINE_SCALE) } : { amount: 0, bonus: 0 };
   // When the 7-day withdraw clock started (ms): own clock, else the v6 start, else 0 (full fee).
   unrefined.start = num(d.rf?.ck?.value?.json) || num(d.rf?.cf?.value?.json) || 0;
+  // GTS mined while the daily mint limit was full: minted here once there is room (next claim, or the keeper).
+  unrefined.owed = num(d.rf?.ow?.value?.json);
   const nodes = k => (d.address?.[k]?.nodes || []).map(n => ({ id: n.address, f: n.contents?.json || {} }));
   const bal = { address: d.address }, miners = nodes("m"), coins = nodes("c");
   // Read every page of each list: mining leaves many small GTS coins, and a missed coin
@@ -612,7 +620,7 @@ async function autoReconnect() {
 
 // ---------- transactions ----------
 const ERRORS = {
-  game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again." },
+  game: { 38: "Auto Mine is not open yet.", 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again.", 39: "The game was just upgraded. Refresh the page and try again.", 40: "The game was just upgraded. Refresh the page and try again." },
   daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
   gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
   staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 3: "This stake is still locked.", 4: "Nothing staked here." },
@@ -760,12 +768,29 @@ const claimAll = () => exec("Claim", "btnClaimAll", tx => {
   if (!rewards().ready) throw new Error("Nothing to claim.");
   claimInto(tx, tx.object(USER.miner.id));
 });
-// Fixed gas budget: the wallet's dry run usually takes the no-jackpot path, and a round that pays the
-// Wealth Fund needs more gas than that. Unused gas is refunded.
-const SETTLE_GAS = 20_000_000; // ~0.011 SUI gross for a settle, more when the Wealth Fund pays
-const settle = () => exec("Draw", "btnPlay", tx => {
-  tx.setGasBudget(SETTLE_GAS);
-  tx.moveCall({ target: C("game::settle_v2"), arguments: [tx.object(IDS.board), tx.object.random(), tx.object.clock()] });
+// The draw a player makes when no bot has (see keeperDrawing). game::settle_v3 first runs the game's
+// buyback and liquidity add on the Cetus pool, then draws, and pays the draw reward. If that would fail
+// (Cetus paused or on a version the game is not linked to), the plain draw game::settle_v2 is used: no
+// market step, no reward. Fixed gas budget: the wallet's dry run usually takes the no-jackpot path, and a
+// round that pays the Wealth Fund needs more gas than that. Unused gas is refunded.
+const SETTLE_GAS = 50_000_000, PLAIN_SETTLE_GAS = 20_000_000;
+function drawCall(tx, market) {
+  tx.setGasBudget(market ? SETTLE_GAS : PLAIN_SETTLE_GAS);
+  if (market) tx.moveCall({ target: C("game::settle_v3"), arguments: [tx.object(IDS.board), tx.object(CETUS_CFG), tx.object(IDS.market), tx.object(IDS.treasury), tx.object.random(), tx.object.clock()] });
+  else tx.moveCall({ target: C("game::settle_v2"), arguments: [tx.object(IDS.board), tx.object.random(), tx.object.clock()] });
+}
+const settle = () => exec("Draw", "btnPlay", async tx => {
+  let market = false;
+  if (MARKET_PKG && IDS.market) {
+    try {
+      const t = new Transaction();
+      t.setSender(account.address);
+      drawCall(t, true);
+      const r = await sim.simulateTransaction({ transaction: t });
+      market = !!(r.Transaction || r.FailedTransaction)?.status?.success;
+    } catch { market = false; }
+  }
+  drawCall(tx, market);
 });
 let stakeMode = "deposit";
 // Old locked stakes (the lock option is gone) can leave once their 7 days are over.
@@ -1275,10 +1300,13 @@ function renderRewards() {
     $("rfBonus").textContent = `+${sui(U.bonus, 4)}`;
     $("rfBonus").classList.toggle("won", U.bonus > 0);
     $("rfBonusRow").hidden = !(U.bonus > 0);
-    $("rfHint").textContent = !(U.amount > 0)
-      ? `Mined GTS waits here. Withdrawing is free 7 days after your last withdrawal; before that the fee falls from ${full} to 0, and it is burned.`
-      : left <= 0 ? `Free to withdraw: no fee.`
-      : `Free withdrawal in ${dhm(left)}. Now: ${fmt(fee * 100, 2)}% fee, burned. Withdrawing now pays ${sui(out, 4)} GTS.`;
+    $("rfOwedRow").hidden = !(U.owed > 0);
+    $("rfOwed").textContent = sui(U.owed || 0, 4);
+    const owedNote = U.owed > 0 ? ` ${sui(U.owed, 4)} GTS you mined is waiting for room under the daily mint limit (2,000 GTS a UTC day); it is added here after 00:00 UTC.` : "";
+    $("rfHint").textContent = (!(U.amount > 0)
+      ? `Mined GTS waits here. Withdrawing is free once your 7-day clock runs out; before that the fee falls from ${full} to 0 (half burned, half shared by holders). New GTS starts its own 7 days, and your clock moves to the average.`
+      : left <= 0 ? `Free to withdraw: no fee. GTS you mine from now starts its own 7 days and moves the clock.`
+      : `Free withdrawal in ${dhm(left)}. Now: ${fmt(fee * 100, 2)}% fee (half burned, half shared by holders). Withdrawing now pays ${sui(out, 4)} GTS. Mining more moves the clock: new GTS starts its own 7 days.`) + owedNote;
     if (!busy) { $("btnWithdraw").disabled = !(U.amount > 0); $("btnWithdraw").textContent = U.amount > 0 ? `Withdraw ${sui(out, 4)} GTS` : "Withdraw"; }
     else if (busy !== "btnWithdraw") $("btnWithdraw").disabled = true;
   }

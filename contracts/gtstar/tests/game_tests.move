@@ -416,6 +416,33 @@ fun test_bots_get_no_tickets() {
     ts::end(sc);
 }
 
+/// A house bot's mined GTS goes to its unrefined balance like any player's (v18): nothing is paid to
+/// its wallet at the claim, and it runs the same 7-day clock and withdraw fee.
+#[test]
+fun test_bots_mine_like_players() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, HOUSE);
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    let (g, _) = play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    assert!(g == 0, 1);
+    let (u, _) = game::unrefined_of(&board, HOUSE);
+    assert!(u == GTS1, 2);
+    let (start, _, fee) = game::withdraw_clock(&board, HOUSE, &clk);
+    assert!(start == clock::timestamp_ms(&clk) && fee == 1_000, 3);
+    let out = game::withdraw_gts_v7(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&out) == GTS1 * 9 / 10, 4);
+    coin::burn_for_testing(out);
+    transfer::public_transfer(m, HOUSE);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
 /// Ticket ranges in order of claim: Bob [0, 216M), Alice [216M, 648M), Bob [648M, 864M).
 #[test]
 fun test_ticket_ranges() {
@@ -530,10 +557,43 @@ fun test_withdraw_fee_decays_and_burns() {
     ts::end(sc);
 }
 
-/// The clock restarts on a withdrawal, not on new mining: mining more during the 7 days keeps the
-/// countdown, and the next withdrawal after 7 days is free for everything mined meanwhile.
+/// The clock is weighted by amount: 1 GTS mined 4 days into a 1 GTS balance's clock leaves both with
+/// the average, 2 days in (5 days left), not the old clock's 3 days left.
 #[test]
-fun test_withdraw_clock_restarts_on_withdraw_only() {
+fun test_withdraw_clock_weighted_by_amount() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut mb = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
+    let (s0, _, f0) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s0 == clock::timestamp_ms(&clk) && f0 == 1_000, 1); // the first GTS starts its clock at the claim
+    clock::set_for_testing(&mut clk, s0 + 4 * DAY - 62_000);
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
+    let now = clock::timestamp_ms(&clk);
+    assert!(now == s0 + 4 * DAY, 2);
+    let (s1, _, f1) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s1 == s0 + 2 * DAY, 3);              // (1 GTS x 4 days old + 1 GTS x new) / 2
+    assert!(f1 == 1_000 * 5 / 7, 4);             // 5 of the 7 days left
+    // Free 5 days later, for both.
+    clock::set_for_testing(&mut clk, now + 5 * DAY);
+    let g = game::withdraw_gts_v7(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == 2 * GTS1, 5);
+    coin::burn_for_testing(g);
+    transfer::public_transfer(mb, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Waiting out the 7 days with a small balance frees nothing mined later: old GTS counts as 7 days old
+/// at most, so 1 GTS held for 30 days plus 1 new GTS is 3.5 days from free, and the new GTS pays its fee.
+#[test]
+fun test_withdraw_clock_old_balance_frees_nothing_new() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
     ts::next_tx(&mut sc, BOB);
@@ -544,26 +604,40 @@ fun test_withdraw_clock_restarts_on_withdraw_only() {
     let mut mb = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
     let (s0, _, _) = game::withdraw_clock(&board, BOB, &clk);
-    clock::set_for_testing(&mut clk, s0 + 7 * DAY);
-    let g1 = game::withdraw_gts_v7(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
-    assert!(coin::value(&g1) == GTS1, 1);
-    let t1 = s0 + 7 * DAY;
-    let (s1, _, f1) = game::withdraw_clock(&board, BOB, &clk);
-    assert!(s1 == t1 && f1 == 1_000, 2);
-    // Mine again 3 days later: the clock stays at the withdrawal.
-    clock::set_for_testing(&mut clk, t1 + 3 * DAY);
+    clock::set_for_testing(&mut clk, s0 + 30 * DAY);
+    let (_, _, free) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(free == 0, 1);
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
-    let (s2, _, _) = game::withdraw_clock(&board, BOB, &clk);
-    assert!(s2 == t1, 3);
-    let (mined, _) = game::unrefined_of(&board, BOB);
-    clock::set_for_testing(&mut clk, t1 + 7 * DAY);
-    let g2 = game::withdraw_gts_v7(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
-    assert!(coin::value(&g2) == mined && mined > 0, 4);
-    coin::burn_for_testing(g1); coin::burn_for_testing(g2);
+    let now = clock::timestamp_ms(&clk);
+    let (s1, _, f1) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s1 == now - 7 * DAY / 2 && f1 == 500, 2);
+    let g = game::withdraw_gts_v7(&mut board, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&g) == 2 * GTS1 - 2 * GTS1 * 5 / 100, 3); // 5% of the whole balance: nobody else holds, all burned
+    // The withdrawal took everything: the next GTS starts a full 7 days.
+    clock::set_for_testing(&mut clk, now + 3 * DAY);
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut mb, 100_000_000);
+    let (s2, _, f2) = game::withdraw_clock(&board, BOB, &clk);
+    assert!(s2 == clock::timestamp_ms(&clk) && f2 == 1_000, 4);
+    coin::burn_for_testing(g);
     transfer::public_transfer(mb, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
+}
+
+/// The weighted start itself: 5 GTS with 3 days left plus 1 new GTS leaves 3.67 days for all 6; a large
+/// new amount on a small old one is almost a new clock; nothing held starts now.
+#[test]
+fun test_blended_start() {
+    let now = 100 * DAY;
+    let s = game::blended_start_for_testing(now - 4 * DAY, 5 * GTS1, GTS1, now);
+    assert!(s == now - 4 * DAY * 5 / 6, 1);
+    assert!(s + 7 * DAY - now == 7 * DAY - 4 * DAY * 5 / 6, 2); // 3 days 16 hours left
+    assert!(game::blended_start_for_testing(now - 50 * DAY, GTS1 / 1000, 1_000 * GTS1, now) > now - 1_000, 3);
+    assert!(game::blended_start_for_testing(now - 50 * DAY, GTS1, GTS1, now) == now - 7 * DAY / 2, 4);
+    assert!(game::blended_start_for_testing(now - DAY, 0, GTS1, now) == now, 5);
+    assert!(game::blended_start_for_testing(0, GTS1, GTS1, now) == now, 6);
+    assert!(game::blended_start_for_testing(now + 60_000, GTS1, GTS1, now) == now, 7); // a clock set a moment ahead counts as now
 }
 
 /// The old withdraw (no clock) is closed.
@@ -655,187 +729,48 @@ fun test_buyback_fixed() {
 
 const KEEPER: address = @0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549;
 
-/// Buyback 3%: every losing pot saves 3%; the keeper spends it and the GTS bought is burned for good.
+/// Buyback 3%: every losing pot saves 3% in the game (spent by the market draw, see market_tests).
 #[test]
-fun test_buyback_saved_and_burned() {
+fun test_buyback_saved() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
-    let admin = ts::take_from_sender<AdminCap>(&sc);
-    let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 300, 1_000, 10_000_000, 60_000, 5_000, false);
-    ts::return_to_sender(&sc, admin);
     ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
     let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
     let rs = ts::take_shared<Random>(&sc);
     let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
     let mut m = game::new_miner(ts::ctx(&mut sc));
     play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    // 24 SUI lost: 3% = 0.72 SUI saved, the drawer is paid from the Wealth Fund share.
+    // 24 SUI lost: 3% = 0.72 SUI saved for the buyback, 2% = 0.48 SUI for liquidity.
     assert!(game::buyback_value(&board) == 720_000_000, 1);
-
-    ts::next_tx(&mut sc, KEEPER);
-    let (mut sui, receipt) = game::buyback_take(&mut board, ts::ctx(&mut sc));
-    assert!(coin::value(&sui) == 720_000_000 && game::buyback_value(&board) == 0, 2);
-    // Spend 0.64 SUI on "the market", return the rest.
-    coin::burn_for_testing(coin::split(&mut sui, 640_000_000, ts::ctx(&mut sc)));
-    let supply = capped::total_supply(&treasury);
-    let bought = coin::mint_for_testing<gts::GTS>(1_000, ts::ctx(&mut sc));
-    game::buyback_burn_v2(&mut board, &mut treasury, receipt, bought, sui, ts::ctx(&mut sc));
-    assert!(game::buyback_value(&board) == 80_000_000, 3);
-    assert!(game::bought_value(&board) == 0 && capped::total_supply(&treasury) == supply - 1_000, 4);
-
+    assert!(game::liquidity_value(&board) == 480_000_000 && game::liquidity_bps() == 200, 2);
     transfer::public_transfer(m, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
     ts::end(sc);
 }
 
-/// Only the keeper may take the buyback SUI.
-#[test, expected_failure(abort_code = game::ENotBuyer)]
-fun test_buyback_keeper_only() {
+/// Nobody can take the buyback SUI any more, the old keeper included: it is only spent inside the draw.
+#[test, expected_failure(abort_code = game::EInDraw)]
+fun test_buyback_take_closed() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
+    ts::next_tx(&mut sc, KEEPER);
     let mut board = ts::take_shared<Board>(&sc);
     let (c, _r) = game::buyback_take(&mut board, ts::ctx(&mut sc));
     coin::burn_for_testing(c);
     abort 0
 }
 
-/// The receipt cannot be closed without GTS.
-#[test, expected_failure(abort_code = game::ENothingBought)]
-fun test_buyback_needs_gts() {
+/// Nor the liquidity SUI.
+#[test, expected_failure(abort_code = game::EInDraw)]
+fun test_liquidity_take_closed() {
     let mut sc = ts::begin(@0x0);
     setup(&mut sc);
-    let admin = ts::take_from_sender<AdminCap>(&sc);
-    let mut board = ts::take_shared<Board>(&sc);
-    game::set_params(&admin, &mut board, 1_000, 1_950, 0, 300, 1_000, 10_000_000, 60_000, 5_000, false);
-    ts::return_to_sender(&sc, admin);
-    ts::next_tx(&mut sc, BOB);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    let mut m = game::new_miner(ts::ctx(&mut sc));
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
     ts::next_tx(&mut sc, KEEPER);
-    let (sui, receipt) = game::buyback_take(&mut board, ts::ctx(&mut sc));
-    game::buyback_burn_v2(&mut board, &mut treasury, receipt, coin::zero<gts::GTS>(ts::ctx(&mut sc)), sui, ts::ctx(&mut sc));
-    abort 0
-}
-
-/// The old buyback that paid the GTS to stakers is closed (v16).
-#[test, expected_failure(abort_code = game::EUseBuybackBurn)]
-fun test_buyback_keep_closed() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
-    let mut board = ts::take_shared<Board>(&sc);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    let mut m = game::new_miner(ts::ctx(&mut sc));
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    ts::next_tx(&mut sc, KEEPER);
-    let (sui, receipt) = game::buyback_take(&mut board, ts::ctx(&mut sc));
-    game::buyback_keep(&mut board, receipt, coin::mint_for_testing<gts::GTS>(1, ts::ctx(&mut sc)), sui);
-    abort 0
-}
-
-/// Stand-in for a Cetus position in tests.
-public struct FakePosition has key, store { id: UID }
-
-/// Liquidity 2%: every losing pot saves 2%; the keeper takes it, and the position is locked in the game.
-/// SUI not used stays for the next add; GTS not used waits to be burned with the next buyback.
-#[test]
-fun test_liquidity_saved_and_locked() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
-    let mut board = ts::take_shared<Board>(&sc);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    let mut m = game::new_miner(ts::ctx(&mut sc));
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    // 24 SUI lost: 2% = 0.48 SUI saved.
-    assert!(game::liquidity_value(&board) == 480_000_000 && game::liquidity_bps() == 200, 1);
-
-    ts::next_tx(&mut sc, KEEPER);
-    let (mut sui, receipt) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
-    assert!(coin::value(&sui) == 480_000_000 && game::liquidity_value(&board) == 0, 2);
-    // 0.47 SUI into "the pool", 0.01 SUI and 5 GTS mist not used.
-    coin::burn_for_testing(coin::split(&mut sui, 470_000_000, ts::ctx(&mut sc)));
-    let pos = FakePosition { id: object::new(ts::ctx(&mut sc)) };
-    let pid = object::id(&pos);
-    game::liquidity_lock_for_testing(&mut board, receipt, pos, sui, coin::mint_for_testing<gts::GTS>(5, ts::ctx(&mut sc)));
-    assert!(game::liquidity_value(&board) == 10_000_000, 3);
-    assert!(game::bought_value(&board) == 5, 4);
-    assert!(game::lp_positions(&board) == 1 && game::lp_position_id(&board, 0) == pid, 5);
-
-    // A second add locks a second position next to the first.
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    ts::next_tx(&mut sc, KEEPER);
-    let (mut sui, receipt) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
-    assert!(coin::value(&sui) == 490_000_000, 6);
-    coin::burn_for_testing(coin::split(&mut sui, 490_000_000, ts::ctx(&mut sc)));
-    let pos = FakePosition { id: object::new(ts::ctx(&mut sc)) };
-    game::liquidity_lock_for_testing(&mut board, receipt, pos, sui, coin::zero<gts::GTS>(ts::ctx(&mut sc)));
-    assert!(game::lp_positions(&board) == 2 && game::liquidity_value(&board) == 0, 7);
-
-    transfer::public_transfer(m, BOB);
-    clock::destroy_for_testing(clk);
-    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
-    ts::end(sc);
-}
-
-/// Only the keeper may take the liquidity SUI.
-#[test, expected_failure(abort_code = game::ENotBuyer)]
-fun test_liquidity_keeper_only() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
     let mut board = ts::take_shared<Board>(&sc);
     let (c, _r) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
     coin::burn_for_testing(c);
-    abort 0
-}
-
-/// Only a Cetus position closes the receipt: any other object is refused.
-#[test, expected_failure(abort_code = game::ENotPosition)]
-fun test_liquidity_needs_cetus_position() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
-    let mut board = ts::take_shared<Board>(&sc);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    let mut m = game::new_miner(ts::ctx(&mut sc));
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    ts::next_tx(&mut sc, KEEPER);
-    let (mut sui, receipt) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
-    coin::burn_for_testing(coin::split(&mut sui, 1_000, ts::ctx(&mut sc)));
-    let pos = FakePosition { id: object::new(ts::ctx(&mut sc)) };
-    game::liquidity_lock(&mut board, receipt, pos, sui, coin::zero<gts::GTS>(ts::ctx(&mut sc)));
-    abort 0
-}
-
-/// The keeper cannot hand all the SUI back: some must go into the pool.
-#[test, expected_failure(abort_code = game::EAmountMismatch)]
-fun test_liquidity_must_be_used() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    ts::next_tx(&mut sc, BOB);
-    let mut board = ts::take_shared<Board>(&sc);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let rs = ts::take_shared<Random>(&sc);
-    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
-    let mut m = game::new_miner(ts::ctx(&mut sc));
-    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, SUI1);
-    ts::next_tx(&mut sc, KEEPER);
-    let (sui, receipt) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
-    let pos = FakePosition { id: object::new(ts::ctx(&mut sc)) };
-    game::liquidity_lock_for_testing(&mut board, receipt, pos, sui, coin::zero<gts::GTS>(ts::ctx(&mut sc)));
     abort 0
 }
 
@@ -972,6 +907,38 @@ fun test_draw_reward() {
     let (g, s) = game::claim_v3(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
     coin::burn_for_testing(g); coin::burn_for_testing(s);
     assert!(game::pot_value(&board) == 0, 2);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// The plain draw (the fallback without the market step) pays the drawer nothing: the Wealth Fund and
+/// liquidity shares stay whole.
+#[test]
+fun test_plain_draw_pays_nothing() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 1_000);
+    game::deploy(&mut board, &mut m, coin::mint_for_testing<SUI>(25 * SUI1, ts::ctx(&mut sc)), all_tiles(SUI1), &clk, ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 62_000);
+    ts::next_tx(&mut sc, ALICE);
+    game::settle_plain_for_testing(&mut board, &rs, &clk, ts::ctx(&mut sc));
+    ts::next_tx(&mut sc, ALICE);
+    assert!(!ts::has_most_recent_for_sender<coin::Coin<SUI>>(&sc), 1);
+    assert!(game::motherlode_value(&board) == 24 * SUI1 * 3 / 100, 2);
+    assert!(game::liquidity_value(&board) == 24 * SUI1 * 2 / 100 && game::buyback_value(&board) == 24 * SUI1 * 3 / 100, 3);
+    ts::next_tx(&mut sc, BOB);
+    let (g, s) = game::claim_v3(&mut board, &mut m, &mut treasury, &clk, ts::ctx(&mut sc));
+    assert!(coin::value(&s) == SUI1 + 24 * SUI1 * 91 / 100, 4);
+    coin::burn_for_testing(g); coin::burn_for_testing(s);
+    assert!(game::pot_value(&board) == 0, 5);
     transfer::public_transfer(m, BOB);
     clock::destroy_for_testing(clk);
     ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
@@ -1429,67 +1396,6 @@ fun test_five_tiles_full_win() {
     ts::end(sc);
 }
 
-/// The keeper's buyback: takes the saved SUI, hands back `gts` bought GTS, spends it all; the GTS is burned.
-fun buyback_as_keeper(sc: &mut Scenario, gts: u64) {
-    ts::next_tx(sc, KEEPER);
-    let mut board = ts::take_shared<Board>(sc);
-    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(sc);
-    let (sui, receipt) = game::buyback_take(&mut board, ts::ctx(sc));
-    coin::burn_for_testing(sui);
-    game::buyback_burn_v2(&mut board, &mut treasury, receipt, coin::mint_for_testing<gts::GTS>(gts, ts::ctx(sc)), coin::zero<SUI>(ts::ctx(sc)), ts::ctx(sc));
-    ts::return_shared(board); ts::return_shared(treasury);
-}
-
-/// The GTS bought back is burned, not paid to stakers: supply falls by it, stakers get SUI only.
-#[test]
-fun test_buyback_burns_not_to_stakers() {
-    let mut sc = ts::begin(@0x0);
-    setup_staking(&mut sc);
-    stake_as(&mut sc, ALICE, GTS1, false, 1);
-    carol_round(&mut sc, 10);
-    ts::next_tx(&mut sc, OWNER);
-    let treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let supply = capped::total_supply(&treasury);
-    ts::return_shared(treasury);
-    buyback_as_keeper(&mut sc, 1_000_000);
-    ts::next_tx(&mut sc, OWNER);
-    let board = ts::take_shared<Board>(&sc);
-    let treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    assert!(capped::total_supply(&treasury) == supply - 1_000_000, 1);
-    assert!(game::staking_gts_of(&board, ALICE) == 0 && game::bought_value(&board) == 0, 2);
-    let (paid, waiting) = game::staking_gts_totals(&board);
-    assert!(paid == 0 && waiting == 0, 3);
-    ts::return_shared(board); ts::return_shared(treasury);
-    ts::end(sc);
-}
-
-/// GTS left over from a liquidity add is burned with the next buyback.
-#[test]
-fun test_liquidity_leftover_burned_with_buyback() {
-    let mut sc = ts::begin(@0x0);
-    setup(&mut sc);
-    carol_round(&mut sc, 10);
-    ts::next_tx(&mut sc, KEEPER);
-    let mut board = ts::take_shared<Board>(&sc);
-    let (mut sui, receipt) = game::liquidity_take(&mut board, ts::ctx(&mut sc));
-    coin::burn_for_testing(coin::split(&mut sui, 1_000_000, ts::ctx(&mut sc)));
-    let pos = FakePosition { id: object::new(ts::ctx(&mut sc)) };
-    game::liquidity_lock_for_testing(&mut board, receipt, pos, sui, coin::mint_for_testing<gts::GTS>(500, ts::ctx(&mut sc)));
-    assert!(game::bought_value(&board) == 500, 1);
-    ts::return_shared(board);
-    ts::next_tx(&mut sc, OWNER);
-    let treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    let supply = capped::total_supply(&treasury);
-    ts::return_shared(treasury);
-    buyback_as_keeper(&mut sc, 1_000);
-    ts::next_tx(&mut sc, OWNER);
-    let board = ts::take_shared<Board>(&sc);
-    let treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
-    assert!(game::bought_value(&board) == 0 && capped::total_supply(&treasury) == supply - 1_500, 2);
-    ts::return_shared(board); ts::return_shared(treasury);
-    ts::end(sc);
-}
-
 /// Emission can only go down (v16): a lower reward is accepted.
 #[test]
 fun test_emission_can_go_down() {
@@ -1708,6 +1614,72 @@ fun test_daily_mint_limit_aborts() {
     let b = game::mint_for_testing(&mut board, &mut treasury, 1, &clk, ts::ctx(&mut sc));
     coin::burn_for_testing(a); coin::burn_for_testing(b);
     abort 0
+}
+
+/// With the day's mint limit full a claim still pays its SUI: the GTS is owed, and minted to the player's
+/// unrefined balance the next UTC day by anyone calling `claim_owed`.
+#[test]
+fun test_claim_past_daily_limit_owes_gts() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 5 * 86_400_000);
+    // Today's whole limit is used up but for 0.4 GTS.
+    coin::burn_for_testing(game::mint_for_testing(&mut board, &mut treasury, 2_000 * GTS1 - 400_000_000, &clk, ts::ctx(&mut sc)));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    let (g, s) = play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    assert!(g == 0 && s == 100_000_000 + 2_400_000_000 * 91 / 100, 1); // the SUI is paid in full
+    let (u, _) = game::unrefined_of(&board, BOB);
+    assert!(u == 400_000_000 && game::owed_of(&board, BOB) == 600_000_000, 2); // 0.4 GTS fit, 0.6 GTS owed
+    let (room, _) = game::mint_room_today(&board, &clk);
+    assert!(room == 0, 3);
+    // Same day: nothing to mint yet, and a second round is owed in full.
+    game::claim_owed(&mut board, &mut treasury, BOB, &clk, ts::ctx(&mut sc));
+    assert!(game::owed_of(&board, BOB) == 600_000_000, 4);
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    assert!(game::owed_of(&board, BOB) == 1_600_000_000, 5);
+    // Next UTC day: anyone mints it for Bob, into Bob's unrefined balance.
+    clock::set_for_testing(&mut clk, 6 * 86_400_000 + 1);
+    ts::next_tx(&mut sc, ALICE);
+    game::claim_owed(&mut board, &mut treasury, BOB, &clk, ts::ctx(&mut sc));
+    let (u, _) = game::unrefined_of(&board, BOB);
+    assert!(u == 2 * GTS1 && game::owed_of(&board, BOB) == 0, 6);
+    let (ua, _) = game::unrefined_of(&board, ALICE);
+    assert!(ua == 0, 7);
+    assert!(capped::minted(&treasury) == 2_000 * GTS1 - 400_000_000 + 2 * GTS1, 8);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
+}
+
+/// Owed GTS is minted first by the player's next claim once there is room, then that round's GTS.
+#[test]
+fun test_owed_gts_paid_by_next_claim() {
+    let mut sc = ts::begin(@0x0);
+    setup(&mut sc);
+    ts::next_tx(&mut sc, BOB);
+    let mut board = ts::take_shared<Board>(&sc);
+    let mut treasury = ts::take_shared<CappedTreasury<GTS>>(&sc);
+    let rs = ts::take_shared<Random>(&sc);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut sc));
+    clock::set_for_testing(&mut clk, 5 * 86_400_000);
+    coin::burn_for_testing(game::mint_for_testing(&mut board, &mut treasury, 2_000 * GTS1, &clk, ts::ctx(&mut sc)));
+    let mut m = game::new_miner(ts::ctx(&mut sc));
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    assert!(game::owed_of(&board, BOB) == GTS1 && game::unrefined_total(&board) == 0, 1);
+    clock::set_for_testing(&mut clk, 6 * 86_400_000);
+    play_round(&mut sc, &mut board, &mut treasury, &rs, &mut clk, &mut m, 100_000_000);
+    let (u, _) = game::unrefined_of(&board, BOB);
+    assert!(u == 2 * GTS1 && game::owed_of(&board, BOB) == 0, 2);
+    transfer::public_transfer(m, BOB);
+    clock::destroy_for_testing(clk);
+    ts::return_shared(rs); ts::return_shared(board); ts::return_shared(treasury);
+    ts::end(sc);
 }
 
 /// The old claim without the clock is closed from v16.
