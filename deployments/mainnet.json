@@ -157,6 +157,10 @@
     [
       "Game upgraded to its final rules: the mining reward is cut in half as GTS is mined (at 15,658 GTS, then after half as much each time: 31,316 GTS at most), and the emission can no longer be changed by anyone; whoever draws a round is paid 1% of its losing pot; staking has no lock (a stake can leave at any time, after one hour of warm-up it earns); Auto Mine is closed",
       "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
+    ],
+    [
+      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades (the game's own code can never change), and the GTS coin metadata frozen",
+      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",
@@ -218,10 +222,15 @@
     [
       "Final rules (the game code running now): halving by GTS mined, 31,316 GTS at most; 1% to whoever draws a round; staking without a lock",
       "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
+    ],
+    [
+      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades (the game's own code can never change), and the GTS coin metadata frozen",
+      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
     ]
   ],
   "stakeLockPkg": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813",
   "liquidityPkg": "0x53d7670d4d0f5613d741107e082a52589833d35a259f0877f3f32b22019c400d",
   "autoClosed": true,
-  "finalPkg": "0xfeccc4daae2f1682db323cbdceb4c8c6904034f20b04497a93e12e7977c6b0a8"
+  "finalPkg": "0xfeccc4daae2f1682db323cbdceb4c8c6904034f20b04497a93e12e7977c6b0a8",
+  "locked": "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
 }

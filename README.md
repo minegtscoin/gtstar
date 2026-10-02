@@ -11,7 +11,7 @@ GTS is built to hold value: a mining reward that is cut in half as GTS is mined 
 - X: https://x.com/MineGTS1
 - Telegram: https://t.me/MineGTS
 
-> **Final rules, 2026-10-02.** The game below is the final one. Its lock is the next step: see [What is locked, and what is not](#what-is-locked-and-what-is-not).
+> **Locked, 2026-10-02.** The game below is final and locked: its settings key was destroyed and its code can no longer change ([transaction](https://suiscan.xyz/mainnet/tx/7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE)). See [What is locked, and what is not](#what-is-locked-and-what-is-not).
 
 > **Relaunch, 2026-09-29.** GTStar relaunched with a new GTS token and a new game. The first token and game are archived in [`legacy/`](legacy); their reserve stays immutable, so old GTS (the first token) can still be redeemed there.
 
@@ -54,11 +54,16 @@ GTS is built to hold value: a mining reward that is cut in half as GTS is mined 
 
 ## What is locked, and what is not
 
-Locked today, for everyone, the owner included: the 1,000,000 cap and the 2,000 GTS a day limit (immutable packages outside the game). Fixed in the game's code: the halving (`set_emission` is closed), the creator fee (1%), the buyback and burn (3%), the liquidity share (2%), the pool they are spent on and the 2% limit, and that no address can be blocked from playing, claiming or withdrawing.
+Locked for good on 2026-10-02, in one [transaction](https://suiscan.xyz/mainnet/tx/7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE) (`scripts/lock.mjs`):
 
-Not locked yet: the owner address `0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e` holds the `AdminCap` (settings inside limits written in the contract: Wealth Fund odds, tiles, minimum deposit, round length, withdraw fee up to 50%, stakers' share up to 5%, draw share up to 10%, a pause of new deposits) and the `UpgradeCap` (policy 0: it can publish new game code, which could change the rules or move what the game holds).
+- **The settings.** `game::renounce` destroyed the `AdminCap`. Stakers 3%, the draw share 1%, Wealth Fund odds 1 in 250, 5 tiles, minimum deposit 0.0005 SUI, 60-second rounds, withdraw fee 10%: all fixed as they are. The game can never be paused.
+- **The code.** `sui::package::only_dep_upgrades` restricted the `UpgradeCap` (`0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1`, policy 192) to dependency-only upgrades. The restriction cannot be loosened. The chain refuses any upgrade whose modules differ from the ones published: `authorize_upgrade` with a looser policy aborts with `ETooPermissive`.
+- **The token.** The GTS `CoinMetadata` is frozen.
+- **The supply.** The halving is part of the locked code (`set_emission` is closed), under the 1,000,000 cap and the 2,000 GTS a day limit of the two immutable packages.
 
-The lock (`scripts/lock.mjs`, one transaction) destroys the `AdminCap`, restricts the `UpgradeCap` for good to dependency-only upgrades (`sui::package::only_dep_upgrades`: the game's own code can never change, it can only be linked to a newer version of a package it uses, which is what a Cetus upgrade needs), and freezes the GTS coin metadata.
+What the owner address `0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e` can still do, and nothing else: link the game to a newer version of a package it uses (`scripts/relink.mjs`). That exists for Cetus: after a Cetus upgrade the market step needs the new link. It cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it. Only the publisher of a package can publish a new version of it, so the game cannot be pointed at a fake Cetus.
+
+What follows from a lock: a bug in the game's code cannot be fixed, and the settings stay in SUI terms whatever SUI is worth.
 
 The creator fee, 1% of every losing pot, is paid to `0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b` (`withdraw_dev_fees`, callable by anyone, pays only that address).
 
@@ -71,7 +76,7 @@ contracts/gtstar      GTS token, game and staking (Move); depends on the Cetus C
 contracts/supply_lock, contracts/mint_limit  the 1,000,000 cap and the 2,000 GTS a day limit (Move, immutable)
 contracts/auto_vault  the vault of the closed Auto Mine (Move, immutable)
 app/              Web app (static, non-custodial), the keeper, and e2e2.mjs (one live round, checked to the mist)
-scripts/          lock.mjs (the lock), relink.mjs (link the game to a new Cetus version), upgrade2.mjs and admin2.mjs (used before the lock)
+scripts/          relink.mjs (link the game to a new Cetus version); lock.mjs, upgrade2.mjs and admin2.mjs were used before the lock
 deployments/      Live object IDs and every on-chain proof
 legacy/           The first token and game (archived)
 ```
