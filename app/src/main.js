@@ -136,8 +136,6 @@ const V12_PKG = IDS.v12;
 const EV_BUYBACK = IDS.v11 ? `${IDS.v11}::game::BuybackKept` : "";
 const EV_BURN = IDS.v7 ? `${IDS.v7}::game::BuybackDone` : "";
 let V10_FROM = V10_PKG ? 0 : Infinity; // 0 until the Board says: every round not settled yet is under v10
-// SUI the old reserve moved into the Wealth Fund when the reserve closed (ReserveToFund event).
-const RESERVE_MOVED = 12_288_264_223;
 // Relaunch game published (deployments/mainnet.json publishedAt).
 const GAME_LAUNCH = Date.parse("2026-09-29T10:20:50Z");
 const isFair = n => (n >= FAIR_FROM && n < V5_FROM) || (n >= V9_FROM && (!V10_FROM || n < V10_FROM));
@@ -420,23 +418,26 @@ const stakeBack = (r, st) => payoutOf(r, st.deployed[r.tile] || 0, st.total, acc
 
 // Event history (newest first). Capped per type; the UI states the scope when capped.
 const PAGE = 50, MAX_PAGES = 20;
+const EV_NODES = `pageInfo{hasPreviousPage startCursor} nodes{timestamp sender{address} transaction{digest} contents{json}}`;
+const evOf = n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} });
 async function allEvents(type) {
   let out = [], before = null, pages = 0, more = true;
   while (more && pages < MAX_PAGES) {
     const cur = before ? `,before:"${before}"` : "";
-    const d = await gql(`{events(filter:{type:"${type}"},last:${PAGE}${cur}){pageInfo{hasPreviousPage startCursor}
-      nodes{timestamp sender{address} transaction{digest} contents{json}}}}`);
+    const d = await gql(`{events(filter:{type:"${type}"},last:${PAGE}${cur}){${EV_NODES}}}`);
     const e = d.events;
-    out = out.concat(e.nodes.slice().reverse().map(n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} })));
+    out = out.concat(e.nodes.slice().reverse().map(evOf));
     more = e.pageInfo.hasPreviousPage; before = e.pageInfo.startCursor; pages++;
   }
   return { list: out, capped: more };
 }
-// The site's cache of the same events (history.php) answers in one request; paging through Sui
-// directly is the fallback when it is down or more than 2 minutes behind.
+// The site's cache of the same events (history.php) answers in one request and holds every round since
+// the first. It is refreshed by visits, so the first visitor after a quiet hour gets it a little behind:
+// topUp reads what is missing from Sui. Paging through Sui for everything (capped) is the fallback only
+// when the cache is down or more than an hour behind.
 async function cachedEvents() {
-  const h = await getJson(`/api/history?t=${Date.now()}`, 6000);
-  if (!(h.at > Date.now() / 1000 - 120)) throw new Error("history cache stale");
+  const h = await getJson(`/api/history?t=${Date.now()}`, 10000);
+  if (!(h.at > Date.now() / 1000 - 3600)) throw new Error("history cache stale");
   return Object.fromEntries(BASE_KEYS.map(k => [k, { list: (h[k] || []).slice().reverse(), capped: false }]));
 }
 // Every event type the history uses. The first four are in the site's cache, the other two are read from Sui.
@@ -455,22 +456,28 @@ async function fullEvents() {
   return (await topUp(raw, latest)).raw;
 }
 // The newest 50 events of every type straight from Sui, in one request, added to what is already known.
-// `gap`: a type whose 50 newest events are all new, so events may be missing in between (reload everything).
-const latestEvents = () => gql(`{${HIST_KEYS.map(k => `${k}:events(filter:{type:"${ALL_EV[k]}"},last:50){nodes{timestamp sender{address} transaction{digest} contents{json}}}`).join(" ")}}`).catch(() => null);
+// A type whose 50 newest events are all new has more behind them: page back until a known event shows.
+// `gap`: that paging failed or ran out of pages, so events may be missing in between (reload everything).
+const latestEvents = () => gql(`{${HIST_KEYS.map(k => `${k}:events(filter:{type:"${ALL_EV[k]}"},last:${PAGE}){${EV_NODES}}`).join(" ")}}`).catch(() => null);
 async function topUp(raw, latest = latestEvents()) {
   const d = await latest;
   if (!d) return { raw, gap: false };
   let gap = false;
   const out = { ...raw };
-  HIST_KEYS.forEach(k => {
+  await Promise.all(HIST_KEYS.map(async k => {
     const l = raw[k] || { list: [], capped: false };
     const key = e => `${e.digest}:${JSON.stringify(e.j)}`, have = new Set(l.list.slice(0, 200).map(key));
-    const nodes = d[k]?.nodes || [];
-    const fresh = nodes.map(n => ({ ts: n.timestamp, sender: n.sender?.address, digest: n.transaction?.digest, j: n.contents?.json || {} }))
-      .filter(e => !have.has(key(e))).reverse();
-    if (l.list.length && nodes.length === 50 && fresh.length === 50) gap = true;
+    let e = d[k], fresh = [], pages = 0;
+    while (e) {
+      const page = (e.nodes || []).map(evOf).filter(x => !have.has(key(x))).reverse();
+      fresh = fresh.concat(page);
+      if (!l.list.length || page.length < PAGE || !e.pageInfo?.hasPreviousPage) break;
+      if (++pages >= MAX_PAGES) { gap = true; break; }
+      e = await gql(`{events(filter:{type:"${ALL_EV[k]}"},last:${PAGE},before:"${e.pageInfo.startCursor}"){${EV_NODES}}}`).then(x => x.events, () => null);
+      if (!e) gap = true;
+    }
     out[k] = { ...l, list: fresh.concat(l.list) };
-  });
+  }));
   return { raw: out, gap };
 }
 // The raw events, kept after the first load so a refresh only fetches what is new (one small request).
@@ -1647,7 +1654,7 @@ function autoFormFrom(a) {
 
 // ---------- render: explorer ----------
 const ROWS = 10;
-let actShown = ROWS, revShown = ROWS, lbShown = ROWS, revTab = "supernova", lbTab = "miners";
+let actShown = ROWS, revShown = ROWS, lbShown = ROWS, revTab = "winners", lbTab = "miners";
 const openRounds = new Set();
 const txLink = d => `<a href="${SCAN}/tx/${d}" target="_blank" rel="noopener" data-stop>${d.slice(0, 6)}…</a>`;
 const acctLink = a => `<a href="${SCAN}/account/${a}" target="_blank" rel="noopener"${nameOf(a) ? "" : ' class="mono"'} data-stop>${esc(label(a))}</a>`;
@@ -1726,7 +1733,6 @@ function minersHtml(r) {
   }).join("") + `</div>`;
 }
 function renderRevenue() {
-  $("revTbl").classList.toggle("wins", revTab !== "supernova");
   if (revTab === "buyback") {
     // Every buyback, newest first: SUI spent on Cetus and the GTS it bought, burned (from 2026-09-30) or paid to stakers (before).
     const rows = HIST.buybacks, day = Date.now() - 86_400_000;
@@ -1740,34 +1746,16 @@ function renderRevenue() {
     $("moreRev").hidden = rows.length <= revShown;
     return;
   }
-  if (revTab === "winners") {
-    // Every Wealth Fund payout, newest first.
-    const wins = HIST.rounds.filter(r => r.ml?.paid > 0);
-    const paid = wins.reduce((a, r) => a + r.ml.paid, 0);
-    const big = wins.reduce((a, r) => Math.max(a, r.ml.paid), 0);
-    $("revSum").innerHTML = `<div><span>Paid all time</span><b>${sui(paid, 4)} SUI</b></div><div><span>Wins</span><b>${fmt(wins.length, 0)}</b></div><div><span>Biggest win</span><b>${wins.length ? `${sui(big, 4)} SUI` : "—"}</b></div>`;
-    $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>Winner</th><th class="r">Won</th><th class="r">Time</th></tr></thead><tbody>` +
-      (wins.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td>${r.ml.winner ? acctLink(r.ml.winner) : `<span class="muted">Tile winners</span>`}</td>
-        <td class="r">${sui(r.ml.paid, 4)} SUI</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
-        || `<tr><td colspan="4" class="muted">No Wealth Fund winner yet.</td></tr>`) + `</tbody>`;
-    $("moreRev").hidden = wins.length <= revShown;
-    return;
-  }
-  const cfg = {
-    // Settle adds the round's share; a spread deposit's forfeit is added at claim (the split).
-    supernova: { v: r => (r.ml?.added || 0) + (r.split?.fund || 0), unit: "SUI", share: `The whole pot, less fees, of every round no one wins. All time includes 12.29 SUI from the old reserve`, label: "Added to the Wealth Fund" },
-  }[revTab];
-  const rows = HIST.rounds.filter(r => cfg.v(r) > 0);
-  const total = rows.reduce((a, r) => a + cfg.v(r), 0);
-  const day = Date.now() - 86_400_000;
-  const d24 = rows.filter(r => new Date(r.ts).getTime() >= day).reduce((a, r) => a + cfg.v(r), 0);
-  // The old reserve's SUI moved into the fund once, outside any round (tx A3pyW6Mp..., 2026-09-29).
-  $("revSum").innerHTML = `<div><span>All time</span><b>${sui(total + RESERVE_MOVED, 4)} ${cfg.unit}</b></div><div><span>Last 24h</span><b>${sui(d24, 4)} ${cfg.unit}</b></div><div><span>Source</span><b>${cfg.share}</b></div>`;
-  $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>${cfg.label}</th><th class="r">Amount</th><th class="r">Time</th></tr></thead><tbody>` +
-    (rows.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td class="muted">${r.winners === 0 ? "No miner on the winning tile" : "Share of the losing pot"}</td>
-      <td class="r">${sui(cfg.v(r), 5)} ${cfg.unit}</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
-      || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`) + `</tbody>`;
-  $("moreRev").hidden = rows.length <= revShown;
+  // Every Wealth Fund payout, newest first.
+  const wins = HIST.rounds.filter(r => r.ml?.paid > 0);
+  const paid = wins.reduce((a, r) => a + r.ml.paid, 0);
+  const big = wins.reduce((a, r) => Math.max(a, r.ml.paid), 0);
+  $("revSum").innerHTML = `<div><span>Paid all time</span><b>${sui(paid, 4)} SUI</b></div><div><span>Wins</span><b>${fmt(wins.length, 0)}</b></div><div><span>Biggest win</span><b>${wins.length ? `${sui(big, 4)} SUI` : "—"}</b></div>`;
+  $("revTbl").innerHTML = `<thead><tr><th>Round</th><th>Winner</th><th class="r">Won</th><th class="r">Time</th></tr></thead><tbody>` +
+    (wins.slice(0, revShown).map(r => `<tr><td>#${fmt(r.round, 0)}</td><td>${r.ml.winner ? acctLink(r.ml.winner) : `<span class="muted">Tile winners</span>`}</td>
+      <td class="r">${sui(r.ml.paid, 4)} SUI</td><td class="r muted"><a href="${SCAN}/tx/${r.digest}" target="_blank" rel="noopener">${ago(r.ts)}</a></td></tr>`).join("")
+      || `<tr><td colspan="4" class="muted">No Wealth Fund winner yet.</td></tr>`) + `</tbody>`;
+  $("moreRev").hidden = wins.length <= revShown;
 }
 function renderLeaderboard() {
   let rows = [], sub = "";
