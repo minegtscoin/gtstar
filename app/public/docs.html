@@ -191,7 +191,7 @@ withdraw = my_unrefined - fee + my_share_of_others_fees</span>
     <span class="code">reward    = 1 GTS / 2 ^ halvings
 halving k = at 31,316 * (1 - 1 / 2^k) GTS mined     (15,658 · 23,487 · 27,401.5 · ...)
 total     &lt; 31,316 GTS</span>
-    <p>Two older limits stay sealed above it, in contracts that nobody can change: 1,000,000 GTS in total and 2,000 GTS a day.</p>
+    <p>31,316 GTS is the real maximum. Two older limits from before the halving are still sealed in contracts that nobody can change: 1,000,000 GTS in total and 2,000 GTS a day. Both sit far above what the halving allows, so they never come into play.</p>
     <h3>Where the losing pot goes</h3>
     <p>Fees come only from the losing pot, never from a winner's stake.</p>
     <div class="tbl"><table>
@@ -241,8 +241,8 @@ total     &lt; 31,316 GTS</span>
     <ul>
       <li><strong>The settings.</strong> The settings key (AdminCap) was destroyed. The fees, the Wealth Fund odds, the minimum deposit, the round length, the 5-tile limit and the withdraw fee are fixed as they are, and the game can never be paused.</li>
       <li><strong>The code.</strong> The upgrade key was restricted, for good, to dependency-only upgrades. It can no longer change a line of the game's own code.</li>
-      <li><strong>The halving.</strong> It is part of that code, and the function that used to change the emission is closed.</li>
-      <li><strong>The supply limits.</strong> Two immutable contracts: no one can mint past 1,000,000 GTS, or more than 2,000 GTS in one UTC day.</li>
+      <li><strong>The supply.</strong> The halving is part of that code, and the function that used to change the emission is closed: 31,316 GTS is the most that can ever be mined.</li>
+      <li><strong>The older limits.</strong> Two immutable contracts from before the halving still stand above it: the mint can never pass 1,000,000 GTS, or 2,000 GTS in one UTC day. The halving stops far below both.</li>
       <li><strong>The token.</strong> Its name, symbol, icon and description are frozen.</li>
       <li><strong>No hidden rights.</strong> Every function that needed the settings key died with it. No other function is kept for the creator or for any bot: they play, draw and stake through the same calls as everyone. No wallet can be blocked from playing, claiming or withdrawing.</li>
       <li><strong>No site needed.</strong> This site is only a window. Anyone can play, draw and claim straight from the contract, and all the code is public.</li>

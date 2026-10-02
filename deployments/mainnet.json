@@ -188,44 +188,44 @@
   "reviewPkg": "0x8e09a0dab2fae730e4e1b17f79f6a22ab15efe6ded3d8464d40970e59d0c0d44",
   "siteProof": [
     [
-      "GTS token and game published: 1,000,000 cap, no premine",
-      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
-    ],
-    [
-      "Supply lock made immutable: its upgrade key was destroyed",
-      "BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ"
-    ],
-    [
-      "GTS mint sealed in the supply lock: no one can ever mint past 1,000,000",
-      "DJgdkVtqn1xFJNyLBQJAQ9Fm76Q26QuL6p47fUDqwgzZ"
-    ],
-    [
-      "Daily mint limit made immutable: its upgrade key was destroyed",
-      "uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk"
-    ],
-    [
-      "GTS mint sealed in the daily limit: at most 2,000 GTS per UTC day",
-      "7d4pAM48qHhL4b615aLCDTkMrHSYM6SA5RFqeza2dtkw"
-    ],
-    [
-      "Buyback and liquidity moved into the draw: no wallet holds that SUI",
-      "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
-    ],
-    [
-      "Emission lowered: a round needs 7 SUI to mint its full 1 GTS",
-      "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
-    ],
-    [
-      "No SUI can get stuck if the market stops: after 7 days it goes to the Wealth Fund",
-      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
+      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades (the game's own code can never change), and the GTS coin metadata frozen",
+      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
     ],
     [
       "Final rules (the game code running now): halving by GTS mined, 31,316 GTS at most; 1% to whoever draws a round; staking without a lock",
       "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
     ],
     [
-      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades (the game's own code can never change), and the GTS coin metadata frozen",
-      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
+      "Buyback and liquidity moved into the draw: no wallet holds that SUI",
+      "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
+    ],
+    [
+      "No SUI can get stuck if the market stops: after 7 days it goes to the Wealth Fund",
+      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
+    ],
+    [
+      "A round needs 7 SUI to mint its full reward",
+      "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
+    ],
+    [
+      "GTS token and game published: no premine",
+      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
+    ],
+    [
+      "Older outer limit, still sealed: the mint can never pass 1,000,000 GTS (the halving allows 31,316)",
+      "DJgdkVtqn1xFJNyLBQJAQ9Fm76Q26QuL6p47fUDqwgzZ"
+    ],
+    [
+      "That outer limit made immutable: its upgrade key was destroyed",
+      "BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ"
+    ],
+    [
+      "Older daily limit, still sealed: at most 2,000 GTS minted per UTC day",
+      "7d4pAM48qHhL4b615aLCDTkMrHSYM6SA5RFqeza2dtkw"
+    ],
+    [
+      "That daily limit made immutable: its upgrade key was destroyed",
+      "uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk"
     ]
   ],
   "stakeLockPkg": "0x628ec9aa8fcab06fdaf05d29ba06832bf4927e71f985b369d7086f5eb9c8e813",
