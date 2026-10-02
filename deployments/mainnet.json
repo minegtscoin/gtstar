@@ -15,152 +15,16 @@
   "upgradeCap": "0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1",
   "proof": [
     [
-      "GTS token and game published (1,000,000 cap, no premine)",
-      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
+      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades, the GTS coin metadata frozen",
+      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
     ],
     [
-      "Game upgraded: the draw pays up to 0.005 SUI to whoever settles, from the buyback share",
-      "8NKu8KD1Hp5PXtptovxSvguRxj2ShWNmVEYYzz2NY2CN"
-    ],
-    [
-      "Game upgraded: GTS staking with SUI yield (flexible 1x, 7-day lock 1.5x)",
-      "H7arfu6ks6SNf8fH7gWopFgacKRLzSABL6smXEsX3fn"
-    ],
-    [
-      "Game upgraded: Wealth Fund pays one ticket holder (tickets = fees paid on SUI lost), 2% of every losing pot goes to it",
-      "2yhDBi5HpssYs8cVFnMVJMDs3QTTkbpiayVXGtAEz5bQ"
-    ],
-    [
-      "Game upgraded: withdrawing mined GTS is free after 7 days, the fee before that falls from 10% to 0 and is burned; plus GTS mined by SUI lost, and winners keep their full share",
-      "76xSmczftGPrLsdbuqdPVAKSe7p4hr6cMG9egMcWWSBT"
-    ],
-    [
-      "Game upgraded: 1% of every losing pot buys GTS on the market and burns it (keeper only, burned in the same transaction)",
-      "FWZ7UP7HmzAMXMUBZmXYXZCYVA2waFTFty7WvYjBozzX"
-    ],
-    [
-      "Game upgraded: GTS is mined by SUI deployed again, win or lose (0.25 SUI alone mines 0.25 GTS), no floor cap",
-      "Fom1nU6RzV2K56NwYKqjaYN1qCYwR6JrSzQHo4rmkySY"
-    ],
-    [
-      "Game upgraded: no reserve (GTS cannot be redeemed for SUI), the reserve share goes to the Wealth Fund, and the fair split is back for spread deposits",
-      "F1xMMGr6WQq33C13RCfx4JHsVKiVPQba6NW81epVip2F"
-    ],
-    [
-      "Game upgraded: at most 5 tiles per player a round, and a winner keeps the whole win (no cut for spread deposits)",
-      "A2tUUGBezHqZrbGMWfFCsCv4GFuzaqqP5QNohMhd7kWC"
-    ],
-    [
-      "Game upgraded: buyback fixed at 2% (the GTS bought stays in the game, not burned), and 1% of every losing pot goes to liquidity: half buys GTS, both halves go into the Cetus GTS/SUI pool, the position locked in the game for good",
-      "4ayWTjNursgK8i2gxdD5ja2mvQf9nncdJWmS9fDM3XSs"
-    ],
-    [
-      "Game upgraded: all the GTS the 2% buyback buys now goes to GTS stakers, split by stake, next to their SUI yield",
-      "7oAaJZvXSnPDtuQApHdTR7entLSJo9SffBevgPGnkgXZ"
-    ],
-    [
-      "Game upgraded: once every player of a round has claimed, the round record kept in the game is removed and its storage deposit refunded (results stay in the round event)",
-      "3NnLTGYiQJG3Zg8N5ujhX195caPtj5f3GVZKFWknUn5m"
-    ],
-    [
-      "Game upgraded: the minimum deposit per tile can be set as low as 0.0005 SUI",
-      "4acdaR3QwsfSgKTDUQYeh2p819o7heV14fXUUEZHc23K"
-    ],
-    [
-      "Game upgraded: the drawer's reward no longer comes out of the 2% buyback, so the buyback always gets its full 2%",
-      "12yRbQMMRkFxVuZy3PhaiNhJbQbyGTPdyCvrti6QkdbJ"
-    ],
-    [
-      "Game upgraded: liquidity 3% (was 1%), buyback 1% (was 2%), Wealth Fund 3% (was 4%) of every losing pot",
-      "GmBH1YX9s1nZcBdcaKFFkUQjQ1CJ9TBK2G9qE4Ak1Gaa"
-    ],
-    [
-      "Supply lock published: a separate package that seals the GTS mint with a 1,000,000 limit",
-      "8m7BTjXDo4ZXjFeVQJrcKH5dNjtGrM2V6A4X2SNEWbJS"
-    ],
-    [
-      "Supply lock made immutable: its upgrade key was destroyed, so its rules can never change",
-      "BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ"
-    ],
-    [
-      "Game upgraded: claims, draws and withdrawals use the supply lock",
-      "HErpTtk84qKixyPVRQDFfFBM4osHrBimZJ6yQV9YR1zC"
-    ],
-    [
-      "GTS mint sealed in the supply lock: no one, the owner included, can ever mint past 1,000,000; the old treasury was deleted",
-      "DJgdkVtqn1xFJNyLBQJAQ9Fm76Q26QuL6p47fUDqwgzZ"
-    ],
-    [
-      "Daily mint limit published: a separate package that allows at most 2,000 GTS a UTC day",
-      "7B4kBcC35usBRX9HQ8BSYkjUGb7oc65G5fc32sKgMWFK"
-    ],
-    [
-      "Daily mint limit made immutable: its upgrade key was destroyed, so the limit can never change",
-      "uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk"
-    ],
-    [
-      "Game upgraded: buyback and burn 3%, liquidity 2%, withdraw fee half burned and half to holders, emission can only go down",
-      "Y6CQ79ejSKJFFKsBmmsDiJ5ym7g2nJsC3sqAtwVdTyX"
-    ],
-    [
-      "GTS mint sealed in the daily limit: no one, the owner included, can mint more than 2,000 GTS in a UTC day",
-      "7d4pAM48qHhL4b615aLCDTkMrHSYM6SA5RFqeza2dtkw"
-    ],
-    [
-      "Stakers' share set to 1% of every losing pot (was 2%)",
-      "95DH9NWwuk62PJ9dGPw1LvWkVWWkiWDApvp1YqEytgST"
-    ],
-    [
-      "Auto Mine vault published: a separate package that holds each player's Auto Mine balance; only the player can withdraw it, at any time",
-      "5uUNfvQbgdbyrJfAw3rq4UcxWYfCWLTmrxFYmRWCk6Xh"
-    ],
-    [
-      "Auto Mine vault made immutable: its upgrade key was destroyed, so no one can ever change it, pause it or block a withdrawal",
-      "4aCVbBytpAXZTK2TNJPnYnnuZGibrvoMnQt7yKYqSgJe"
-    ],
-    [
-      "Game upgraded: Auto Mine. A plan plays every round for you from your own balance in the immutable vault (Spread, Sniper or Hunter); 1% of each automatic deposit goes to whoever runs it and 1% to the buyback and burn",
-      "9WShnUjfLssGJPnGMC289xfCdcfoFe1AvwzVkT2S8AYE"
-    ],
-    [
-      "Auto Mine vault's only pull key stored in the game for good: no wallet holds it, and no function returns it",
-      "AGo1ZkHT87YDZC9tXSkD52sF7ARrXQvkWNvQkfbhkyy1"
-    ],
-    [
-      "Game upgraded: the buyback and the liquidity add run inside the draw, on the Cetus GTS/SUI pool, with no keeper wallet (each draw's buys at most 2% above a reference price); the withdraw clock is weighted by amount; house bots pay the withdraw fee like every player; a claim never fails on the daily mint limit (the GTS is owed and minted later); anyone can put the locked positions' trading fees back into the pool",
-      "2AaRstWbaTL1XKvL467S3Z9FyRzAvA6cfWbn9Kn8Etd7"
-    ],
-    [
-      "Game upgraded after an outside review: the draw reward is up to 0.008 SUI and comes only from the Wealth Fund share (liquidity keeps its full 2%); if the market is not usable the plain draw pays after 6 hours, and after 7 days the buyback and liquidity SUI goes to the Wealth Fund, so nothing is stuck and the game needs no one to keep running; the locked positions' fees are compounded only within 2% of the reference price; only the player can collect their own owed GTS",
-      "5kK8BigQtAR1toswgMxUzPkNVyp5p9nCnRCLXtuupuQe"
-    ],
-    [
-      "Emission lowered: a round now needs 7 SUI for its full 1 GTS (was 1 SUI), so 1 SUI mines about 0.143 GTS; this setting can only be raised, never lowered",
-      "EJuAVMuHhRcvPef9Xa6XkXmMqc6orgQNNd9Rm7SzQzYU"
-    ],
-    [
-      "Game upgraded: staking. The 7-day lock (1.5x) is offered again; new stake starts earning one hour after it is staked; every draw works through the warm-ups and lock ends that are due, so a lock drops back to 1x with no keeper",
-      "76sQDLcRUovRben2svAbU6V6GgHuRtJHvmd4pUzEzEUr"
-    ],
-    [
-      "Game upgraded: anyone can add to the liquidity locked in the game, by giving it a whole Cetus position of the pool or GTS and SUI at the pool price",
-      "BBF9PhV1jSiWxQ8pDoLteep65erAU9tmaQKGwwXGzpm7"
-    ],
-    [
-      "Stakers' share set to 3% of every losing pot (was 1%)",
-      "Kh9aW8GdWkAK6bvzFpztpV4GAHZ2i9tg8tgMrjsQ9ze"
-    ],
-    [
-      "Draw share set to 1% of every losing pot (was the Wealth Fund's 3%)",
-      "8XQmA4E26jDUkb6qu2t9jsRVNLh3AEgbQB8ye3pVzobh"
-    ],
-    [
-      "Game upgraded to its final rules: the mining reward is cut in half as GTS is mined (at 15,658 GTS, then after half as much each time: 31,316 GTS at most), and the emission can no longer be changed by anyone; whoever draws a round is paid 1% of its losing pot; staking has no lock (a stake can leave at any time, after one hour of warm-up it earns); Auto Mine is closed",
+      "The game code running now: halving by GTS mined, 31,316 GTS at most",
       "6V8epYdtaPeargwTfAQRbo56bzx8pKPQ3DcQ7D7bt3TS"
     ],
     [
-      "Game locked for good: the settings key (AdminCap) destroyed, the upgrade key restricted to dependency-only upgrades (the game's own code can never change), and the GTS coin metadata frozen",
-      "7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE"
+      "GTS token published: no premine, no team tokens",
+      "4VQHjAR7Atbaqq13ox6v4HdB2n3qm5h9twCbnVvxmcfW"
     ]
   ],
   "stakePkg": "0x2f3b3ffdb257b4ae244e79026af01bea3b486898dfa2ed051950a82fbbd0837d",

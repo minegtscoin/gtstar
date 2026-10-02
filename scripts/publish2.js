@@ -42,7 +42,7 @@ const dep = {
   coinMetadata: created(`::coin::CoinMetadata<${pkg}::gts::GTS>`),
   adminCap: created("::game::AdminCap"),
   upgradeCap: created("::package::UpgradeCap"),
-  proof: [["GTS token and game published (1,000,000 cap, no premine)", d.digest]],
+  proof: [["GTS token and game published (no premine)", d.digest]],
 };
 for (const k of ["board", "treasury", "coinMetadata", "adminCap", "upgradeCap"]) if (!dep[k]) throw new Error(`missing ${k}`);
 

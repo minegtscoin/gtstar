@@ -14,10 +14,9 @@ const SCAN = `https://suiscan.xyz/${CFG.network}`;
 const MIST = 1e9;
 // Emission (game::settle): 1 GTS for a full round, cut in half each time a step has mined what 15,658
 // full rounds mint at the current reward: at 15,658 GTS mined, then after 7,829 more, and so on. So
-// 31,316 GTS is the most that can ever be mined (MAX_GTS); the sealed supply cap is 1,000,000 (HARD_CAP).
+// 31,316 GTS is the most that can ever be mined (MAX_GTS).
 // The live values come from the Board (STATE.em); nobody can change them.
 const MAX_GTS = 31_316;
-const HARD_CAP = 1_000_000;
 const LAUNCH_EM = { reward: 1e9, step: 15_658, decay: 500_000, count: 0, full: 7e9, committed: 0 };
 const T = name => `${IDS.package}::${name}`;          // game package (upgradeable): types and events
 const C = name => `${IDS.latest || IDS.package}::${name}`; // latest game version: calls
@@ -877,9 +876,9 @@ const swap = () => exec("Swap", "btnSwap", async tx => {
 }).then(r => { if (r) { $("swIn").value = ""; QUOTE = NO_QUOTE; renderTrade(); } });
 
 // ---------- emission math (mirrors game::settle) ----------
-// Full GTS reward of the round now open: the step reward, never past the sealed 1,000,000 cap.
+// Full GTS reward of the round now open: the step reward.
 const em = () => STATE?.em || LAUNCH_EM;
-const roundReward = () => { const e = em(); return Math.max(0, Math.min(e.reward, HARD_CAP * MIST - e.committed)) / MIST; };
+const roundReward = () => { const e = em(); return Math.max(0, e.reward) / MIST; };
 // GTS still to be mined before the reward is cut in half (the step ends at `step` full rounds' worth of
 // GTS at the current reward; `count` is the GTS mined in the step so far).
 const toHalving = () => { const e = em(); return Math.max(0, e.step * e.reward - e.count) / MIST; };
