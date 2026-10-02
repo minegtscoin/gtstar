@@ -7,7 +7,7 @@ $env = is_file(__DIR__ . "/.env") ? file_get_contents(__DIR__ . "/.env") : "";
 define("TO", preg_match('/^\s*ALERT_TO\s*=\s*(\S+)\s*$/m', $env, $m) ? $m[1] : "");
 if (TO === "") exit(1);
 const FROM = "GTStar Alerts <alerts@minegts.fun>";
-const MIN_SUI = 1.5;
+const MIN_SUI = 0.5;
 const WALLETS = [
   "Keeper (draws rounds, pays the free first round)" => "0x22390096d8def0638c92f86da60683e37d1a7f00b4b22fcb359952db300c3549",
 ];
