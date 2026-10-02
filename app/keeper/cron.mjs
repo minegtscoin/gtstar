@@ -38,6 +38,14 @@ if (fs.existsSync(alert) && now.getUTCMinutes() % 10 === 0) {
   spawn("/usr/bin/php", [alert], { detached: true, stdio: "ignore" }).unref();
 }
 
+// Telegram announcer (tg.mjs), every minute in its own process: Wealth Fund payouts and the daily fund size.
+const tg = path.join(dir, "tg.mjs");
+if (process.env.TG_TOKEN && fs.existsSync(tg)) {
+  const { spawn } = await import("child_process");
+  const out = fs.openSync(path.join(dir, "tg-out.txt"), "a");
+  spawn(process.execPath, [tg], { detached: true, stdio: ["ignore", out, out] }).unref();
+}
+
 // The Player (player.mjs) is its own long-running process: started again whenever its heartbeat
 // is older than 30s (not running, or stuck).
 const player = path.join(dir, "player.mjs"), hb = path.join(dir, ".player-hb");
