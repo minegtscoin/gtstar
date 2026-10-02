@@ -46,7 +46,7 @@ GTS is built to hold value: a mining reward that is cut in half as GTS is mined 
 | `game` | Rounds, the draw, fees, the halving, the Wealth Fund, unrefined balances, the market step (buyback and burn, liquidity, `compound_fees`) |
 | `staking` | GTS staking with SUI yield |
 
-[`contracts/supply_lock`](contracts/supply_lock), immutable (its upgrade key was destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ)): holds the GTS mint authority in a `CappedTreasury` that never mints past 1,000,000.
+[`contracts/supply_lock`](contracts/supply_lock), immutable (its upgrade key was destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ)): holds the GTS mint authority in a `CappedTreasury` that never mints past 1,000,000. That is an older outer limit: the halving in the game stops at 31,316.
 
 [`contracts/mint_limit`](contracts/mint_limit), immutable (upgrade key destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk)): holds the only key to the supply lock in a `DailyLimiter` that mints at most 2,000 GTS per UTC day.
 
@@ -59,7 +59,7 @@ Locked for good on 2026-10-02, in one [transaction](https://suiscan.xyz/mainnet/
 - **The settings.** `game::renounce` destroyed the `AdminCap`. Stakers 3%, the draw share 1%, Wealth Fund odds 1 in 250, 5 tiles, minimum deposit 0.0005 SUI, 60-second rounds, withdraw fee 10%: all fixed as they are. The game can never be paused.
 - **The code.** `sui::package::only_dep_upgrades` restricted the `UpgradeCap` (`0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1`, policy 192) to dependency-only upgrades. The restriction cannot be loosened. The chain refuses any upgrade whose modules differ from the ones published: `authorize_upgrade` with a looser policy aborts with `ETooPermissive`.
 - **The token.** The GTS `CoinMetadata` is frozen.
-- **The supply.** The halving is part of the locked code (`set_emission` is closed), under the 1,000,000 cap and the 2,000 GTS a day limit of the two immutable packages.
+- **The supply.** The halving is part of the locked code (`set_emission` is closed): 31,316 GTS at most. The older 1,000,000 cap and 2,000 GTS a day limit of the two immutable packages stay above it.
 
 What the owner address `0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e` can still do, and nothing else: link the game to a newer version of a package it uses (`scripts/relink.mjs`). That exists for Cetus: after a Cetus upgrade the market step needs the new link. It cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it. Only the publisher of a package can publish a new version of it, so the game cannot be pointed at a fake Cetus.
 
@@ -73,7 +73,7 @@ Deployed addresses and every upgrade transaction are in [`deployments/mainnet.js
 
 ```
 contracts/gtstar      GTS token, game and staking (Move); depends on the Cetus CLMM source for the market step
-contracts/supply_lock, contracts/mint_limit  the 1,000,000 cap and the 2,000 GTS a day limit (Move, immutable)
+contracts/supply_lock, contracts/mint_limit  the older outer limits: 1,000,000 GTS in total, 2,000 GTS a day (Move, immutable)
 contracts/auto_vault  the vault of the closed Auto Mine (Move, immutable)
 app/              Web app (static, non-custodial), the keeper, and e2e2.mjs (one live round, checked to the mist)
 scripts/          relink.mjs (link the game to a new Cetus version); lock.mjs, upgrade2.mjs and admin2.mjs were used before the lock
@@ -101,7 +101,7 @@ node serve.js             # http://localhost:4173
 
 A round starts with a player's deposit and is drawn by a permissionless call that pays its caller 1% of the losing pot, so the game needs no operator. A round that pays less than a draw costs in gas (about 0.005 SUI) is drawn by the next player who wants to play: the app's Deploy button draws it first, then deploys.
 
-GTStar also runs a keeper (`app/keeper/`, a cron job) that draws every round, small ones at a loss, and calls `compound_fees` once a day. It holds no right the contract gives only to it.
+GTStar also runs a keeper (`app/keeper/`, a cron job) that draws every round, small ones at a loss, and calls `compound_fees` once a day. A second bot (`app/keeper/player.mjs`) joins rounds that players are already in, with its own SUI; no GTStar bot opens a round by itself. Neither holds a right the contract gives only to it.
 
 ## If Cetus upgrades
 
