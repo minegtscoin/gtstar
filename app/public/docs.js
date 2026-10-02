@@ -9,11 +9,6 @@
 (function(){
   var C = window.GTSTAR_CONFIG; if (!C) return;
   var scan = "https://suiscan.xyz/" + C.network;
-  // The text about the lock is shown once the game is locked (config.js then carries `locked`).
-  if (C.locked) {
-    document.querySelectorAll("[data-locked]").forEach(function (e) { e.hidden = false; });
-    document.querySelectorAll("[data-unlocked]").forEach(function (e) { e.hidden = true; });
-  }
   document.getElementById("netName").textContent = "Sui " + C.network.charAt(0).toUpperCase() + C.network.slice(1);
   var A = C.accounts || {};
   var rows = [
