@@ -16,9 +16,9 @@
     ["Game", C.ids.latest || C.ids.package, "object", "The game code running now: rounds, the draw, fees, the buyback and emission."],
     ["Game board", C.ids.board, "object", "The live game state: rounds, the Wealth Fund, unrefined GTS and the locked liquidity positions."],
     ["GTS/SUI pool", C.ids.market, "object", "The Cetus pool GTS trades on, where the game buys back and adds liquidity."],
-    ["Supply lock", C.ids.supplyLock, "object", "Immutable. Holds the right to mint GTS. Its older limit of 1,000,000 stays far above the 31,316 the halving allows."],
-    ["Daily mint limit", C.ids.mintLimit, "object", "Immutable. An older limit: at most 2,000 GTS minted per UTC day."],
-    ["Upgrade key", A.upgradeCap, "object", "The game's UpgradeCap. Its policy shows what it can still do."]
+    ["Supply lock", C.ids.supplyLock, "object", "Immutable. Holds the only right to mint GTS, and only the game can use it."],
+    ["Daily mint limit", C.ids.mintLimit, "object", "Immutable. At most 2,000 GTS can be minted per UTC day."],
+    ["Upgrade key", A.upgradeCap, "object", "The game's UpgradeCap. Its policy (192) allows dependency-only upgrades and nothing else."]
   ].filter(function (r) { return r[1]; });
   var list0 = document.getElementById("addrList");
   rows.forEach(function (r) {

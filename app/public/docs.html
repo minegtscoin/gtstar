@@ -191,7 +191,6 @@ withdraw = my_unrefined - fee + my_share_of_others_fees</span>
     <span class="code">reward    = 1 GTS / 2 ^ halvings
 halving k = at 31,316 * (1 - 1 / 2^k) GTS mined     (15,658 · 23,487 · 27,401.5 · ...)
 total     &lt; 31,316 GTS</span>
-    <p>31,316 GTS is the real maximum. Two older limits from before the halving are still sealed in contracts that nobody can change: 1,000,000 GTS in total and 2,000 GTS a day. Both sit far above what the halving allows, so they never come into play.</p>
     <h3>Where the losing pot goes</h3>
     <p>Fees come only from the losing pot, never from a winner's stake.</p>
     <div class="tbl"><table>
@@ -239,23 +238,22 @@ total     &lt; 31,316 GTS</span>
     <h3>Locked for good</h3>
     <p>The game runs by its code alone. Every item below can be checked in the on-chain proofs further down.</p>
     <ul>
-      <li><strong>The settings.</strong> The settings key (AdminCap) was destroyed. The fees, the Wealth Fund odds, the minimum deposit, the round length, the 5-tile limit and the withdraw fee are fixed as they are, and the game can never be paused.</li>
-      <li><strong>The code.</strong> The upgrade key was restricted, for good, to dependency-only upgrades. It can no longer change a line of the game's own code.</li>
-      <li><strong>The supply.</strong> The halving is part of that code, and the function that used to change the emission is closed: 31,316 GTS is the most that can ever be mined.</li>
-      <li><strong>The older limits.</strong> Two immutable contracts from before the halving still stand above it: the mint can never pass 1,000,000 GTS, or 2,000 GTS in one UTC day. The halving stops far below both.</li>
+      <li><strong>The settings.</strong> The settings key (AdminCap) is destroyed. The fees, the Wealth Fund odds, the minimum deposit, the round length, the 5-tile limit and the withdraw fee are fixed, and the game can never be paused.</li>
+      <li><strong>The code.</strong> The upgrade key is restricted, for good, to dependency-only upgrades. It cannot change a line of the game's own code.</li>
+      <li><strong>The supply.</strong> The halving is part of that code and no function can change it: 31,316 GTS is the most that can ever be mined. The right to mint is held by immutable contracts, and only the game can use it.</li>
       <li><strong>The token.</strong> Its name, symbol, icon and description are frozen.</li>
-      <li><strong>No hidden rights.</strong> Every function that needed the settings key died with it. No other function is kept for the creator or for any bot: they play, draw and stake through the same calls as everyone. No wallet can be blocked from playing, claiming or withdrawing.</li>
+      <li><strong>No hidden rights.</strong> No function is kept for the creator or for any bot: they play, draw and stake through the same calls as everyone. No wallet can be blocked from playing, claiming or withdrawing.</li>
       <li><strong>No site needed.</strong> This site is only a window. Anyone can play, draw and claim straight from the contract, and all the code is public.</li>
     </ul>
-    <h3>The one thing the creator can still do</h3>
-    <p>The creator's address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> still holds the restricted upgrade key. It can do one thing: link the game to a newer version of a package the game uses. That exists for Cetus: if Cetus moves to a new version, the buyback and the liquidity add need the new link to keep running. Such an upgrade keeps the game's code exactly as it is, so it cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it. Only the publisher of a package can publish a new version of it, so the key cannot point the game at a fake Cetus.</p>
+    <h3>The one thing the creator can do</h3>
+    <p>The creator's address <code class="wrap">0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e</code> holds the restricted upgrade key. It can do one thing: link the game to a newer version of a package the game uses. That exists for Cetus: if Cetus moves to a new version, the buyback and the liquidity add need the new link to keep running. Such an upgrade keeps the game's code exactly as it is, so it cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it. Only the publisher of a package can publish a new version of it, so the key cannot point the game at a fake Cetus.</p>
     <p>The creator fee, 1% of every losing pot, is paid to <code class="wrap">0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b</code>. It is fixed in the code like everything else.</p>
     <h3>Good to know</h3>
     <ul>
       <li>This is a game of chance. In SUI, the expected return of a round is negative: 10% of every losing pot goes to fees, and a round no one wins goes to the Wealth Fund.</li>
       <li>Mining has an end. After a few halvings the reward is small; the game keeps running as it is, and its fees keep buying back GTS and paying stakers.</li>
       <li>Very small rounds pay the drawer less than a draw costs in gas (1% of the losing pot against about 0.005 SUI). They are drawn by the next player who wants to play, or by GTStar's bot at a loss.</li>
-      <li>GTStar runs two bots: one draws rounds, as anyone can, and one joins rounds that players are already in, with its own SUI. No GTStar bot opens a round by itself. The contract gives them no right a player does not have: the joining bot wins, loses and holds Wealth Fund tickets like any player. Six older GTStar wallets named in the contract get no tickets.</li>
+      <li>GTStar runs two bots: one draws rounds, as anyone can, and one joins rounds that players are already in, with its own SUI. No GTStar bot opens a round by itself. The contract gives them no right a player does not have: the joining bot wins, loses and holds Wealth Fund tickets like any player. Six GTStar wallets named in the contract get no tickets.</li>
       <li>The 5-tile limit works per wallet. Someone who covers the board with several wallets pays only the fees on the losing tiles: about 0.67 SUI for each GTS mined, until the first halving.</li>
       <li>The buyback and the liquidity add run on Cetus. If Cetus stops for good they end, and that share goes to the Wealth Fund.</li>
       <li>A locked game cannot be fixed. If a bug is found in its code, nobody can patch it.</li>
@@ -265,7 +263,7 @@ total     &lt; 31,316 GTS</span>
     <div class="addr" id="addrList"></div>
     <h3>On-chain proofs</h3>
     <div class="proofs" id="proofList"></div>
-    <p>The full technical reference, every past change and all source code are public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>, and questions are answered in the <a href="https://t.me/MineGTS" target="_blank" rel="noopener">Telegram group</a>.</p>
+    <p>The full technical reference and all source code are public on <a href="https://github.com/minegtscoin/gtstar" target="_blank" rel="noopener">GitHub</a>. Updates are posted on <a href="https://x.com/MineGTS1" target="_blank" rel="noopener">X (@MineGTS1)</a>, and questions are answered in the <a href="https://t.me/MineGTS" target="_blank" rel="noopener">Telegram group</a>.</p>
 
     <p class="endnote">Playing involves risk: tiles that do not win lose their deposit, the price of GTS can fall, and smart contracts can contain bugs. Only play with what you can afford to lose. The on-chain code is the source of truth.</p>
   </article>

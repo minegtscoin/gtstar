@@ -2,84 +2,112 @@
 
 **Mine GTS. Win SUI.**
 
-GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins. Its miners split the pot, and every SUI deployed in the round mines GTS, win or lose. GTS has no SUI reserve: its price is set by the market.
+GTStar is a fair-launch mining game on [Sui](https://sui.io). Every 60 seconds, players deploy SUI across a 5×5 board. One tile wins and its miners split the pot. Every SUI deployed mines GTS, win or lose.
 
-GTS is built to hold value: a mining reward that is cut in half as GTS is mined (31,316 GTS at most), a round that needs 7 SUI to mint its full reward, 3% of every losing pot spent on buying GTS and burning it, 3% paid in SUI to GTS stakers, and 2% added to liquidity in positions held by the game, which has no function to take them out. None of that sets the price.
+Only **31,316 GTS** can ever be mined. The rules are locked on-chain: no one can change them, the creator included.
 
-- App: https://minegts.fun
-- Docs: https://minegts.fun/docs.html (the short version; this README is the technical reference)
+- Play: https://minegts.fun
+- Docs: https://minegts.fun/docs.html
 - X: https://x.com/MineGTS1
 - Telegram: https://t.me/MineGTS
 
-> **Locked, 2026-10-02.** The game below is final and locked: its settings key was destroyed and its code can no longer change ([transaction](https://suiscan.xyz/mainnet/tx/7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE)). See [What is locked, and what is not](#what-is-locked-and-what-is-not).
+## Why GTStar
 
-> **Relaunch, 2026-09-29.** GTStar relaunched with a new GTS token and a new game. The first token and game are archived in [`legacy/`](legacy); their reserve stays immutable, so old GTS (the first token) can still be redeemed there.
+- **Fair launch.** No premine, no team tokens, no presale. Every GTS in circulation was mined by a player.
+- **Scarce by code.** The mining reward is cut in half as GTS is mined, so 31,316 GTS is all there will ever be.
+- **Bought back and burned every round.** 3% of every losing pot buys GTS on the market and burns it, inside the draw itself.
+- **Holders earn SUI.** 3% of every losing pot is paid in SUI to GTS stakers. Nothing is minted for it.
+- **Liquidity that only grows.** 2% of every losing pot goes into the GTS/SUI pool, in positions held by the game. The game has no function to take them out.
+- **Locked for good.** The settings key is destroyed and the code cannot change. Nobody can change the fees, mint extra GTS, pause the game or take funds out of it.
+- **Provably random.** Winners are drawn with Sui's on-chain randomness.
+- **Non-custodial.** The app holds no keys and no funds. Every action is signed in the player's own wallet.
 
-## Overview
+## How a round works
 
 | | |
 |---|---|
-| Premine / team / presale | None |
-| Emission | A round mints up to the current reward, shared by SUI deployed, win or lose. The full reward needs 7 SUI in the round; a smaller round mints the matching part (1 SUI mines about 0.143 GTS until the first halving). No other source of GTS |
-| Halving | By GTS mined, not by time or by rounds. The reward starts at 1 GTS and is cut in half each time a step has mined what 15,658 full rounds mint at the current reward: at 15,658 GTS mined in total, then after 7,829 more, then 3,914.5 more, and so on. 31,316 GTS is the most that can ever be mined. A small round moves the halving only by the GTS it mined, so empty rounds cannot hurry it. Fixed in the code: `set_emission` is closed |
-| Sealed limits | 1,000,000 GTS in total and 2,000 GTS per UTC day, in two immutable contracts (`supply_lock`, `mint_limit`). Both sit far above what the halving allows. If the daily limit is ever reached, a claim still pays its SUI at once and the GTS is owed to the player (`claim_owed`) |
-| Losing pot | 90% winners · 3% buyback and burn · 3% GTS stakers (in SUI) · 2% liquidity · 1% whoever draws the round · 1% creator |
-| A round no one wins | With no one on the winning tile, the winners' 90% goes to the Wealth Fund |
-| Wealth Fund | A SUI jackpot. No fee pays for it: it receives the pot of every round no one wins, the stakers' share while nobody is staked, what the plain draw does not pay its caller, and the market shares after 7 days without a market. Every round has a 1 in 250 chance to pay the whole fund to one ticket holder. Tickets = the fees a player paid on SUI they lost since the last payout |
-| Draw | Anyone can draw a round that has ended. `settle_v3` runs the market step and pays its caller the whole 1%. The plain draw `settle_v2` (no market step) pays nothing while the market works and half of the 1% once the market has not been usable for 6 hours. `entry` and not `public`, so a draw cannot be composed with a check of its outcome |
-| Buyback and liquidity | Run by the game itself, inside the draw, on the Cetus GTS/SUI pool fixed in the code by its ID. The buyback runs once 0.005 SUI is saved: the GTS bought is burned in the same transaction. The liquidity add runs once 0.05 SUI is saved: 49% buys GTS, and the GTS with the matching SUI goes into a position held by the game. A draw's buys may lift the price at most 2% above the reference price (the price after the previous draw's market step). No function lets any address take either balance or a position. `compound_fees` (anyone) puts the positions' trading fees back into the pool; `lock_position` and `give_liquidity` (anyone) add to the locked liquidity |
-| If Cetus stops or upgrades | A paused pool is skipped. If Cetus moves to a version the game is not linked to, `settle_v3` aborts and rounds are drawn by `settle_v2`; the SUI for the market is saved, and after 7 days without a usable market it goes to the Wealth Fund, with those two shares of every round, until the market works again. The game can be linked to the new Cetus version with a dependency-only upgrade (`scripts/relink.mjs`) |
-| Unrefined GTS | Mined GTS waits in the player's unrefined balance. Withdrawing is free once their 7-day clock has run out; before that the fee falls from 10% to 0: half is burned and half is shared by everyone still holding unrefined GTS. The clock is weighted by amount |
-| Staking | Stake GTS, earn SUI (3% of every losing pot), split by GTS staked. No lock: a stake can leave at any time. New stake starts earning one hour after it is staked, so nobody can stake just before a large round and leave right after it; the draw starts it earning by itself. Nothing is minted for staking |
-| Limits | 5 tiles per wallet a round, minimum 0.0005 SUI per tile, deposits close 5 seconds before the end |
-| No reserve | GTS cannot be redeemed for SUI |
-| Closed | Auto Mine (automatic rounds from a vault balance) and the 7-day staking lock at 1.5x ran until 2026-10-02 and are closed in the code. `auto_run` only claims an automatic round played before; a stake made under the lock counts 1x and can leave at any time. The immutable `auto_vault` still lets its one past user withdraw |
-| Randomness | `sui::random` (validator-generated, unbiasable) |
+| Round | Starts with its first deposit and lasts 60 seconds. Deposits close 5 seconds before the end |
+| Deposit | Up to 5 of the 25 tiles per wallet, minimum 0.0005 SUI per tile |
+| Draw | One winning tile, drawn with `sui::random`. Anyone can draw a round that has ended, and is paid 1% of its losing pot |
+| Winners | Get their stake on the winning tile back, plus 90% of the SUI on the other 24 tiles, split by stake |
+| Mining | Every SUI deployed mines GTS, win or lose. A round mints the full reward when it holds 7 SUI or more, and a matching part below that |
+| Wealth Fund | A SUI jackpot. When no one is on the winning tile, the pot of that round goes into it. Every round has a 1 in 250 chance to pay the whole fund to one ticket holder. Tickets are the fees a player paid on SUI they lost |
+
+## The token
+
+| | |
+|---|---|
+| Maximum supply | 31,316 GTS |
+| Premine, team, presale | None |
+| Source | Mining only |
+| Reward | 1 GTS for a full round, cut in half at 15,658 GTS mined, then after 7,829 more, then 3,914.5 more, and so on |
+| Halving | By GTS mined, not by time. A small round moves it only by the GTS it mined, so empty rounds cannot hurry it |
+| Unrefined GTS | Mined GTS waits in the player's unrefined balance. Withdrawing is free after 7 days; before that the fee falls from 10% to 0. Half the fee is burned, half goes to everyone still holding |
+| Staking | Stake GTS, earn SUI. No lock: a stake can leave at any time. New stake starts earning after one hour |
+| Price | Set by the market. GTS has no reserve and is not redeemable for SUI |
+
+### Where the losing pot goes
+
+| Destination | Share |
+|---|---|
+| Winners | 90% |
+| Buyback and burn | 3% |
+| GTS stakers, in SUI | 3% |
+| Liquidity, locked in the game | 2% |
+| Whoever draws the round | 1% |
+| Creator | 1% |
+
+Fees come only from the losing pot, never from a winner's stake.
+
+### Buyback and liquidity
+
+The game runs both by itself, inside the draw, on the Cetus GTS/SUI pool. No wallet holds that SUI and no function lets any address take it.
+
+- **Buyback.** Once 0.005 SUI is saved, the draw buys GTS and burns it in the same transaction.
+- **Liquidity.** Once 0.05 SUI is saved, the draw buys GTS with 49% of it and adds the GTS with the matching SUI to a position held by the game. `compound_fees` puts the positions' trading fees back into the pool. Anyone can add to the locked liquidity with `lock_position` or `give_liquidity`.
+- **Price guard.** One draw's buys can lift the price at most 2% above the price after the previous draw.
+- **If Cetus stops.** Rounds are drawn without the market step and the SUI is saved. After 7 days without a usable market it goes to the Wealth Fund, so nothing is ever stuck.
+
+## Locked on-chain
+
+- **The settings.** The `AdminCap` is destroyed. The fees, the Wealth Fund odds, the minimum deposit, the round length, the 5-tile limit and the withdraw fee are fixed. The game can never be paused.
+- **The code.** The `UpgradeCap` is restricted for good to dependency-only upgrades (policy 192). The chain refuses any upgrade that changes the game's modules.
+- **The supply.** The halving is part of the locked code. The right to mint GTS sits in immutable contracts, and only the game can use it.
+- **The token.** The GTS coin metadata is frozen.
+
+Proof: [the lock transaction](https://suiscan.xyz/mainnet/tx/7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE).
+
+The one thing the creator address `0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e` can do: link the game to a newer version of a package it uses. That exists for Cetus, so the buyback and the liquidity add keep running after a Cetus upgrade. It cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it.
+
+The creator fee, 1% of every losing pot, is paid to `0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b`. It is fixed in the code like everything else.
+
+## Verify it yourself
+
+The source in this repository compiles to exactly the code running on Sui mainnet. With the [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui-install):
+
+```sh
+cd contracts/gtstar && sui client verify-source
+cd contracts/supply_lock && sui client verify-source
+cd contracts/mint_limit && sui client verify-source
+```
+
+| | |
+|---|---|
+| GTS coin type | `0x2beecdcba43f4ee412ce886216e0e8bb5d48486fa59a43222432f9f56c0592f8::gts::GTS` |
+| Game package | `0xfeccc4daae2f1682db323cbdceb4c8c6904034f20b04497a93e12e7977c6b0a8` |
+| Game board | `0xc171dcb3ebba55d0d186140f43b09ca987fef92fb02c49df921f08c4c1e7548b` |
+| GTS/SUI pool (Cetus) | `0x0628902c5acd5b5755c9b1a6494e925d0c5327177486b5e3b25d0e9b0211de71` |
+| Upgrade key | `0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1` |
+
+All addresses are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
 
 ## Contracts
 
-[`contracts/gtstar`](contracts/gtstar), the game:
-
-| Module | Contents |
+| Package | Contents |
 |---|---|
-| `gts` | GTS coin type (redemption closed, no reserve). Its mint authority moved to `supply_lock` on 2026-09-30 |
-| `game` | Rounds, the draw, fees, the halving, the Wealth Fund, unrefined balances, the market step (buyback and burn, liquidity, `compound_fees`) |
-| `staking` | GTS staking with SUI yield |
-
-[`contracts/supply_lock`](contracts/supply_lock), immutable (its upgrade key was destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/BtvDHVCVPHFSbNTZMDkjipQcNUvA2jPjSutizUYpzLmJ)): holds the GTS mint authority in a `CappedTreasury` that never mints past 1,000,000. That is an older outer limit: the halving in the game stops at 31,316.
-
-[`contracts/mint_limit`](contracts/mint_limit), immutable (upgrade key destroyed on 2026-09-30, [transaction](https://suiscan.xyz/mainnet/tx/uCHVzcCZddjmQayJV9uLXWJPuKFzeSUSbz2dhRBusVk)): holds the only key to the supply lock in a `DailyLimiter` that mints at most 2,000 GTS per UTC day.
-
-[`contracts/auto_vault`](contracts/auto_vault), immutable (upgrade key destroyed on 2026-10-01, [transaction](https://suiscan.xyz/mainnet/tx/4aCVbBytpAXZTK2TNJPnYnnuZGibrvoMnQt7yKYqSgJe)): the vault of the closed Auto Mine. Only a player can withdraw their own balance.
-
-## What is locked, and what is not
-
-Locked for good on 2026-10-02, in one [transaction](https://suiscan.xyz/mainnet/tx/7TF5yhZr4Q9pLDyUMnF2ZzpxqEu2qLcoK7ycDsrtTjAE) (`scripts/lock.mjs`):
-
-- **The settings.** `game::renounce` destroyed the `AdminCap`. Stakers 3%, the draw share 1%, Wealth Fund odds 1 in 250, 5 tiles, minimum deposit 0.0005 SUI, 60-second rounds, withdraw fee 10%: all fixed as they are. The game can never be paused.
-- **The code.** `sui::package::only_dep_upgrades` restricted the `UpgradeCap` (`0xe94fdc95c476e7b0fdc89c881ab5e8413a5745f31586ef8edab95f2a38d922b1`, policy 192) to dependency-only upgrades. The restriction cannot be loosened. The chain refuses any upgrade whose modules differ from the ones published: `authorize_upgrade` with a looser policy aborts with `ETooPermissive`.
-- **The token.** The GTS `CoinMetadata` is frozen.
-- **The supply.** The halving is part of the locked code (`set_emission` is closed): 31,316 GTS at most. The older 1,000,000 cap and 2,000 GTS a day limit of the two immutable packages stay above it.
-
-What the owner address `0x51417aedc9cd847adc087d75a7d5a647fc1ea63744ac607c518b6c458c30bd4e` can still do, and nothing else: link the game to a newer version of a package it uses (`scripts/relink.mjs`). That exists for Cetus: after a Cetus upgrade the market step needs the new link. It cannot change the rules or the fees, take SUI, GTS or liquidity out of the game, or pause it. Only the publisher of a package can publish a new version of it, so the game cannot be pointed at a fake Cetus.
-
-What follows from a lock: a bug in the game's code cannot be fixed, and the settings stay in SUI terms whatever SUI is worth.
-
-The creator fee, 1% of every losing pot, is paid to `0xa19b2d37f95ca4c48efafb2cd01d0f97f33852457daa27cfba3de37fdec24d4b` (`withdraw_dev_fees`, callable by anyone, pays only that address).
-
-Deployed addresses and every upgrade transaction are in [`deployments/mainnet.json`](deployments/mainnet.json) and on the [Verify](https://minegts.fun/docs.html#verify) page.
-
-## Repository
-
-```
-contracts/gtstar      GTS token, game and staking (Move); depends on the Cetus CLMM source for the market step
-contracts/supply_lock, contracts/mint_limit  the older outer limits: 1,000,000 GTS in total, 2,000 GTS a day (Move, immutable)
-contracts/auto_vault  the vault of the closed Auto Mine (Move, immutable)
-app/              Web app (static, non-custodial), the keeper, and e2e2.mjs (one live round, checked to the mist)
-scripts/          relink.mjs (link the game to a new Cetus version); lock.mjs, upgrade2.mjs and admin2.mjs were used before the lock
-deployments/      Live object IDs and every on-chain proof
-legacy/           The first token and game (archived)
-```
+| [`contracts/gtstar`](contracts/gtstar) | The GTS coin, the game (rounds, the draw, fees, the halving, the Wealth Fund, buyback and liquidity) and staking |
+| [`contracts/supply_lock`](contracts/supply_lock) | Immutable. Holds the only right to mint GTS |
+| [`contracts/mint_limit`](contracts/mint_limit) | Immutable. At most 2,000 GTS can be minted per UTC day |
 
 ## Build and test
 
@@ -87,7 +115,6 @@ Requirements: [Sui CLI](https://docs.sui.io/guides/developer/getting-started/sui
 
 ```sh
 cd contracts/gtstar && sui move test      # 100 tests; the market tests run against the real Cetus CLMM code
-cd contracts/auto_vault && sui move test
 ```
 
 ```sh
@@ -97,20 +124,15 @@ node build.js mainnet
 node serve.js             # http://localhost:4173
 ```
 
-## Running without anyone
+## Runs by itself
 
-A round starts with a player's deposit and is drawn by a permissionless call that pays its caller 1% of the losing pot, so the game needs no operator. A round that pays less than a draw costs in gas (about 0.005 SUI) is drawn by the next player who wants to play: the app's Deploy button draws it first, then deploys.
+A round starts with a player's deposit and is drawn by a call anyone can make, which pays its caller 1% of the losing pot. The game needs no operator, and this site is only a window: anyone can play, draw and claim straight from the contract.
 
-GTStar also runs a keeper (`app/keeper/`, a cron job) that draws every round, small ones at a loss, and calls `compound_fees` once a day. A second bot (`app/keeper/player.mjs`) joins rounds that players are already in, with its own SUI; no GTStar bot opens a round by itself. Neither holds a right the contract gives only to it.
+GTStar runs two bots, with no right the contract gives only to them: a keeper (`app/keeper/`) that draws rounds, and a player bot that joins rounds players are already in, with its own SUI.
 
-## If Cetus upgrades
+## Risk
 
-```sh
-node scripts/relink.mjs          # dry run: which package versions would change, and whether the chain accepts it
-GO=1 node scripts/relink.mjs     # send it
-```
-
-It sends the game's own modules, read from the chain and unchanged, with the new versions of the packages it uses. The chain refuses anything else from this upgrade key.
+GTStar is a game of chance. Tiles that do not win lose their deposit, the price of GTS can fall, and a locked contract cannot be patched if a bug is found. Only play with what you can afford to lose.
 
 ## License
 

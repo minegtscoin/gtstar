@@ -587,8 +587,8 @@ async function autoReconnect() {
 const ERRORS = {
   game: { 2: "Round has ended. Settle it first.", 3: "Round is closing. Try the next round.", 4: "Claim your previous round first.", 5: "Select at least one tile.", 6: "Amount is below the minimum.", 7: "Payment does not match the tile amounts.", 8: "Round has not ended yet.", 9: "This round was already settled.", 10: "Nothing to claim.", 11: "Round is not settled yet.", 22: "Staking is not open yet.", 14: "The game was just upgraded. Refresh the page and try again.", 15: "Use one miner per round. Refresh the page and try again.", 19: "The game is paused for a moment. Try again soon.", 20: "Nothing to withdraw.", 33: "The game was just upgraded. Refresh the page and try again.", 34: "The game was just upgraded. Refresh the page and try again.", 39: "The game was just upgraded. Refresh the page and try again.", 40: "The game was just upgraded. Refresh the page and try again.", 41: "Only the wallet that mined this GTS can collect it." },
   daily: { 1: "Today's GTS mint limit (2,000 GTS) is reached. Claim again after 00:00 UTC; nothing is lost." },
-  gts: { 3: "GTS can no longer be redeemed for SUI. Sell it on the market instead." },
-  staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 4: "Nothing staked here.", 5: "The 7-day lock is closed. Stake without it." },
+  gts: { 3: "GTS cannot be redeemed for SUI. Trade it on the market instead." },
+  staking: { 1: "Amount must be greater than zero.", 2: "Amount exceeds your stake.", 4: "Nothing staked here.", 5: "Staking has no lock. Stake without it." },
 };
 function friendlyError(e) {
   const m = String(e?.message || e);
